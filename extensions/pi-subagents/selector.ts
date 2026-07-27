@@ -62,18 +62,18 @@ export function handleSelectorKey(
 	}
 	state.index = Math.min(state.index, options.length - 1);
 	if (!state.active) {
-		if (key === "shift+down" || key === "shift+up" || (key === "down" && editorEmpty)) {
+		if (key === "down" && editorEmpty) {
 			state.active = true;
 			state.index = 0;
 			return { consume: true };
 		}
 		return { consume: false };
 	}
-	if (key === "down" || key === "shift+down") {
+	if (key === "down") {
 		state.index = Math.min(options.length - 1, state.index + 1);
 		return { consume: true };
 	}
-	if (key === "up" || key === "shift+up") {
+	if (key === "up") {
 		if (state.index === 0) state.active = false;
 		else state.index -= 1;
 		return { consume: true };
@@ -89,6 +89,18 @@ export function handleSelectorKey(
 	}
 	state.active = false;
 	return { consume: false };
+}
+
+export function cycleOption(
+	options: readonly SelectorOption[],
+	currentId: string | undefined,
+	direction: "previous" | "next",
+): SelectorOption | undefined {
+	if (!options.length) return undefined;
+	const current = currentId ? options.findIndex((option) => option.id === currentId) : -1;
+	if (current < 0) return direction === "next" ? options[0] : options[options.length - 1];
+	const offset = direction === "next" ? 1 : -1;
+	return options[(current + offset + options.length) % options.length];
 }
 
 export function renderSelectorLines(

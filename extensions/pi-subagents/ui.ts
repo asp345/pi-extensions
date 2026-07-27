@@ -4,7 +4,14 @@ import { CONFIG_DIR_NAME, type ExtensionContext, getAgentDir } from "@earendil-w
 import { Editor, isKeyRelease } from "@earendil-works/pi-tui";
 import { definitionTemplate, parseDefinition, safeDefinitionName } from "./definitions.js";
 import type { AgentManager } from "./manager.js";
-import { agentOptions, handleSelectorKey, renderSelectorLines, selectorKey, type SelectorState } from "./selector.js";
+import {
+	agentOptions,
+	cycleOption,
+	handleSelectorKey,
+	renderSelectorLines,
+	selectorKey,
+	type SelectorState,
+} from "./selector.js";
 import type { AgentDefinition, AgentRecord, DefinitionRegistry } from "./types.js";
 import { showAgentWorkspace } from "./workspace.js";
 
@@ -61,13 +68,17 @@ export class AgentsUI {
 			this.selector.active = false;
 			return undefined;
 		}
+		const key = selectorKey(data);
+		const options = agentOptions(this.activeRecords());
+		if (key === "shift+down" || key === "shift+up") {
+			const option = cycleOption(options, undefined, key === "shift+down" ? "next" : "previous");
+			this.selector.active = false;
+			if (option) void this.open(ctx, option.id);
+			this.updateWidget();
+			return option ? { consume: true } : undefined;
+		}
 		const wasActive = this.selector.active;
-		const outcome = handleSelectorKey(
-			this.selector,
-			selectorKey(data),
-			agentOptions(this.activeRecords()),
-			ctx.ui.getEditorText() === "",
-		);
+		const outcome = handleSelectorKey(this.selector, key, options, ctx.ui.getEditorText() === "");
 		if (outcome.commit) void this.open(ctx, outcome.commit.id);
 		if (outcome.consume || wasActive !== this.selector.active) this.updateWidget();
 		return outcome.consume ? { consume: true } : undefined;
@@ -114,7 +125,7 @@ export class AgentsUI {
 				return {
 					render: (width: number) => {
 						const current = this.activeRecords();
-						const hint = this.selector.active ? "↑↓ choose · enter open · esc back" : "↓ or shift+↓ select";
+						const hint = this.selector.active ? "↑↓ choose · enter open · esc back" : "↓ choose · shift+↑↓ open";
 						return renderSelectorLines(
 							theme,
 							width,

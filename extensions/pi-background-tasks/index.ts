@@ -32,7 +32,12 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		name: "background_task",
 		label: "Background Task",
 		description:
-			"Start, list, read, stop, or clear background shell tasks; working directory and notifications are inferred.",
+			"Start, list, read, stop, or clear background shell tasks. Completion arrives as a follow-up that resumes the parent automatically.",
+		promptSnippet: "Run and manage background shell tasks",
+		promptGuidelines: [
+			"After starting a background_task, continue independent work or end the turn; completion arrives as a follow-up that resumes you automatically. Do not sleep or poll to wait.",
+			"Use list or read only when you need status or output before completion arrives.",
+		],
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -49,7 +54,9 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				const command = params.command?.trim();
 				if (!command) return result("command is required for action=start.", true);
 				const task = runtime.start(command, ctx.cwd);
-				return result(`Started ${task.id} (pid ${task.pid}).`);
+				return result(
+					`Started ${task.id} (pid ${task.pid}). Completion arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
+				);
 			}
 			if (params.action === "list") {
 				const tasks = runtime.list().slice(0, 50);

@@ -178,11 +178,12 @@ export default function subagents(pi: ExtensionAPI): void {
 		name: "Agent",
 		label: "Agent",
 		description:
-			"Launch or resume a selected Markdown subagent. Runs asynchronously by default; set run_in_background false only for an immediate dependency.",
+			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as a follow-up that resumes the parent automatically.",
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
 			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
-			"Never duplicate background work; verify claimed changes before reporting them.",
+			"After launching a background agent, continue independent work or end the turn; its settled result arrives as a follow-up that resumes you automatically. Do not sleep, poll, or launch duplicate work to wait.",
+			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
 		],
 		parameters: AgentParameters,
 		async execute(_callId, params, signal, onUpdate, ctx) {
@@ -213,7 +214,12 @@ export default function subagents(pi: ExtensionAPI): void {
 					maxTurns: params.max_turns ?? definition.maxTurns,
 					signal,
 				});
-				if (background) return result(`Resumed ${record.id} (${record.type}) in the background.`, metadata(record));
+				if (background) {
+					return result(
+						`Resumed ${record.id} (${record.type}) in the background. Its settled result arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
+						metadata(record),
+					);
+				}
 				record.resultConsumed = true;
 				return foregroundResult(record);
 			}
@@ -229,7 +235,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			});
 			if (background) {
 				return result(
-					`Started ${record.id} (${record.type}) in the background. You will receive a completion notification; do not poll or duplicate its work.`,
+					`Started ${record.id} (${record.type}) in the background. Its settled result arrives as a follow-up and resumes you automatically; do not sleep, poll, or duplicate its work to wait.`,
 					metadata(record),
 				);
 			}

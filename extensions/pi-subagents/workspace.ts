@@ -14,6 +14,7 @@ import type { AgentManager } from "./manager.js";
 import { resolveThinking } from "./runner.js";
 import {
 	agentOptions,
+	cycleOption,
 	handleSelectorKey,
 	MAIN_OPTION_ID,
 	mainOption,
@@ -289,8 +290,8 @@ export async function showAgentWorkspace(
 							theme.fg(
 								"dim",
 								record
-									? "Alt+X cancel · Alt+C clear · Alt+D definitions · Alt+N new · Shift+↓ agents · Esc parent"
-									: "Alt+N definitions · Shift+↓ agents · Esc parent",
+									? "Alt+X cancel · Alt+C clear · Alt+D definitions · Alt+N new · Shift+↑↓ switch · Esc parent"
+									: "Alt+N definitions · Shift+↑↓ switch · Esc parent",
 							),
 							width,
 						);
@@ -315,13 +316,20 @@ export async function showAgentWorkspace(
 					},
 					handleInput(data: string) {
 						const record = selected();
+						const key = selectorKey(data);
+						if (key === "shift+down" || key === "shift+up") {
+							const option = cycleOption(selectorOptions(), record?.id, key === "shift+down" ? "next" : "previous");
+							selector.active = false;
+							if (!option) return;
+							if (option.id === MAIN_OPTION_ID) leave("close");
+							else {
+								selectedId = option.id;
+								refresh();
+							}
+							return;
+						}
 						const wasActive = selector.active;
-						const outcome = handleSelectorKey(
-							selector,
-							selectorKey(data),
-							selectorOptions(),
-							editor.getText().length === 0,
-						);
+						const outcome = handleSelectorKey(selector, key, selectorOptions(), editor.getText().length === 0);
 						if (outcome.commit) {
 							if (outcome.commit.id === MAIN_OPTION_ID) {
 								leave("close");
