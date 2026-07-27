@@ -19,7 +19,9 @@ registerHooks({
 });
 
 const { parseDefinition } = await import("./definitions.ts");
-const { promptWithFallbacks, resolveModelOverride, resolveThinking, resumeSession } = await import("./runner.ts");
+const { promptWithFallbacks, resolveModelOverride, resolveThinking, resumeSession, turnLimitAction } = await import(
+	"./runner.ts"
+);
 
 test("agent Markdown accepts ordered models", () => {
 	const path = fileURLToPath(new URL("./agents/General.md", import.meta.url));
@@ -112,6 +114,12 @@ test("unavailable optional models are ignored", async () => {
 		callbacks,
 	});
 	assert.deepEqual(result, { text: "", error: "Primary model failed: primary failed" });
+});
+
+test("cancellation suppresses turn-limit follow-ups", () => {
+	assert.equal(turnLimitAction(2, 2, false, true), undefined);
+	assert.equal(turnLimitAction(2, 2, false, false), "warn");
+	assert.equal(turnLimitAction(3, 2, true, false), "abort");
 });
 
 test("resume keeps using the currently selected fallback model", async () => {

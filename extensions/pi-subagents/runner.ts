@@ -109,7 +109,7 @@ export async function runNew(
 	session.setSessionName(`${definition.name}#${request.id.slice(0, 8)}`);
 	if (request.fork) copyParentConversation(ctx, session);
 	callbacks.onSession(session);
-	const stopEvents = observe(session, request.maxTurns ?? definition.maxTurns, callbacks);
+	const stopEvents = observe(session, request.maxTurns ?? definition.maxTurns, callbacks, signal);
 	const stopAbort = forwardAbort(signal, session);
 	const start = session.messages.length;
 	let result: { text: string; error?: string };
@@ -157,7 +157,7 @@ export async function resumeSession(
 	}
 	if (options.thinking) session.setThinkingLevel(options.thinking);
 	const start = session.messages.length;
-	const stopEvents = observe(session, options.maxTurns, options.callbacks);
+	const stopEvents = observe(session, options.maxTurns, options.callbacks, options.signal);
 	const stopAbort = forwardAbort(options.signal, session);
 	try {
 		return await promptWithFallbacks(session, prompt, start, {
@@ -344,7 +344,12 @@ function compactForkMessage(message: ContentMessage): ContentMessage {
 	return copy;
 }
 
-function observe(session: AgentSession, maxTurns: number | undefined, callbacks: Callbacks): () => void {
+function observe(
+	session: AgentSession,
+	maxTurns: number | undefined,
+	callbacks: Callbacks,
+	signal?: AbortSignal,
+): () => void {
 	let turns = 0;
 	let current = "";
 	let wrapping = false;
@@ -358,16 +363,13 @@ function observe(session: AgentSession, maxTurns: number | undefined, callbacks:
 		if (event.type === "turn_end") {
 			turns += 1;
 			callbacks.onTurn();
-			if (maxTurns && turns >= maxTurns) {
-				if (!wrapping) {
-					wrapping = true;
-					void session.steer(
-						"You reached the configured turn limit. Give your final answer now without more tool calls.",
-					);
-				} else if (turns > maxTurns) {
-					void session.abort();
-				}
-			}
+			const limitAction = turnLimitAction(turns, maxTurns, wrapping, signal?.aborted === true);
+			if (limitAction === "warn") {
+				wrapping = true;
+				void session.steer(
+					"You reached the configured turn limit. Give your final answer now without more tool calls.",
+				);
+			} else if (limitAction === "abort") void session.abort();
 		}
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			const usage = event.message.usage;
@@ -380,6 +382,17 @@ function observe(session: AgentSession, maxTurns: number | undefined, callbacks:
 			});
 		}
 	});
+}
+
+export function turnLimitAction(
+	turns: number,
+	maxTurns: number | undefined,
+	wrapping: boolean,
+	cancelled: boolean,
+): "warn" | "abort" | undefined {
+	if (cancelled || !maxTurns || turns < maxTurns) return undefined;
+	if (!wrapping) return "warn";
+	return turns > maxTurns ? "abort" : undefined;
 }
 
 function assertTools(session: AgentSession, definition: AgentDefinition): void {

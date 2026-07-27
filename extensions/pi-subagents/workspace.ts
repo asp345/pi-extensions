@@ -2,6 +2,7 @@ import {
 	AssistantMessageComponent,
 	CustomEditor,
 	type ExtensionContext,
+	FooterComponent,
 	getMarkdownTheme,
 	getSelectListTheme,
 	SettingsManager,
@@ -48,6 +49,9 @@ export async function showAgentWorkspace(
 	onRefresh: (refresh: (() => void) | undefined) => void,
 ): Promise<WorkspaceResult> {
 	const settings = SettingsManager.create(ctx.cwd);
+	let footer: FooterComponent | undefined;
+	let footerMounted = false;
+	let workspaceOpen = true;
 	try {
 		return await ctx.ui.custom<WorkspaceResult>(
 			(tui, theme, keys, done) => {
@@ -70,7 +74,7 @@ export async function showAgentWorkspace(
 				const editor = new CustomEditor(
 					tui,
 					{
-						borderColor: (text) => theme.fg("borderMuted", text),
+						borderColor: theme.getThinkingBorderColor(ctx.thinkingLevel ?? "off"),
 						selectList: getSelectListTheme(),
 					},
 					keys,
@@ -79,9 +83,6 @@ export async function showAgentWorkspace(
 						autocompleteMaxVisible: settings.getAutocompleteMaxVisible(),
 					},
 				);
-				const refresh = () => tui.requestRender();
-				onRefresh(refresh);
-
 				const running = (): AgentRecord[] =>
 					manager
 						.list()
@@ -101,6 +102,33 @@ export async function showAgentWorkspace(
 					selectedId = record?.id;
 					return record;
 				};
+				let footerRecordId: string | undefined;
+				const syncFooter = () => {
+					if (!workspaceOpen) return;
+					const record = selected();
+					const session = record?.session;
+					if (!session) {
+						if (footerMounted) ctx.ui.setFooter(undefined);
+						footer = undefined;
+						footerMounted = false;
+						footerRecordId = undefined;
+						return;
+					}
+					if (!footerMounted) {
+						ctx.ui.setFooter((_tui, _theme, footerData) => {
+							footer = new FooterComponent(session, footerData);
+							return footer;
+						});
+						footerMounted = true;
+					} else if (footerRecordId !== record.id) footer?.setSession(session);
+					footerRecordId = record.id;
+				};
+				const refresh = () => {
+					syncFooter();
+					tui.requestRender();
+				};
+				onRefresh(refresh);
+				queueMicrotask(refresh);
 				const leave = (action: WorkspaceAction) => done({ action, selectedId });
 				const contentText = (content: unknown): string => {
 					if (typeof content === "string") return content;
@@ -246,31 +274,14 @@ export async function showAgentWorkspace(
 					},
 					render(width: number) {
 						const record = selected();
+						editor.borderColor = theme.getThinkingBorderColor(
+							record?.session?.thinkingLevel ?? record?.thinking ?? ctx.thinkingLevel ?? "off",
+						);
 						const rows = Math.max(7, tui.terminal.rows);
-						const definition =
-							record &&
-							[...registry().definitions.values()].find(
-								(item) => item.name.toLowerCase() === record.type.toLowerCase(),
-							);
-						const metadata = record
-							? [
-									truncateToWidth(
-										`${theme.fg("accent", theme.bold(definition?.displayName ?? record.type))}${theme.fg("dim", ` · ${record.model ?? definition?.models[0] ?? "parent"} · ${record.thinking ?? definition?.thinking ?? "off"}${record.usedFallback ? " · fallback" : ""}`)}`,
-										width,
-									),
-									truncateToWidth(
-										theme.fg(
-											record.status === "running" ? "warning" : record.error ? "error" : "success",
-											`${record.status} · ${record.turns} turns · ${record.toolUses} tools · ${record.id}`,
-										),
-										width,
-									),
-								]
-							: [truncateToWidth(theme.fg("accent", theme.bold("Agents")), width)];
-						const fallback = record?.result || record?.error || "(session starting)";
+						const placeholder = record ? record.result || record.error || "(session starting)" : "No agent sessions.";
 						const body = record?.session
 							? conversation(record, width)
-							: fallback
+							: placeholder
 									.split("\n")
 									.flatMap((line) => wrapTextWithAnsi(line || " ", Math.max(1, width - 1)))
 									.map((line) => ` ${line}`);
@@ -297,7 +308,6 @@ export async function showAgentWorkspace(
 										selector,
 									)
 								: []),
-							...metadata,
 							footer,
 						];
 						const pad = stablePadding(padding, record?.id, rows, workspace.length);
@@ -344,6 +354,8 @@ export async function showAgentWorkspace(
 			{ overlay: false },
 		);
 	} finally {
+		workspaceOpen = false;
 		onRefresh(undefined);
+		if (footerMounted) ctx.ui.setFooter(undefined);
 	}
 }

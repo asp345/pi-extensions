@@ -22,12 +22,13 @@
 		"diffAdded": "#aed6b9",
 		"diffRemoved": "#cfb5a1",
 		"diffContext": "#a5c2d2",
-		"thinkOff": "#2b370b",
-		"thinkMinimal": "#495d13",
-		"thinkLow": "#6b871c",
-		"thinkMedium": "#8cb125",
+		"thinkOff": "#535557",
+		"thinkMinimal": "#68705d",
+		"thinkLow": "#7e8d5c",
+		"thinkMedium": "#93ad52",
 		"thinkHigh": "#a7d32c",
-		"thinkXhigh": "#c1e06b"
+		"thinkXhigh": "#cbe77b",
+		"thinkMax": "#eef7d5"
 	},
 	"colors": {
 		"accent": "accent",
@@ -80,6 +81,7 @@
 		"thinkingMedium": "thinkMedium",
 		"thinkingHigh": "thinkHigh",
 		"thinkingXhigh": "thinkXhigh",
+		"thinkingMax": "thinkMax",
 		"bashMode": "accent"
 	},
 	"export": {
