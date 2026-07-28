@@ -38,11 +38,13 @@ export interface WorkspaceResult {
 // clears scrollback and snaps the viewport to the live screen) whenever a
 // previously rendered line above the live viewport changes. To keep native
 // scrolling usable during streaming, rendering is append-only: settled messages
-// are rendered once and their lines are frozen, and any line that has scrolled
-// above the viewport is reused verbatim on later frames, so only content inside
-// the viewport may change. Trade-off: a line that would have been retroactively
-// updated (e.g. a tool header switching from pending to complete) keeps its
-// older rendering once it is in the scrollback.
+// are rendered once and their lines are frozen, and any block (one message or
+// tool component) that has scrolled entirely above the viewport is locked and
+// reused verbatim on later frames, so only content inside the viewport may
+// change. Locking is block-granular because locked blocks never change line
+// count, which keeps every line index below them stable. Trade-off: a block
+// locked in a transitional state (e.g. a tool header still pending) keeps that
+// rendering in the scrollback.
 export async function showAgentWorkspace(
 	ctx: ExtensionContext,
 	manager: AgentManager,
@@ -60,8 +62,8 @@ export async function showAgentWorkspace(
 				let selectedId = initial;
 				let focused = true;
 				const padding: PaddingState = { value: 0 };
-				let published: string[] = [];
-				let publishedKey = "";
+				const lockedBlocks = new Map<string, string[]>();
+				let frameKey = "";
 				const selector: SelectorState = { active: false, index: 0 };
 				type NativeComponent = { render(width: number): string[]; invalidate?(): void };
 				interface CacheEntry {
@@ -129,15 +131,17 @@ export async function showAgentWorkspace(
 				onRefresh(refresh);
 				queueMicrotask(refresh);
 				const leave = (action: WorkspaceAction) => done({ action, selectedId });
-				const conversation = (record: AgentRecord, width: number): string[] => {
+				const conversation = (record: AgentRecord, width: number): { key: string; lines: string[] }[] => {
 					const messages = [...(record.session?.agent.state.messages ?? [])];
 					const firstMessage = messages[0] as object | undefined;
 					if (
 						cachedRecordId !== record.id ||
 						messages.length < cachedMessageCount ||
 						(cachedFirstMessage && firstMessage !== cachedFirstMessage)
-					)
+					) {
 						cache.clear();
+						lockedBlocks.clear();
+					}
 					cachedRecordId = record.id;
 					cachedFirstMessage = firstMessage;
 					cachedMessageCount = messages.length;
@@ -148,7 +152,7 @@ export async function showAgentWorkspace(
 						if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 						for (const part of message.content) if (part.type === "toolCall") calls.set(part.id, part);
 					}
-					const lines: string[] = [];
+					const blocks: { key: string; lines: string[] }[] = [];
 					const activeKeys = new Set<string>();
 					const streaming = record.status === "running";
 					const emit = (
@@ -161,7 +165,7 @@ export async function showAgentWorkspace(
 						activeKeys.add(key);
 						const entry = cache.get(key);
 						if (frozen && entry?.component === component && entry.lines && entry.width === width) {
-							lines.push(...entry.lines);
+							blocks.push({ key, lines: entry.lines });
 							return;
 						}
 						update();
@@ -172,7 +176,7 @@ export async function showAgentWorkspace(
 							lines: frozen ? rendered : undefined,
 							width: frozen ? width : undefined,
 						});
-						lines.push(...rendered);
+						blocks.push({ key, lines: rendered });
 					};
 					const toolComponent = (callId: string, name: string, args: unknown): ToolExecutionComponent => {
 						const entry = cache.get(`c:${callId}`);
@@ -226,7 +230,7 @@ export async function showAgentWorkspace(
 						}
 					}
 					for (const key of cache.keys()) if (!activeKeys.has(key)) cache.delete(key);
-					return lines;
+					return blocks;
 				};
 				const send = (value: string) => {
 					const record = selected();
@@ -269,13 +273,22 @@ export async function showAgentWorkspace(
 							record?.session?.thinkingLevel ?? record?.thinking ?? ctx.thinkingLevel ?? "off",
 						);
 						const rows = Math.max(7, tui.terminal.rows);
-						const placeholder = record ? record.result || record.error || "(session starting)" : "No agent sessions.";
-						const body = record?.session
-							? conversation(record, width)
-							: placeholder
-									.split("\n")
-									.flatMap((line) => wrapTextWithAnsi(line || " ", Math.max(1, width - 1)))
-									.map((line) => ` ${line}`);
+						const key = `${record?.id ?? "none"}|${width}`;
+						if (key !== frameKey) {
+							frameKey = key;
+							lockedBlocks.clear();
+						}
+						const editorLines = editor.render(width);
+						const selectorLines = selector.active
+							? renderSelectorLines(
+									theme,
+									width,
+									"Agents",
+									"↑↓ choose · enter switch · esc back",
+									selectorOptions(),
+									selector,
+								)
+							: [];
 						const footer = truncateToWidth(
 							theme.fg(
 								"dim",
@@ -285,35 +298,38 @@ export async function showAgentWorkspace(
 							),
 							width,
 						);
-						const workspace = [
-							theme.fg("borderMuted", "─".repeat(Math.max(1, width))),
-							...body,
-							...editor.render(width),
-							...(selector.active
-								? renderSelectorLines(
-										theme,
-										width,
-										"Agents",
-										"↑↓ choose · enter switch · esc back",
-										selectorOptions(),
-										selector,
-									)
-								: []),
-							footer,
-						];
-						const pad = stablePadding(padding, record?.id, rows, workspace.length);
-						const frame = [...new Array<string>(pad).fill(""), ...workspace];
-						const key = `${record?.id ?? "none"}|${width}`;
-						if (key !== publishedKey) {
-							publishedKey = key;
-							published = [];
+						const border = theme.fg("borderMuted", "─".repeat(Math.max(1, width)));
+						let body: string[];
+						let pad: number;
+						if (record?.session) {
+							const blocks = conversation(record, width);
+							const emitted = blocks.map((block) => lockedBlocks.get(block.key) ?? block.lines);
+							const bodyLength = emitted.reduce((total, lines) => total + lines.length, 0);
+							const contentLength = 1 + bodyLength + editorLines.length + selectorLines.length + 1;
+							pad = stablePadding(padding, record.id, rows, contentLength);
+							const horizon = Math.max(0, pad + contentLength - rows);
+							let cursor = pad + 1;
+							body = [];
+							for (const [index, block] of blocks.entries()) {
+								const lines = emitted[index];
+								if (!lockedBlocks.has(block.key) && cursor + lines.length <= horizon)
+									lockedBlocks.set(block.key, block.lines);
+								body.push(...lines);
+								cursor += lines.length;
+							}
+						} else {
+							body = (record ? record.result || record.error || "(session starting)" : "No agent sessions.")
+								.split("\n")
+								.flatMap((line) => wrapTextWithAnsi(line || " ", Math.max(1, width - 1)))
+								.map((line) => ` ${line}`);
+							pad = stablePadding(
+								padding,
+								record?.id,
+								rows,
+								1 + body.length + editorLines.length + selectorLines.length + 1,
+							);
 						}
-						const frozen = Math.max(0, frame.length - rows);
-						const next = frame.map((line, index) =>
-							index < frozen && index < published.length ? published[index] : line,
-						);
-						published = next;
-						return next;
+						return [...new Array<string>(pad).fill(""), border, ...body, ...editorLines, ...selectorLines, footer];
 					},
 					handleInput(data: string) {
 						const record = selected();
@@ -357,7 +373,7 @@ export async function showAgentWorkspace(
 					invalidate() {
 						editor.invalidate();
 						for (const { component } of cache.values()) component.invalidate?.();
-						published = [];
+						lockedBlocks.clear();
 					},
 				};
 			},
