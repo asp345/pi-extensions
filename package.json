@@ -40,7 +40,6 @@
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
 			"./extensions/pi-direnv/index.ts",
-			"./extensions/herdr-agent-state/index.ts",
 			"./node_modules/pi-herdr-subagents/pi-extension/subagents/index.ts"
 		],
 		"themes": [
