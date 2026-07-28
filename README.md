@@ -26,7 +26,6 @@ Subagents come from `extensions/pi-herdr-subagents/`, vendored from `pi-herdr-su
 
 herdr's pi integration (agent state reporting) stays herdr-managed at `~/.pi/agent/extensions/herdr-agent-state.ts` via `herdr integration install pi`.
 
-`extensions/herdr-handoff/` moves sessions onto herdr automatically: when pi starts outside herdr while a herdr server is reachable, it closes any stale pane holding the same session, opens a pane in the workspace for the cwd, relaunches the session there, and shuts the outside instance down (`PI_HERDR_HANDOFF=0` disables).
 
 ## Development
 
