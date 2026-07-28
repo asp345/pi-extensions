@@ -1,8 +1,15 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
-import { boundedText, type QueryResult, type SearchResult } from "./storage.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { configPath, readWebConfig } from "./security.ts";
+import {
+	boundedText,
+	combinedSignal,
+	errorMessage,
+	type QueryResult,
+	readBytes,
+	type SearchResult,
+} from "./storage.ts";
 
 export type SearchProvider = "auto" | "openai" | "gemini";
 export type Recency = "day" | "week" | "month" | "year";
@@ -55,21 +62,22 @@ export async function search(query: string, options: SearchOptions = {}): Promis
 	if (provider === "openai") return { query, provider, ...(await searchOpenAI(query, options)) };
 	if (provider === "gemini") return { query, provider, ...(await searchGemini(query, options)) };
 
+	const attempts: Array<{
+		provider: "openai" | "gemini";
+		label: string;
+		run: () => Promise<{ answer: string; results: SearchResult[] }>;
+	}> = [];
+	const openAI = await resolveOpenAI(options.context, options.signal);
+	if (openAI) attempts.push({ provider: "openai", label: "OpenAI", run: () => searchOpenAI(query, options, openAI) });
+	if (geminiAvailable())
+		attempts.push({ provider: "gemini", label: "Gemini", run: () => searchGemini(query, options) });
 	const errors: string[] = [];
-	if (await openAIAvailable(options.context)) {
+	for (const attempt of attempts) {
 		try {
-			return { query, provider: "openai", ...(await searchOpenAI(query, options)) };
+			return { query, provider: attempt.provider, ...(await attempt.run()) };
 		} catch (error) {
 			if (aborted(error, options.signal)) throw error;
-			errors.push(`OpenAI: ${safeError(error)}`);
-		}
-	}
-	if (geminiAvailable()) {
-		try {
-			return { query, provider: "gemini", ...(await searchGemini(query, options)) };
-		} catch (error) {
-			if (aborted(error, options.signal)) throw error;
-			errors.push(`Gemini: ${safeError(error)}`);
+			errors.push(`${attempt.label}: ${errorMessage(error)}`);
 		}
 	}
 	if (errors.length) throw new Error(`Automatic search failed. ${errors.join("; ")}`);
@@ -78,13 +86,8 @@ export async function search(query: string, options: SearchOptions = {}): Promis
 	);
 }
 
-export async function openAIAvailable(context?: ExtensionContext): Promise<boolean> {
-	if (context && (await resolvePiOpenAI(context))) return true;
-	return Boolean(secret((readWebConfig() as SearchConfig).openaiApiKey) ?? secret(process.env.OPENAI_API_KEY));
-}
-
 export function geminiAvailable(): boolean {
-	const config = readWebConfig() as SearchConfig;
+	const config = searchConfig();
 	return Boolean(secret(config.geminiApiKey) ?? secret(process.env.GEMINI_API_KEY) ?? cloudflareKey(config));
 }
 
@@ -92,9 +95,8 @@ export async function geminiGenerate(
 	parts: unknown[],
 	options: { model?: string; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<string> {
-	const config = readWebConfig() as SearchConfig;
-	const model =
-		options.model ?? stringValue(config.geminiSearchModel) ?? stringValue(config.searchModel) ?? "gemini-2.5-flash";
+	const config = searchConfig();
+	const model = geminiModel(config, options.model);
 	const response = await geminiRequest<GeminiResponse>(
 		`/v1beta/models/${encodeURIComponent(model)}:generateContent`,
 		{
@@ -103,16 +105,12 @@ export async function geminiGenerate(
 		options.signal,
 		options.timeoutMs ?? 120_000,
 	);
-	const text =
-		response.candidates?.[0]?.content?.parts
-			?.map((part: { text?: unknown }) => (typeof part.text === "string" ? part.text : ""))
-			.filter(Boolean)
-			.join("\n") ?? "";
+	const text = candidateText(response.candidates?.[0]);
 	if (!text) throw new Error("Gemini API returned no text");
 	return text;
 }
 
-export async function geminiRequest<T = Record<string, unknown>>(
+async function geminiRequest<T = Record<string, unknown>>(
 	pathOrUrl: string,
 	body: unknown,
 	signal?: AbortSignal,
@@ -120,11 +118,9 @@ export async function geminiRequest<T = Record<string, unknown>>(
 	method = "POST",
 	extraHeaders: Record<string, string> = {},
 ): Promise<T> {
-	const config = readWebConfig() as SearchConfig;
-	const base = stringValue(process.env.GOOGLE_GEMINI_BASE_URL) ?? stringValue(config.geminiBaseUrl) ?? GEMINI_HOST;
-	const url = pathOrUrl.startsWith("http")
-		? new URL(pathOrUrl)
-		: new URL(pathOrUrl.replace(/^\//, ""), `${base.replace(/\/+$/, "")}/`);
+	const config = searchConfig();
+	const base = geminiBase(config);
+	const url = pathOrUrl.startsWith("http") ? new URL(pathOrUrl) : new URL(pathOrUrl.replace(/^\//, ""), `${base}/`);
 	if ([...url.searchParams.keys()].some((name) => /^(key|api_key)$/i.test(name)))
 		throw new Error("Gemini credentials are not allowed in URLs");
 	const baseOrigin = new URL(base).origin;
@@ -153,8 +149,8 @@ export async function geminiRequest<T = Record<string, unknown>>(
 			throw new Error("Gemini API returned invalid JSON");
 		}
 	} catch (error) {
-		const clean = redact(safeError(error), [key, gatewayKey]);
-		if (clean === safeError(error)) throw error;
+		const clean = redact(errorMessage(error), [key, gatewayKey]);
+		if (clean === errorMessage(error)) throw error;
 		throw new Error(clean);
 	}
 }
@@ -164,13 +160,13 @@ export async function geminiUploadVideo(
 	mimeType: string,
 	signal?: AbortSignal,
 ): Promise<{ uri: string; cleanup: () => Promise<void> }> {
-	const config = readWebConfig() as SearchConfig;
+	const config = searchConfig();
 	const key = secret(config.geminiApiKey) ?? secret(process.env.GEMINI_API_KEY);
 	if (!key) throw new Error("GEMINI_API_KEY is required for local video upload");
-	const base = stringValue(process.env.GOOGLE_GEMINI_BASE_URL) ?? stringValue(config.geminiBaseUrl) ?? GEMINI_HOST;
+	const base = geminiBase(config);
 	const origin = new URL(base).origin;
 	const bytes = await readFile(filePath);
-	const start = await fetch(new URL("upload/v1beta/files", `${base.replace(/\/+$/, "")}/`), {
+	const start = await fetch(new URL("upload/v1beta/files", `${base}/`), {
 		method: "POST",
 		headers: {
 			"x-goog-api-key": key,
@@ -201,7 +197,7 @@ export async function geminiUploadVideo(
 	if (!upload.ok) throw new Error(`Gemini upload failed ${upload.status}: ${redact(uploadText, [key]).slice(0, 300)}`);
 	const file = JSON.parse(uploadText).file as { name: string; uri: string };
 	if (!file?.name || !file.uri) throw new Error("Gemini upload returned invalid file metadata");
-	const metadataUrl = new URL(`v1beta/${file.name}`, `${base.replace(/\/+$/, "")}/`).toString();
+	const metadataUrl = new URL(`v1beta/${file.name}`, `${base}/`).toString();
 	const deadline = Date.now() + 120_000;
 	while (Date.now() < deadline) {
 		if (signal?.aborted) throw new Error("Aborted");
@@ -234,8 +230,9 @@ export async function geminiUploadVideo(
 async function searchOpenAI(
 	query: string,
 	options: SearchOptions,
+	resolved?: OpenAIAuth,
 ): Promise<{ answer: string; results: SearchResult[] }> {
-	const auth = await resolveOpenAI(options.context, options.signal);
+	const auth = resolved ?? (await resolveOpenAI(options.context, options.signal));
 	if (!auth) throw new Error("OpenAI web search is not configured");
 	const headers = new Headers({
 		...auth.headers,
@@ -274,8 +271,8 @@ async function searchOpenAI(
 		if (!answer && !results.length) throw new Error("OpenAI returned no answer or sources");
 		return { answer, results };
 	} catch (error) {
-		const clean = redact(safeError(error), [auth.key]);
-		if (clean === safeError(error)) throw error;
+		const clean = redact(errorMessage(error), [auth.key]);
+		if (clean === errorMessage(error)) throw error;
 		throw new Error(clean);
 	}
 }
@@ -284,8 +281,8 @@ async function searchGemini(
 	query: string,
 	options: SearchOptions,
 ): Promise<{ answer: string; results: SearchResult[] }> {
-	const config = readWebConfig() as SearchConfig;
-	const model = stringValue(config.geminiSearchModel) ?? stringValue(config.searchModel) ?? "gemini-2.5-flash";
+	const config = searchConfig();
+	const model = geminiModel(config);
 	const prompt = `${instructions(options)}\n\nQuestion: ${query}`;
 	const data = await geminiRequest<GeminiResponse>(
 		`/v1beta/models/${encodeURIComponent(model)}:generateContent`,
@@ -296,11 +293,7 @@ async function searchGemini(
 		options.signal,
 	);
 	const candidate = data.candidates?.[0];
-	const rawAnswer =
-		candidate?.content?.parts
-			?.map((part: { text?: unknown }) => (typeof part.text === "string" ? part.text : ""))
-			.filter(Boolean)
-			.join("\n") ?? "";
+	const rawAnswer = candidateText(candidate);
 	const chunks: Array<{ web?: { uri?: string; title?: string } }> = candidate?.groundingMetadata?.groundingChunks ?? [];
 	const seen = new Set<string>();
 	const results: SearchResult[] = [];
@@ -313,9 +306,7 @@ async function searchGemini(
 		chunkRanks.set(index, results.length);
 		if (results.length >= searchLimit(options.limit)) break;
 	}
-	const supports = candidate?.groundingMetadata?.groundingSupports as
-		| Array<{ segment?: { endIndex?: number }; groundingChunkIndices?: number[] }>
-		| undefined;
+	const supports = candidate?.groundingMetadata?.groundingSupports;
 	const answer = boundedText(addGeminiCitations(rawAnswer, supports, chunkRanks), 40_000, 500).text;
 	if (!answer && !results.length) throw new Error("Gemini returned no answer or sources");
 	return { answer, results };
@@ -327,10 +318,10 @@ async function resolveOpenAI(context?: ExtensionContext, signal?: AbortSignal): 
 		if (piAuth) return piAuth;
 	}
 	if (signal?.aborted) throw new Error("Aborted");
-	const config = readWebConfig() as SearchConfig;
+	const config = searchConfig();
 	const key = secret(config.openaiApiKey) ?? secret(process.env.OPENAI_API_KEY);
 	if (!key) return undefined;
-	return { key, model: stringValue(config.openaiSearchModel) ?? "gpt-5.4", codex: false, headers: {} };
+	return { key, model: secret(config.openaiSearchModel) ?? "gpt-5.4", codex: false, headers: {} };
 }
 
 async function resolvePiOpenAI(context: ExtensionContext): Promise<OpenAIAuth | undefined> {
@@ -446,12 +437,7 @@ function addOpenAICitations(text: string, annotations: unknown): string {
 			value: ` [${typeof item.title === "string" ? item.title : "source"}](${cleanOpenAIUrl(item.url)})`,
 		});
 	}
-	let value = text;
-	for (const insertion of insertions.sort((a, b) => b.at - a.at)) {
-		if (insertion.at >= 0 && insertion.at <= value.length)
-			value = value.slice(0, insertion.at) + insertion.value + value.slice(insertion.at);
-	}
-	return value;
+	return applyInsertions(text, insertions);
 }
 
 function openAISources(output: unknown[]): SearchResult[] {
@@ -500,52 +486,52 @@ function addGeminiCitations(
 	ranks: Map<number, number>,
 ): string {
 	if (!supports?.length) return text;
-	const insertions = supports
-		.flatMap((support) => {
-			const end = support.segment?.endIndex;
-			const refs = [
-				...new Set(
-					(support.groundingChunkIndices ?? [])
-						.map((index) => ranks.get(index))
-						.filter((rank): rank is number => Boolean(rank)),
-				),
-			];
-			return typeof end === "number" && refs.length
-				? [{ at: end, value: refs.map((rank) => `[${rank}]`).join("") }]
-				: [];
-		})
-		.sort((a, b) => b.at - a.at);
-	let answer = text;
-	for (const insertion of insertions)
-		if (insertion.at >= 0 && insertion.at <= answer.length)
-			answer = answer.slice(0, insertion.at) + insertion.value + answer.slice(insertion.at);
-	return answer;
+	const insertions = supports.flatMap((support) => {
+		const end = support.segment?.endIndex;
+		const refs = [
+			...new Set(
+				(support.groundingChunkIndices ?? [])
+					.map((index) => ranks.get(index))
+					.filter((rank): rank is number => Boolean(rank)),
+			),
+		];
+		return typeof end === "number" && refs.length ? [{ at: end, value: refs.map((rank) => `[${rank}]`).join("") }] : [];
+	});
+	return applyInsertions(text, insertions);
+}
+
+function applyInsertions(text: string, insertions: Array<{ at: number; value: string }>): string {
+	let value = text;
+	for (const insertion of insertions.sort((a, b) => b.at - a.at))
+		if (insertion.at >= 0 && insertion.at <= value.length)
+			value = value.slice(0, insertion.at) + insertion.value + value.slice(insertion.at);
+	return value;
 }
 
 async function readLimited(response: Response, maxBytes: number): Promise<string> {
-	const declared = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > maxBytes) throw new Error("Provider response is too large");
-	if (!response.body) return "";
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let size = 0;
-	while (true) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		size += value.byteLength;
-		if (size > maxBytes) {
-			await reader.cancel();
-			throw new Error("Provider response is too large");
-		}
-		chunks.push(value);
-	}
-	const bytes = new Uint8Array(size);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.length;
-	}
-	return new TextDecoder().decode(bytes);
+	return new TextDecoder().decode(await readBytes(response, maxBytes));
+}
+
+function searchConfig(): SearchConfig {
+	return readWebConfig() as SearchConfig;
+}
+function geminiBase(config: SearchConfig): string {
+	return (secret(process.env.GOOGLE_GEMINI_BASE_URL) ?? secret(config.geminiBaseUrl) ?? GEMINI_HOST).replace(
+		/\/+$/,
+		"",
+	);
+}
+function geminiModel(config: SearchConfig, override?: string): string {
+	return override ?? secret(config.geminiSearchModel) ?? secret(config.searchModel) ?? "gemini-2.5-flash";
+}
+type GeminiCandidate = NonNullable<GeminiResponse["candidates"]>[number];
+function candidateText(candidate: GeminiCandidate | undefined): string {
+	return (
+		candidate?.content?.parts
+			?.map((part) => (typeof part.text === "string" ? part.text : ""))
+			.filter(Boolean)
+			.join("\n") ?? ""
+	);
 }
 
 function searchLimit(value?: number): number {
@@ -570,19 +556,11 @@ function cleanOpenAIUrl(raw: string): string {
 	}
 }
 
-function combinedSignal(signal: AbortSignal | undefined, timeout: number): AbortSignal {
-	return signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout);
-}
-
 function secret(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
-function stringValue(value: unknown): string | undefined {
-	return secret(value);
-}
 function cloudflareKey(config: SearchConfig): string | undefined {
-	const base = stringValue(process.env.GOOGLE_GEMINI_BASE_URL) ?? stringValue(config.geminiBaseUrl) ?? "";
-	return base.includes("gateway.ai.cloudflare.com")
+	return geminiBase(config).includes("gateway.ai.cloudflare.com")
 		? (secret(config.cloudflareApiKey) ?? secret(process.env.CLOUDFLARE_API_KEY))
 		: undefined;
 }
@@ -591,11 +569,8 @@ function redact(text: string, values: Array<string | undefined>): string {
 	for (const value of values) if (value) clean = clean.split(value).join("[redacted]");
 	return clean;
 }
-function safeError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
 function aborted(error: unknown, signal?: AbortSignal): boolean {
-	return signal?.aborted === true || safeError(error).toLowerCase().includes("abort");
+	return signal?.aborted === true || errorMessage(error).toLowerCase().includes("abort");
 }
 function isCodexJwt(token: string): boolean {
 	return Boolean(jwtPayload(token)?.["https://api.openai.com/auth"]);

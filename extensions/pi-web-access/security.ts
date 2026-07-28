@@ -2,16 +2,17 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { request as httpRequest, type IncomingMessage } from "node:http";
 import { request as httpsRequest } from "node:https";
+import net from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
-import net from "node:net";
+import { errorMessage } from "./storage.ts";
 
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const MAX_REDIRECTS = 5;
 
 export type Lookup = (hostname: string) => Promise<Array<{ address: string; family: number }>>;
-export interface DomainPolicy {
+interface DomainPolicy {
 	allow: string[];
 	deny: string[];
 }
@@ -46,7 +47,7 @@ export function readWebConfig(): Record<string, unknown> {
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("expected an object");
 		return parsed as Record<string, unknown>;
 	} catch (error) {
-		throw new Error(`Failed to parse ${path}: ${message(error)}`);
+		throw new Error(`Failed to parse ${path}: ${errorMessage(error)}`);
 	}
 }
 
@@ -57,7 +58,6 @@ export function loadSsrfOptions(): SsrfOptions {
 		throw new Error(`ssrf.allowRanges in ${configPath()} must be an array of CIDR strings`);
 	}
 	const allowRanges = rawRanges.map((value) => (value as string).trim()).filter(Boolean);
-	parseRanges(allowRanges);
 	if (config.ssrf?.trustEnvProxy !== undefined && typeof config.ssrf.trustEnvProxy !== "boolean") {
 		throw new Error(`ssrf.trustEnvProxy in ${configPath()} must be a boolean`);
 	}
@@ -71,17 +71,16 @@ export function loadSsrfOptions(): SsrfOptions {
 	};
 }
 
-export async function validateRemoteUrl(input: string | URL, options: SsrfOptions = loadSsrfOptions()): Promise<URL> {
-	return (await validateTarget(input, options)).url;
-}
-
 interface ValidatedTarget {
 	url: URL;
 	pinnedAddress?: string;
 }
 
-async function validateTarget(input: string | URL, options: SsrfOptions): Promise<ValidatedTarget> {
-	const url = input instanceof URL ? new URL(input) : new URL(input);
+export async function validateTarget(
+	input: string | URL,
+	options: SsrfOptions = loadSsrfOptions(),
+): Promise<ValidatedTarget> {
+	const url = new URL(input);
 	if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("Only HTTP and HTTPS URLs are allowed");
 	if (url.username || url.password) throw new Error("URL credentials are not allowed");
 	const hostname = normalizeHost(url.hostname);
@@ -99,14 +98,14 @@ async function validateTarget(input: string | URL, options: SsrfOptions): Promis
 	try {
 		addresses = await (options.lookup ?? defaultLookup)(hostname);
 	} catch (error) {
-		throw new Error(`Failed to resolve ${hostname}: ${message(error)}`);
+		throw new Error(`Failed to resolve ${hostname}: ${errorMessage(error)}`);
 	}
 	if (addresses.length === 0) throw new Error(`Failed to resolve ${hostname}: no addresses returned`);
 	for (const entry of addresses) assertPublic(entry.address, hostname, ranges);
 	return { url, pinnedAddress: addresses[0].address };
 }
 
-export async function pinnedFetch(url: URL, init: RequestInit, address: string): Promise<Response> {
+async function pinnedFetch(url: URL, init: RequestInit, address: string): Promise<Response> {
 	const family = net.isIP(address);
 	const headers: Record<string, string> = {};
 	new Headers(init.headers).forEach((value, name) => {
@@ -173,11 +172,8 @@ export async function fetchRemote(
 		if (!REDIRECTS.has(response.status)) return response;
 		const location = response.headers.get("location");
 		if (!location) return response;
-		if (count === maxRedirects) {
-			await response.body?.cancel();
-			throw new Error(`Too many redirects fetching ${current.url}`);
-		}
 		await response.body?.cancel();
+		if (count === maxRedirects) throw new Error(`Too many redirects fetching ${current.url}`);
 		const next = await validateTarget(new URL(location, current.url), resolvedOptions);
 		if (next.url.origin !== current.url.origin) {
 			const headers = new Headers(request.headers);
@@ -200,12 +196,13 @@ function parseDomains(value: unknown, field: string): string[] {
 	if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
 		throw new Error(`fetchContent.domainPolicy.${field} in ${configPath()} must be an array of hostnames`);
 	}
-	return value
-		.map((item) => normalizeHost((item as string).trim()))
-		.filter((host) => {
-			if (!host || /[\\/?:#@\s]/.test(host)) throw new Error(`Invalid hostname in fetchContent.domainPolicy.${field}`);
-			return true;
-		});
+	const hosts: string[] = [];
+	for (const item of value) {
+		const host = normalizeHost((item as string).trim());
+		if (!host || /[\\/?:#@\s]/.test(host)) throw new Error(`Invalid hostname in fetchContent.domainPolicy.${field}`);
+		hosts.push(host);
+	}
+	return hosts;
 }
 
 function assertDomainPolicy(host: string, policy?: DomainPolicy): void {
@@ -351,8 +348,4 @@ function prefixMatches(value: Uint8Array, network: Uint8Array, prefix: number): 
 	if (!bits) return true;
 	const mask = (0xff << (8 - bits)) & 0xff;
 	return (value[bytes] & mask) === (network[bytes] & mask);
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

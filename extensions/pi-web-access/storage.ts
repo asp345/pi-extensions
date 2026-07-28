@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 export const MAX_OUTPUT_CHARS = 20_000;
-export const MAX_OUTPUT_LINES = 300;
+const MAX_OUTPUT_LINES = 300;
 export const MAX_SLICE_CHARS = 20_000;
-export const MAX_STORED_CONTENT_CHARS = 1_000_000;
 const MAX_RECORDS = 24;
 const MAX_STORE_BYTES = 12 * 1024 * 1024;
 const TTL_MS = 60 * 60 * 1000;
@@ -25,7 +24,6 @@ export interface FetchedContent {
 	title: string;
 	content: string;
 	error?: string;
-	truncated?: boolean;
 }
 export type StoredRecord =
 	| { id: string; type: "search"; createdAt: number; items: QueryResult[] }
@@ -82,9 +80,32 @@ export function boundedText(
 	return { text: value, truncated };
 }
 
-export function storedText(text: string): { text: string; truncated: boolean } {
-	if (text.length <= MAX_STORED_CONTENT_CHARS) return { text, truncated: false };
-	return { text: text.slice(0, MAX_STORED_CONTENT_CHARS), truncated: true };
+export async function readBytes(response: Response, max: number): Promise<Uint8Array> {
+	const declared = Number(response.headers.get("content-length"));
+	if (Number.isFinite(declared) && declared > max) throw new Error("Response is too large");
+	if (!response.body) return new Uint8Array();
+	const reader = response.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let size = 0;
+	while (true) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		size += value.length;
+		if (size > max) {
+			await reader.cancel();
+			throw new Error("Response is too large");
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks, size);
+}
+
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+export function combinedSignal(signal: AbortSignal | undefined, timeout: number): AbortSignal {
+	return signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout);
 }
 
 export function sliceText(

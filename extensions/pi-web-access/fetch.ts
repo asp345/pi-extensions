@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import { extractAll, type ExtractedContent } from "./extract.ts";
-import { search, type SearchOptions } from "./search.ts";
+import { type ExtractedContent, extractAll } from "./extract.ts";
+import { type SearchOptions, search } from "./search.ts";
 import { newId, type QueryResult, type SearchResult } from "./storage.ts";
 
-export interface Passage {
+interface Passage {
 	id: string;
 	source: number;
 	url: string;
@@ -82,13 +82,14 @@ function artifact(
 
 function makePassage(source: number, url: string, text: string, start?: number, end?: number): Passage {
 	const clean = text.replace(/\s+/g, " ").trim().slice(0, 500);
+	const hash = createHash("sha256").update(clean).digest("hex");
 	return {
-		id: `p${source}-${createHash("sha256").update(clean).digest("hex").slice(0, 8)}`,
+		id: `p${source}-${hash.slice(0, 8)}`,
 		source,
 		url,
 		text: clean,
 		...(start !== undefined && end !== undefined ? { span: { start, end } } : {}),
-		hash: `sha256:${createHash("sha256").update(clean).digest("hex")}`,
+		hash: `sha256:${hash}`,
 	};
 }
 
@@ -111,60 +112,52 @@ function assess(
 	claim: string,
 	passages: Passage[],
 ): Pick<ResearchArtifact, "status" | "confidence" | "rationale" | "supporting" | "contradicting"> {
-	if (!passages.length)
-		return {
-			status: "missing-evidence",
-			confidence: 0.2,
-			rationale: "No source passages were available.",
-			supporting: [],
-			contradicting: [],
-		};
-	const terms = tokens(claim);
+	let status: ResearchArtifact["status"];
+	let confidence: number;
+	let rationale: string;
 	const supporting: string[] = [];
 	const contradicting: string[] = [];
-	for (const passage of passages) {
-		const text = passage.text.toLowerCase();
-		const overlap = terms.filter((term) => text.includes(term)).length;
-		if (overlap < Math.max(2, Math.ceil(terms.length / 4))) continue;
-		const coverage = terms.length ? overlap / terms.length : 0;
-		if (
-			/\b(false|incorrect|debunked|denied|never|no longer|not true|contrary|cannot|does not|do not|is not|are not)\b/.test(
-				text,
+	if (!passages.length) {
+		status = "missing-evidence";
+		confidence = 0.2;
+		rationale = "No source passages were available.";
+	} else {
+		const terms = tokens(claim);
+		for (const passage of passages) {
+			const text = passage.text.toLowerCase();
+			const overlap = terms.filter((term) => text.includes(term)).length;
+			if (overlap < Math.max(2, Math.ceil(terms.length / 4))) continue;
+			const coverage = terms.length ? overlap / terms.length : 0;
+			if (
+				/\b(false|incorrect|debunked|denied|never|no longer|not true|contrary|cannot|does not|do not|is not|are not)\b/.test(
+					text,
+				)
 			)
-		)
-			contradicting.push(passage.id);
-		else if (
-			coverage >= 0.7 ||
-			/\b(confirmed|verified|reported|shows|demonstrates|according to|is|are|was|were)\b/.test(text)
-		)
-			supporting.push(passage.id);
+				contradicting.push(passage.id);
+			else if (
+				coverage >= 0.7 ||
+				/\b(confirmed|verified|reported|shows|demonstrates|according to|is|are|was|were)\b/.test(text)
+			)
+				supporting.push(passage.id);
+		}
+		if (supporting.length && !contradicting.length) {
+			status = "supported";
+			confidence = Math.min(0.85, 0.5 + supporting.length * 0.08);
+			rationale = `${supporting.length} passage(s) support the claim.`;
+		} else if (contradicting.length && !supporting.length) {
+			status = "contradicted";
+			confidence = Math.min(0.85, 0.5 + contradicting.length * 0.08);
+			rationale = `${contradicting.length} passage(s) contradict the claim.`;
+		} else {
+			status = "unclear";
+			confidence = 0.35;
+			rationale =
+				supporting.length || contradicting.length
+					? "The source passages contain mixed evidence."
+					: "The passages mention the topic without clear support or contradiction.";
+		}
 	}
-	if (supporting.length && !contradicting.length)
-		return {
-			status: "supported",
-			confidence: Math.min(0.85, 0.5 + supporting.length * 0.08),
-			rationale: `${supporting.length} passage(s) support the claim.`,
-			supporting,
-			contradicting,
-		};
-	if (contradicting.length && !supporting.length)
-		return {
-			status: "contradicted",
-			confidence: Math.min(0.85, 0.5 + contradicting.length * 0.08),
-			rationale: `${contradicting.length} passage(s) contradict the claim.`,
-			supporting,
-			contradicting,
-		};
-	return {
-		status: "unclear",
-		confidence: 0.35,
-		rationale:
-			supporting.length || contradicting.length
-				? "The source passages contain mixed evidence."
-				: "The passages mention the topic without clear support or contradiction.",
-		supporting,
-		contradicting,
-	};
+	return { status, confidence, rationale, supporting, contradicting };
 }
 
 function tokens(text: string): string[] {

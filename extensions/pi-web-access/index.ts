@@ -1,19 +1,19 @@
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { checkSource, type ResearchArtifact } from "./fetch.ts";
 import { extractAll } from "./extract.ts";
-import { search, type Recency, type SearchProvider } from "./search.ts";
+import { checkSource, type ResearchArtifact } from "./fetch.ts";
+import { search } from "./search.ts";
 import {
-	MAX_OUTPUT_CHARS,
-	MAX_SLICE_CHARS,
 	boundedText,
 	clear,
+	errorMessage,
 	get,
+	MAX_SLICE_CHARS,
 	newId,
 	put,
-	sliceText,
 	type QueryResult,
 	type StoredRecord,
+	sliceText,
 } from "./storage.ts";
 
 const Provider = Type.Union([Type.Literal("auto"), Type.Literal("openai"), Type.Literal("gemini")]);
@@ -60,9 +60,9 @@ export default function webAccess(pi: ExtensionAPI): void {
 				try {
 					items.push(
 						await search(query, {
-							provider: params.provider as SearchProvider | undefined,
+							provider: params.provider,
 							limit: params.limit,
-							recency: params.recency as Recency | undefined,
+							recency: params.recency,
 							domains: params.domains,
 							signal,
 							context,
@@ -76,12 +76,10 @@ export default function webAccess(pi: ExtensionAPI): void {
 			const id = newId();
 			put({ id, type: "search", createdAt: Date.now(), items });
 			const raw = items.map(formatQuery).join("\n\n");
-			const output = boundedText(`${raw}\n\nStored as ${id}. Use get_search_content for slices.`);
-			return textResult(output.text, {
+			return textResult(`${raw}\n\nStored as ${id}. Use get_search_content for slices.`, {
 				id,
 				queries: items.length,
 				successful: items.filter((item) => !item.error).length,
-				truncated: output.truncated,
 			});
 		},
 	});
@@ -102,13 +100,11 @@ export default function webAccess(pi: ExtensionAPI): void {
 			});
 			put({ id: artifact.id, type: "research", createdAt: artifact.createdAt, item: artifact });
 			const raw = formatArtifact(artifact);
-			const output = boundedText(`${raw}\n\nStored as ${artifact.id}.`);
-			return textResult(output.text, {
+			return textResult(`${raw}\n\nStored as ${artifact.id}.`, {
 				id: artifact.id,
 				status: artifact.status,
 				sources: artifact.sources.length,
 				passages: artifact.passages.length,
-				truncated: output.truncated,
 			});
 		},
 	});
@@ -136,7 +132,7 @@ export default function webAccess(pi: ExtensionAPI): void {
 				signal,
 			);
 			const id = newId();
-			const stored = extracted.map(({ images: _images, duration: _duration, ...item }) => item);
+			const stored = extracted.map(({ images: _images, ...item }) => item);
 			put({ id, type: "fetch", createdAt: Date.now(), items: stored });
 			if (extracted.length === 1) {
 				const item = extracted[0];
@@ -223,15 +219,12 @@ function selectStored(record: StoredRecord, item?: number): { text: string; item
 		};
 	}
 	const index = item ?? 0;
-	if (record.type === "search") {
-		const selected = record.items[index];
-		if (!selected) throw new Error(`item must be between 0 and ${Math.max(0, record.items.length - 1)}`);
-		return { text: formatQuery(selected), item: index };
-	}
 	const selected = record.items[index];
 	if (!selected) throw new Error(`item must be between 0 and ${Math.max(0, record.items.length - 1)}`);
+	if (record.type === "search") return { text: formatQuery(record.items[index]), item: index };
+	const fetched = record.items[index];
 	return {
-		text: `# ${selected.title || selected.url}\n\n${selected.error ? `Error: ${selected.error}` : selected.content}`,
+		text: `# ${fetched.title || fetched.url}\n\n${fetched.error ? `Error: ${fetched.error}` : fetched.content}`,
 		item: index,
 	};
 }
@@ -270,12 +263,13 @@ function formatArtifact(artifact: ResearchArtifact): string {
 }
 
 function textResult(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
-	const output = boundedText(text, MAX_OUTPUT_CHARS);
+	const output = boundedText(text);
 	return {
 		content: [{ type: "text", text: output.text }],
-		details: { ...details, outputTruncated: output.truncated || details.truncated === true },
+		details: {
+			truncated: output.truncated,
+			...details,
+			outputTruncated: output.truncated || details.truncated === true,
+		},
 	};
-}
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

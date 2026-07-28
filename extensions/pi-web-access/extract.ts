@@ -1,18 +1,28 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
-import { fetchRemote, validateRemoteUrl } from "./security.ts";
 import { geminiAvailable, geminiGenerate, geminiUploadVideo } from "./search.ts";
-import { storedText, type FetchedContent } from "./storage.ts";
+import { fetchRemote, validateTarget } from "./security.ts";
+import { combinedSignal, errorMessage, type FetchedContent, readBytes } from "./storage.ts";
 
 const HTML_BYTES = 5 * 1024 * 1024;
 const PDF_BYTES = 20 * 1024 * 1024;
 const VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_STORED_CONTENT_CHARS = 1_000_000;
+const VIDEO_MIME: Record<string, string> = {
+	".mp4": "video/mp4",
+	".mov": "video/quicktime",
+	".webm": "video/webm",
+	".avi": "video/x-msvideo",
+	".mpeg": "video/mpeg",
+	".mpg": "video/mpeg",
+	".mkv": "video/x-matroska",
+};
 const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
 
 export interface MediaImage {
@@ -22,7 +32,6 @@ export interface MediaImage {
 }
 export interface ExtractedContent extends FetchedContent {
 	images?: MediaImage[];
-	duration?: number;
 }
 export interface ExtractOptions {
 	question?: string;
@@ -47,7 +56,7 @@ export async function extractAll(
 	return output;
 }
 
-export async function extractOne(
+async function extractOne(
 	input: string,
 	options: ExtractOptions = {},
 	signal?: AbortSignal,
@@ -58,7 +67,7 @@ export async function extractOne(
 
 	let url: URL;
 	try {
-		url = await validateRemoteUrl(input);
+		url = (await validateTarget(input)).url;
 	} catch (error) {
 		return failure(input, error);
 	}
@@ -258,26 +267,18 @@ async function extractYouTube(
 			url,
 			title: transcript.title || "YouTube video",
 			content: transcript.content,
-			duration: transcript.duration,
 		});
 	} catch (error) {
 		return failure(url, [apiError, errorMessage(error)].filter(Boolean).join("; ") || "YouTube extraction failed");
 	}
 }
 
-async function youtubeTranscript(
-	videoId: string,
-	signal?: AbortSignal,
-): Promise<{ title: string; content: string; duration?: number }> {
+async function youtubeTranscript(videoId: string, signal?: AbortSignal): Promise<{ title: string; content: string }> {
 	const dir = await mkdtemp(join(tmpdir(), "pi-youtube-"));
 	try {
 		const target = `https://www.youtube.com/watch?v=${videoId}`;
-		const metadata = await run(
-			"yt-dlp",
-			["--skip-download", "--print", "title", "--print", "duration", target],
-			signal,
-			30_000,
-		);
+		const title =
+			(await run("yt-dlp", ["--skip-download", "--print", "title", target], signal, 30_000)).trim() || "YouTube video";
 		await run(
 			"yt-dlp",
 			[
@@ -298,13 +299,7 @@ async function youtubeTranscript(
 		const file = (await readdir(dir)).find((name) => name.endsWith(".vtt"));
 		if (!file) throw new Error("No English subtitles are available");
 		const vtt = await readFile(join(dir, file), "utf8");
-		const [title = "YouTube video", rawDuration] = metadata.trim().split("\n");
-		const duration = Number(rawDuration);
-		return {
-			title,
-			content: `# ${title}\n\n${vttToMarkdown(vtt)}`,
-			...(Number.isFinite(duration) ? { duration } : {}),
-		};
+		return { title, content: `# ${title}\n\n${vttToMarkdown(vtt)}` };
 	} finally {
 		await rm(dir, { recursive: true, force: true });
 	}
@@ -328,20 +323,7 @@ async function youtubeFrames(
 		const duration = Number(lines[0]);
 		const stream = lines[1];
 		if (!stream) throw new Error("yt-dlp returned no video stream");
-		const timestamps = frameTimes(options.timestamp, options.frames, Number.isFinite(duration) ? duration : undefined);
-		const images = await Promise.all(
-			timestamps.map(async (seconds) => ({
-				...(await ffmpegFrame(stream, seconds, signal)),
-				label: formatTime(seconds),
-			})),
-		);
-		return {
-			url,
-			title: `YouTube frames (${images.length})`,
-			content: `Extracted frames at ${timestamps.map(formatTime).join(", ")}.`,
-			images,
-			...(Number.isFinite(duration) ? { duration } : {}),
-		};
+		return await framesResult(stream, url, (count) => `YouTube frames (${count})`, options, duration, signal);
 	} catch (error) {
 		return failure(url, error);
 	}
@@ -357,7 +339,7 @@ async function localVideo(input: string): Promise<{ path: string; mimeType: stri
 		}
 	} else if (!input.startsWith("/") && !input.startsWith("./") && !input.startsWith("../")) return undefined;
 	const absolute = resolve(path);
-	const mime = videoMime(extname(absolute));
+	const mime = VIDEO_MIME[extname(absolute).toLowerCase()];
 	if (!mime) return undefined;
 	try {
 		return (await stat(absolute)).isFile() ? { path: absolute, mimeType: mime } : undefined;
@@ -380,20 +362,7 @@ async function extractLocalVideo(
 			15_000,
 		);
 		const duration = Number(durationText.trim());
-		const timestamps = frameTimes(options.timestamp, options.frames, Number.isFinite(duration) ? duration : undefined);
-		const images = await Promise.all(
-			timestamps.map(async (seconds) => ({
-				...(await ffmpegFrame(path, seconds, signal)),
-				label: formatTime(seconds),
-			})),
-		);
-		return {
-			url: path,
-			title: `${basename(path)} frames`,
-			content: `Extracted frames at ${timestamps.map(formatTime).join(", ")}.`,
-			images,
-			...(Number.isFinite(duration) ? { duration } : {}),
-		};
+		return framesResult(path, path, () => `${basename(path)} frames`, options, duration, signal);
 	}
 	if (!geminiAvailable())
 		return failure(
@@ -459,6 +428,29 @@ function formatTime(seconds: number): string {
 		: `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
+async function framesResult(
+	source: string,
+	url: string,
+	title: (count: number) => string,
+	options: ExtractOptions,
+	duration: number,
+	signal?: AbortSignal,
+): Promise<ExtractedContent> {
+	const timestamps = frameTimes(options.timestamp, options.frames, Number.isFinite(duration) ? duration : undefined);
+	const images = await Promise.all(
+		timestamps.map(async (seconds) => ({
+			...(await ffmpegFrame(source, seconds, signal)),
+			label: formatTime(seconds),
+		})),
+	);
+	return {
+		url,
+		title: title(images.length),
+		content: `Extracted frames at ${timestamps.map(formatTime).join(", ")}.`,
+		images,
+	};
+}
+
 async function ffmpegFrame(source: string, seconds: number, signal?: AbortSignal): Promise<MediaImage> {
 	const stdout = await runBuffer(
 		"ffmpeg",
@@ -510,44 +502,8 @@ function vttToMarkdown(vtt: string): string {
 	return output.join("\n\n");
 }
 
-async function readBytes(response: Response, max: number): Promise<Uint8Array> {
-	const declared = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > max) throw new Error("Response is too large");
-	if (!response.body) return new Uint8Array();
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let size = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		size += value.length;
-		if (size > max) {
-			await reader.cancel();
-			throw new Error("Response is too large");
-		}
-		chunks.push(value);
-	}
-	const result = new Uint8Array(size);
-	let offset = 0;
-	for (const chunk of chunks) {
-		result.set(chunk, offset);
-		offset += chunk.length;
-	}
-	return result;
-}
-
-function run(command: string, args: string[], signal?: AbortSignal, timeout = 30_000): Promise<string> {
-	return new Promise((resolvePromise, reject) =>
-		execFile(
-			command,
-			args,
-			{ encoding: "utf8", timeout, signal, maxBuffer: 2 * 1024 * 1024 },
-			(error, stdout, stderr) => {
-				if (error) reject(new Error(commandError(command, error, stderr)));
-				else resolvePromise(stdout);
-			},
-		),
-	);
+async function run(command: string, args: string[], signal?: AbortSignal, timeout = 30_000): Promise<string> {
+	return (await runBuffer(command, args, signal, timeout, 2 * 1024 * 1024)).toString("utf8");
 }
 function runBuffer(
 	command: string,
@@ -569,19 +525,6 @@ function commandError(command: string, error: Error, stderr: string | Buffer): s
 	const detail = Buffer.isBuffer(stderr) ? stderr.toString("utf8") : stderr;
 	return `${command} failed: ${(detail || error.message).replace(/\s+/g, " ").slice(0, 300)}`;
 }
-function videoMime(extension: string): string | undefined {
-	return (
-		{
-			".mp4": "video/mp4",
-			".mov": "video/quicktime",
-			".webm": "video/webm",
-			".avi": "video/x-msvideo",
-			".mpeg": "video/mpeg",
-			".mpg": "video/mpeg",
-			".mkv": "video/x-matroska",
-		} as Record<string, string>
-	)[extension.toLowerCase()];
-}
 function youtubeId(url: URL): string | undefined {
 	if (url.hostname === "youtu.be") return /^[\w-]{11}$/.test(url.pathname.slice(1)) ? url.pathname.slice(1) : undefined;
 	if (!["youtube.com", "www.youtube.com", "m.youtube.com"].includes(url.hostname)) return undefined;
@@ -598,18 +541,12 @@ function heading(text: string): string | undefined {
 	return text.match(/^#{1,2}\s+(.+)$/m)?.[1]?.trim();
 }
 function textTitle(text: string, url: string): string {
-	return heading(text) || basename(new URL(url).pathname) || new URL(url).hostname;
+	const parsed = new URL(url);
+	return heading(text) || basename(parsed.pathname) || parsed.hostname;
 }
 function bounded(value: Omit<ExtractedContent, "error">): ExtractedContent {
-	const stored = storedText(value.content);
-	return { ...value, content: stored.text, ...(stored.truncated ? { truncated: true } : {}), error: undefined };
+	return { ...value, content: value.content.slice(0, MAX_STORED_CONTENT_CHARS), error: undefined };
 }
 function failure(url: string, error: unknown): ExtractedContent {
 	return { url, title: "", content: "", error: errorMessage(error).slice(0, 1000) };
-}
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-function combinedSignal(signal: AbortSignal | undefined, timeout: number): AbortSignal {
-	return signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout);
 }
