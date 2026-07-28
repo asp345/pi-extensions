@@ -17,7 +17,9 @@
 	"dependencies": {
 		"@cortexkit/antigravity-auth-core": "2.0.0",
 		"@mozilla/readability": "0.6.0",
+		"@sinclair/typebox": "^0.34.52",
 		"linkedom": "0.16.11",
+		"pi-herdr-subagents": "^0.1.5",
 		"turndown": "7.2.4",
 		"typebox": "1.3.8",
 		"unpdf": "1.6.2"
@@ -37,7 +39,9 @@
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
-			"./extensions/pi-direnv/index.ts"
+			"./extensions/pi-direnv/index.ts",
+			"./extensions/herdr-agent-state/index.ts",
+			"./node_modules/pi-herdr-subagents/pi-extension/subagents/index.ts"
 		],
 		"themes": [
 			"./themes/flatland.json"

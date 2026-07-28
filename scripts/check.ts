@@ -21,6 +21,7 @@ const extensions = manifest.pi?.extensions ?? [];
 const themes = manifest.pi?.themes ?? [];
 const expectedDirs = [
 	"github-copilot-auto",
+	"herdr-agent-state",
 	"openrouter-metadata",
 	"pi-anthropic-oauth",
 	"pi-antigravity-auth",
@@ -40,13 +41,15 @@ if (actualDirs.join("\n") !== expectedDirs.join("\n")) fail("Unexpected extensio
 for (const name of actualDirs) {
 	if ((await readdir(resolve(root, "extensions", name))).includes("package.json")) fail(`Nested manifest: ${name}`);
 }
-const expectedEntries = expectedDirs.map((name) => `./extensions/${name}/index.ts`).sort();
+const externalEntries = ["./node_modules/pi-herdr-subagents/pi-extension/subagents/index.ts"];
+const expectedEntries = [...expectedDirs.map((name) => `./extensions/${name}/index.ts`), ...externalEntries].sort();
 if ([...extensions].sort().join("\n") !== expectedEntries.join("\n")) fail("Unexpected extension entrypoints");
 if (themes.length !== 1 || themes[0] !== "./themes/flatland.json") {
 	fail(`Expected only the Flatland theme, found: ${themes.join(", ")}`);
 }
 
 for (const entry of extensions) {
+	if (externalEntries.includes(entry)) continue;
 	if (!entry.startsWith("./extensions/") || entry.includes("/@")) fail(`Invalid extension path: ${entry}`);
 }
 
@@ -63,7 +66,11 @@ for (const dependency of dependencies) {
 	try {
 		import.meta.resolve(dependency);
 	} catch {
-		fail(`Runtime dependency is not installed: ${dependency}`);
+		try {
+			import.meta.resolve(`${dependency}/package.json`);
+		} catch {
+			fail(`Runtime dependency is not installed: ${dependency}`);
+		}
 	}
 }
 

@@ -22,6 +22,12 @@
 			"trailingCommas": "all"
 		}
 	},
+	"overrides": [
+		{
+			"includes": ["extensions/herdr-agent-state/**"],
+			"linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+		}
+	],
 	"linter": {
 		"enabled": true,
 		"rules": {
