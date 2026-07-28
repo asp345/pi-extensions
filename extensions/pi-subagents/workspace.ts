@@ -37,12 +37,12 @@ export interface WorkspaceResult {
 // Its differential renderer performs a full redraw (ESC[2J + ESC[3J, which
 // clears scrollback and snaps the viewport to the live screen) whenever a
 // previously rendered line above the live viewport changes. To keep native
-// scrolling usable during streaming, settled messages are rendered once and
-// their lines are frozen; only the in-flight tail, editor, and status rows may
-// change between frames, and the top padding is fixed per record and terminal
-// height. Remaining limitation: a single in-flight message taller than the
-// screen can still re-wrap lines above the viewport and force a full redraw;
-// that case is not avoidable through the public component API.
+// scrolling usable during streaming, rendering is append-only: settled messages
+// are rendered once and their lines are frozen, and any line that has scrolled
+// above the viewport is reused verbatim on later frames, so only content inside
+// the viewport may change. Trade-off: a line that would have been retroactively
+// updated (e.g. a tool header switching from pending to complete) keeps its
+// older rendering once it is in the scrollback.
 export async function showAgentWorkspace(
 	ctx: ExtensionContext,
 	manager: AgentManager,
@@ -60,6 +60,8 @@ export async function showAgentWorkspace(
 				let selectedId = initial;
 				let focused = true;
 				const padding: PaddingState = { value: 0 };
+				let published: string[] = [];
+				let publishedKey = "";
 				const selector: SelectorState = { active: false, index: 0 };
 				type NativeComponent = { render(width: number): string[]; invalidate?(): void };
 				interface CacheEntry {
@@ -300,7 +302,18 @@ export async function showAgentWorkspace(
 							footer,
 						];
 						const pad = stablePadding(padding, record?.id, rows, workspace.length);
-						return [...new Array<string>(pad).fill(""), ...workspace];
+						const frame = [...new Array<string>(pad).fill(""), ...workspace];
+						const key = `${record?.id ?? "none"}|${width}`;
+						if (key !== publishedKey) {
+							publishedKey = key;
+							published = [];
+						}
+						const frozen = Math.max(0, frame.length - rows);
+						const next = frame.map((line, index) =>
+							index < frozen && index < published.length ? published[index] : line,
+						);
+						published = next;
+						return next;
 					},
 					handleInput(data: string) {
 						const record = selected();
@@ -344,6 +357,7 @@ export async function showAgentWorkspace(
 					invalidate() {
 						editor.invalidate();
 						for (const { component } of cache.values()) component.invalidate?.();
+						published = [];
 					},
 				};
 			},
