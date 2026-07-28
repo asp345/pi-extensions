@@ -35,7 +35,6 @@
 			"./extensions/pi-lsp/index.ts",
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
-			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
 			"./extensions/pi-direnv/index.ts"
 		],

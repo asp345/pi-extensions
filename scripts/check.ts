@@ -28,7 +28,6 @@ const expectedDirs = [
 	"pi-goal",
 	"pi-lsp",
 	"pi-sensitive-guard",
-	"pi-subagents",
 	"pi-web-access",
 	"question",
 ];

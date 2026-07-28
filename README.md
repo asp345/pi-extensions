@@ -14,23 +14,12 @@ My personal Pi monorepo.
 - `extensions/pi-goal/`
 - `extensions/pi-lsp/`
 - `extensions/pi-sensitive-guard/`
-- `extensions/pi-subagents/`
 - `extensions/pi-web-access/`
 - `extensions/question/`
 
 The only included theme is `themes/flatland.json`.
 
-Agent Markdown declares models in priority order:
-
-```yaml
-models:
-  - parent
-  - anthropic/claude-fable-5
-  - openrouter/minimax/minimax-m3
-thinking: parent
-```
-
-`parent` inherits the parent session's current model or thinking level. Missing or unavailable models are skipped. If a model fails, the agent continues the existing session with the next available model without repeating completed tool actions. Later resumes retain the selected model unless the `Agent` call explicitly selects another model.
+Subagents come from the external `pi-herdr-subagents` package (installed via `pi install npm:pi-herdr-subagents`), which runs each subagent as a separate pi process in its own herdr pane. Agent definitions live in `~/.pi/agent/agents/`.
 
 ## Development
 
