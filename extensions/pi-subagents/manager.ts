@@ -3,9 +3,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { resolveModels, resolveThinking, runNew, resumeSession } from "./runner.js";
-import type { AgentDefinition, AgentRecord, ThinkingLevel, Usage } from "./types.js";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { resolveModels, resolveThinking, resumeSession, runNew } from "./runner.js";
+import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.js";
+import { message, onAbort } from "./util.js";
 import { createWorktree, removeWorktree, saveWorktree } from "./worktree.js";
 
 interface SpawnOptions {
@@ -31,11 +32,10 @@ export class AgentManager {
 	private renderTimer?: ReturnType<typeof setTimeout>;
 
 	constructor(
-		private readonly pi: ExtensionAPI,
 		private readonly changed: () => void,
 		private readonly completed: (record: AgentRecord) => void,
-		private readonly resumed: (record: AgentRecord) => void = () => undefined,
-		private readonly fallback: (record: AgentRecord, reason: string) => void = () => undefined,
+		private readonly resumed: (record: AgentRecord) => void,
+		private readonly fallback: (record: AgentRecord, reason: string) => void,
 	) {}
 
 	spawn(ctx: ExtensionContext, definition: AgentDefinition, prompt: string, options: SpawnOptions): AgentRecord {
@@ -52,7 +52,6 @@ export class AgentManager {
 			model: options.model ?? definition.models[0] ?? "parent",
 			models: definition.models,
 			thinking: resolveThinking(definition.thinking, ctx),
-			usage: emptyUsage(),
 			abortController: new AbortController(),
 			pendingSteers: [],
 		};
@@ -86,7 +85,7 @@ export class AgentManager {
 		this.changed();
 		const callbacks = this.callbacks(record);
 		record.promise = (async () => {
-			const detach = linkSignals(options.background ? undefined : options.signal, record.abortController);
+			const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 			try {
 				const result = await resumeSession(record.session!, prompt, {
 					model: options.model,
@@ -117,6 +116,12 @@ export class AgentManager {
 		return [...this.records.values()].sort((a, b) => b.startedAt - a.startedAt);
 	}
 
+	running(): AgentRecord[] {
+		return [...this.records.values()]
+			.filter((record) => record.status === "running")
+			.sort((a, b) => a.startedAt - b.startedAt);
+	}
+
 	steer(id: string, text: string): boolean {
 		const record = this.records.get(id);
 		if (!record || record.status !== "running") return false;
@@ -140,8 +145,7 @@ export class AgentManager {
 		let count = 0;
 		for (const [id, record] of this.records) {
 			if (record.status === "running") continue;
-			record.session?.dispose();
-			if (record.worktree) removeWorktree(parentCwd, record.worktree);
+			this.cleanup(record, parentCwd);
 			this.records.delete(id);
 			count += 1;
 		}
@@ -161,14 +165,16 @@ export class AgentManager {
 			Promise.allSettled(records.map((record) => record.promise).filter(Boolean)),
 			new Promise((resolve) => setTimeout(resolve, 2_000)),
 		]);
-		for (const record of records) {
-			record.session?.dispose();
-			if (record.worktree) removeWorktree(parentCwd, record.worktree);
-		}
+		for (const record of records) this.cleanup(record, parentCwd);
 		if (this.renderTimer) clearTimeout(this.renderTimer);
 		this.renderTimer = undefined;
 		this.records.clear();
 		this.changed();
+	}
+
+	private cleanup(record: AgentRecord, parentCwd: string): void {
+		record.session?.dispose();
+		if (record.worktree) removeWorktree(parentCwd, record.worktree);
 	}
 
 	private async run(
@@ -178,12 +184,11 @@ export class AgentManager {
 		prompt: string,
 		options: SpawnOptions,
 	): Promise<void> {
-		const detach = linkSignals(options.background ? undefined : options.signal, record.abortController);
+		const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 		try {
 			if (record.abortController.signal.aborted) throw new Error("Subagent cancelled before setup.");
 			if (definition.worktree) record.worktree = await createWorktree(ctx.cwd, record.id);
 			const result = await runNew(
-				this.pi,
 				ctx,
 				{
 					id: record.id,
@@ -193,7 +198,6 @@ export class AgentManager {
 					maxTurns: options.maxTurns,
 					fork: options.fork,
 					cwd: ctx.cwd,
-					configCwd: ctx.cwd,
 					parentSignal: record.abortController.signal,
 					worktree: record.worktree,
 				},
@@ -248,11 +252,6 @@ export class AgentManager {
 				record.toolUses += 1;
 				this.changed();
 			},
-			onUsage: (usage: Partial<Usage>) => {
-				for (const key of Object.keys(record.usage) as (keyof Usage)[]) {
-					record.usage[key] += usage[key] ?? 0;
-				}
-			},
 		};
 	}
 
@@ -277,9 +276,9 @@ export class AgentManager {
 		}
 		if ((definition?.outputTranscript ?? true) && record.session) {
 			try {
-				record.outputFile = outputPath(record);
-				mkdirSync(dirname(record.outputFile), { recursive: true });
-				writeFileSync(record.outputFile, JSON.stringify(record.session.messages, null, 2), { mode: 0o600 });
+				const outputFile = outputPath(record);
+				mkdirSync(dirname(outputFile), { recursive: true });
+				writeFileSync(outputFile, JSON.stringify(record.session.messages, null, 2), { mode: 0o600 });
 			} catch {
 				/* transcript output is best effort */
 			}
@@ -289,23 +288,7 @@ export class AgentManager {
 	}
 }
 
-function linkSignals(signal: AbortSignal | undefined, controller: AbortController): () => void {
-	if (!signal) return () => undefined;
-	const abort = () => controller.abort();
-	if (signal.aborted) abort();
-	else signal.addEventListener("abort", abort, { once: true });
-	return () => signal.removeEventListener("abort", abort);
-}
-
 function outputPath(record: AgentRecord): string {
 	const sessionFile = record.session?.sessionFile;
 	return sessionFile ? `${sessionFile}.output.json` : join(tmpdir(), "pi-subagents", `${record.id}.output.json`);
-}
-
-function emptyUsage(): Usage {
-	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

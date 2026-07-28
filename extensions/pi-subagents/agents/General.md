@@ -1,6 +1,5 @@
 ---
 description: Capable general agent for multi-step analysis, research, debugging, and implementation
-display_name: General
 tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix, web_search, source_check, fetch_content, get_search_content
 extensions: true
 skills: true

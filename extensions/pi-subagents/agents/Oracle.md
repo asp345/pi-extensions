@@ -1,6 +1,5 @@
 ---
 description: Strong reasoning agent for difficult correctness, security, and root-cause analysis
-display_name: Oracle
 tools: read, bash, grep, find, ls, lsp_diagnostics, web_search, source_check, fetch_content, get_search_content
 extensions: true
 skills: true

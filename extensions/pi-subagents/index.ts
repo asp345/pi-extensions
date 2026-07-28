@@ -3,7 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.js";
 import { AgentManager } from "./manager.js";
-import { compactTranscript, resolveModelOverride, resolveThinking } from "./runner.js";
+import { compactTranscript, resolveModel, resolveThinking } from "./runner.js";
 import type { AgentRecord, DefinitionRegistry } from "./types.js";
 import { AgentsUI } from "./ui.js";
 
@@ -48,7 +48,6 @@ export default function subagents(pi: ExtensionAPI): void {
 	let shuttingDown = false;
 	let ui: AgentsUI;
 	const manager = new AgentManager(
-		pi,
 		() => ui?.updateWidget(),
 		(record) => notifyCompletion(record),
 		(record) => pendingNotifications.delete(record.id),
@@ -98,11 +97,10 @@ export default function subagents(pi: ExtensionAPI): void {
 	}
 
 	async function deliverNotifications(): Promise<boolean> {
-		await Promise.resolve();
 		if (shuttingDown) return true;
 		const batch = [...pendingNotifications.entries()].flatMap(([id, stamp]) => {
 			const record = manager.get(id);
-			if (!record || record.resultConsumed || record.status === "running" || record.status === "queued") {
+			if (!record || record.resultConsumed || record.status === "running") {
 				pendingNotifications.delete(id);
 				return [];
 			}
@@ -203,7 +201,7 @@ export default function subagents(pi: ExtensionAPI): void {
 					throw new Error(`Agent configuration error: ${params.resume} is ${existing.type}, not ${definition.name}.`);
 				}
 				const background = params.run_in_background ?? definition.runInBackground;
-				const model = params.model ? resolveModelOverride(params.model, ctx, definition) : undefined;
+				const model = params.model ? resolveModel(params.model, ctx, definition) : undefined;
 				const models = params.model ? [params.model, ...definition.models] : definition.models;
 				const record = await manager.resume(ctx, existing.id, prompt, {
 					background,
@@ -282,7 +280,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		async execute(_callId, params) {
 			const record = manager.get(params.id);
 			if (!record) return result(`No subagent matched ${params.id}.`, { id: params.id, found: false });
-			if (record.status === "running" || record.status === "queued") {
+			if (record.status === "running") {
 				return result(formatMetadata(record), metadata(record));
 			}
 			const source = params.transcript
@@ -383,13 +381,8 @@ function result(text: string, details: Record<string, unknown>): AgentToolResult
 
 function metadata(record: AgentRecord): Record<string, unknown> {
 	return {
-		id: record.id,
-		type: record.type,
-		status: record.status,
+		...completionDetails(record),
 		background: record.background,
-		turns: record.turns,
-		toolUses: record.toolUses,
-		durationMs: (record.completedAt ?? Date.now()) - record.startedAt,
 		model: record.session?.model ? `${record.session.model.provider}/${record.session.model.id}` : record.model,
 		models: record.models,
 		usedFallback: record.usedFallback === true,

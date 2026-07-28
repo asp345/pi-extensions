@@ -1,9 +1,9 @@
 import { execFile, execFileSync } from "node:child_process";
-import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { promisify } from "node:util";
 import type { WorktreeInfo } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -52,8 +52,8 @@ export function saveWorktree(worktree: WorktreeInfo, prompt: string): string | u
 	}
 	if (dirty) {
 		git(worktree.root, ["add", "-A"]);
-		execFileSync(
-			"git",
+		git(
+			worktree.root,
 			[
 				"-c",
 				"user.name=pi-subagent",
@@ -64,7 +64,7 @@ export function saveWorktree(worktree: WorktreeInfo, prompt: string): string | u
 				"-m",
 				`pi-agent: ${compact(prompt, 160)}`,
 			],
-			{ cwd: worktree.root, stdio: "pipe", timeout: 30_000 },
+			30_000,
 		);
 	}
 	worktree.branch = branch;

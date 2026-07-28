@@ -9,19 +9,22 @@ import {
 	cycleOption,
 	handleSelectorKey,
 	renderSelectorLines,
-	selectorKey,
 	type SelectorState,
+	selectorKey,
 } from "./selector.js";
-import type { AgentDefinition, AgentRecord, DefinitionRegistry } from "./types.js";
+import type { AgentDefinition, DefinitionRegistry } from "./types.js";
+import { message } from "./util.js";
 import { showAgentWorkspace } from "./workspace.js";
+
+interface WidgetTui {
+	requestRender(): void;
+}
 
 export class AgentsUI {
 	private context?: ExtensionContext;
 	private renderWorkspace?: () => void;
-	private renderWidget?: () => void;
-	private widgetTui?: unknown;
+	private widgetTui?: WidgetTui;
 	private inputUnsub?: () => void;
-	private widgetMounted = false;
 	private readonly selector: SelectorState = { active: false, index: 0 };
 	private opening = false;
 
@@ -46,18 +49,9 @@ export class AgentsUI {
 		this.inputUnsub = undefined;
 		this.context = undefined;
 		this.renderWorkspace = undefined;
-		this.renderWidget = undefined;
 		this.widgetTui = undefined;
-		this.widgetMounted = false;
 		this.selector.active = false;
 		this.selector.index = 0;
-	}
-
-	private activeRecords(): AgentRecord[] {
-		return this.manager
-			.list()
-			.filter((record) => record.status === "running")
-			.sort((a, b) => a.startedAt - b.startedAt);
 	}
 
 	private handleFleetInput(data: string): { consume?: boolean } | undefined {
@@ -69,7 +63,7 @@ export class AgentsUI {
 			return undefined;
 		}
 		const key = selectorKey(data);
-		const options = agentOptions(this.activeRecords());
+		const options = agentOptions(this.manager.running());
 		if (key === "shift+down" || key === "shift+up") {
 			const option = cycleOption(options, undefined, key === "shift+down" ? "next" : "previous");
 			this.selector.active = false;
@@ -92,39 +86,26 @@ export class AgentsUI {
 		}
 		const ctx = this.context;
 		if (!ctx) return;
-		if (this.opening) {
-			if (this.widgetMounted) ctx.ui.setWidget("pi-subagents", undefined);
-			this.widgetMounted = false;
-			this.renderWidget = undefined;
-			this.widgetTui = undefined;
-			this.selector.active = false;
-			this.selector.index = 0;
-			return;
-		}
-		const active = this.activeRecords();
+		const active = this.opening ? [] : this.manager.running();
 		if (!active.length) {
-			if (this.widgetMounted) ctx.ui.setWidget("pi-subagents", undefined);
-			this.widgetMounted = false;
-			this.renderWidget = undefined;
+			if (this.widgetTui) ctx.ui.setWidget("pi-subagents", undefined);
 			this.widgetTui = undefined;
 			this.selector.active = false;
 			this.selector.index = 0;
 			return;
 		}
 		this.selector.index = Math.min(this.selector.index, active.length - 1);
-		if (this.widgetMounted) {
-			this.renderWidget?.();
+		if (this.widgetTui) {
+			this.widgetTui.requestRender();
 			return;
 		}
-		this.widgetMounted = true;
 		ctx.ui.setWidget(
 			"pi-subagents",
 			(tui, theme) => {
 				this.widgetTui = tui;
-				this.renderWidget = () => tui.requestRender();
 				return {
 					render: (width: number) => {
-						const current = this.activeRecords();
+						const current = this.manager.running();
 						const hint = this.selector.active ? "↑↓ choose · enter open · esc back" : "↓ choose · shift+↑↓ open";
 						return renderSelectorLines(
 							theme,
@@ -137,8 +118,6 @@ export class AgentsUI {
 					},
 					invalidate() {},
 					dispose: () => {
-						this.widgetMounted = false;
-						this.renderWidget = undefined;
 						this.widgetTui = undefined;
 					},
 				};
@@ -253,7 +232,7 @@ export class AgentsUI {
 			ctx.ui.notify(`Saved ${path}`, "info");
 		} catch (error) {
 			this.reload(ctx);
-			ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+			ctx.ui.notify(message(error), "warning");
 		}
 	}
 }

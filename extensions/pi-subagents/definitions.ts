@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition, DefinitionRegistry, Selection, ThinkingSetting } from "./types.js";
+import { compact, message } from "./util.js";
 
 const THINKING = new Set<ThinkingSetting>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "parent"]);
 const DEFAULT_DIR = fileURLToPath(new URL("./agents", import.meta.url));
@@ -67,7 +68,6 @@ export function parseDefinition(path: string, source: AgentDefinition["source"])
 	return {
 		name,
 		description,
-		displayName: text(fm.display_name),
 		tools,
 		extensions: selection(fm.extensions, true),
 		excludeExtensions: list(fm.exclude_extensions),
@@ -103,14 +103,13 @@ export function resolveDefinition(registry: DefinitionRegistry, name: string): A
 export function definitionSummary(registry: DefinitionRegistry): string {
 	return [...registry.definitions.values()]
 		.filter((definition) => definition.enabled)
-		.map((definition) => `- ${definition.name}: ${oneLine(definition.description)}`)
+		.map((definition) => `- ${definition.name}: ${compact(definition.description, 240)}`)
 		.join("\n");
 }
 
 export function definitionTemplate(name: string): string {
 	return `---
 description: Describe ${name} in one line
-display_name: ${name}
 tools: read, bash, grep, find, ls
 extensions: true
 exclude_extensions: none
@@ -179,13 +178,4 @@ function bool(value: unknown, fallback: boolean): boolean {
 function findKey<T>(map: Map<string, T>, wanted: string): string | undefined {
 	const lower = wanted.toLowerCase();
 	return [...map.keys()].find((key) => key.toLowerCase() === lower);
-}
-
-function oneLine(value: string): string {
-	const text = value.replace(/\s+/gu, " ").trim();
-	return text.length > 240 ? `${text.slice(0, 239)}…` : text;
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

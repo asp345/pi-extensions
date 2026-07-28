@@ -2,13 +2,12 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ThinkingSetting = ThinkingLevel | "parent";
-export type AgentStatus = "queued" | "running" | "completed" | "cancelled" | "error";
+export type AgentStatus = "running" | "completed" | "cancelled" | "error";
 export type Selection = true | false | string[];
 
 export interface AgentDefinition {
 	name: string;
 	description: string;
-	displayName?: string;
 	tools: string[];
 	extensions: Selection;
 	excludeExtensions: string[];
@@ -32,14 +31,6 @@ export interface AgentDefinition {
 export interface DefinitionRegistry {
 	definitions: Map<string, AgentDefinition>;
 	errors: string[];
-}
-
-export interface Usage {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	cost: number;
 }
 
 export interface WorktreeInfo {
@@ -66,14 +57,12 @@ export interface AgentRecord {
 	usedFallback?: boolean;
 	fallbackReason?: string;
 	thinking?: ThinkingLevel;
-	usage: Usage;
 	session?: AgentSession;
 	abortController: AbortController;
 	pendingSteers: string[];
 	promise?: Promise<void>;
 	worktree?: WorktreeInfo;
 	worktreeBranch?: string;
-	outputFile?: string;
 	resultConsumed?: boolean;
 }
 
@@ -85,7 +74,6 @@ export interface RunRequest {
 	maxTurns?: number;
 	fork: boolean;
 	cwd: string;
-	configCwd: string;
 	parentSignal?: AbortSignal;
 	worktree?: WorktreeInfo;
 }

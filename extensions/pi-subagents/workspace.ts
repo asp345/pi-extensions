@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { AgentManager } from "./manager.js";
-import { resolveThinking } from "./runner.js";
+import { contentText, resolveThinking } from "./runner.js";
 import {
 	agentOptions,
 	cycleOption,
@@ -20,11 +20,12 @@ import {
 	mainOption,
 	type PaddingState,
 	renderSelectorLines,
-	selectorKey,
 	type SelectorState,
+	selectorKey,
 	stablePadding,
 } from "./selector.js";
 import type { AgentRecord, DefinitionRegistry } from "./types.js";
+import { message } from "./util.js";
 
 export type WorkspaceAction = "close" | "definitions" | "create";
 export interface WorkspaceResult {
@@ -84,12 +85,7 @@ export async function showAgentWorkspace(
 						autocompleteMaxVisible: settings.getAutocompleteMaxVisible(),
 					},
 				);
-				const running = (): AgentRecord[] =>
-					manager
-						.list()
-						.filter((record) => record.status === "running")
-						.sort((a, b) => a.startedAt - b.startedAt);
-				const selectorOptions = () => [mainOption(), ...agentOptions(running())];
+				const selectorOptions = () => [mainOption(), ...agentOptions(manager.running())];
 				const selected = (): AgentRecord | undefined => {
 					const records = manager.list();
 					const query = selectedId;
@@ -131,14 +127,6 @@ export async function showAgentWorkspace(
 				onRefresh(refresh);
 				queueMicrotask(refresh);
 				const leave = (action: WorkspaceAction) => done({ action, selectedId });
-				const contentText = (content: unknown): string => {
-					if (typeof content === "string") return content;
-					if (!Array.isArray(content)) return "";
-					return content
-						.filter((part) => part && typeof part === "object" && (part as { type?: unknown }).type === "text")
-						.map((part) => String((part as { text?: unknown }).text ?? ""))
-						.join("\n");
-				};
 				const conversation = (record: AgentRecord, width: number): string[] => {
 					const messages = [...(record.session?.agent.state.messages ?? [])];
 					const firstMessage = messages[0] as object | undefined;
@@ -257,7 +245,7 @@ export async function showAgentWorkspace(
 								thinking: resolveThinking(definition?.thinking, ctx),
 								maxTurns: definition?.maxTurns,
 							})
-							.catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"));
+							.catch((error) => ctx.ui.notify(message(error), "warning"));
 					}
 					refresh();
 				};

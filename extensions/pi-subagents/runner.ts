@@ -6,14 +6,14 @@ import {
 	type AgentSessionEvent,
 	createAgentSession,
 	DefaultResourceLoader,
-	type ExtensionAPI,
 	type ExtensionContext,
 	getAgentDir,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { definitionBody } from "./definitions.js";
-import type { AgentDefinition, AgentRecord, RunRequest, ThinkingLevel } from "./types.js";
+import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.js";
+import { compact, message, onAbort } from "./util.js";
 
 interface Callbacks {
 	onSession(session: AgentSession): void;
@@ -21,11 +21,9 @@ interface Callbacks {
 	onText(text: string): void;
 	onTurn(): void;
 	onTool(name: string): void;
-	onUsage(usage: Partial<AgentRecord["usage"]>): void;
 }
 
 export async function runNew(
-	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	request: RunRequest,
 	callbacks: Callbacks,
@@ -34,9 +32,8 @@ export async function runNew(
 	const signal = request.parentSignal;
 	if (signal?.aborted) throw new Error("Subagent cancelled before session setup.");
 	const cwd = request.worktree?.cwd ?? request.cwd;
-	const configCwd = request.worktree?.cwd ?? request.configCwd;
-	let systemPrompt = buildSystemPrompt(definition, ctx, cwd, configCwd);
-	const loader = createLoader(definition, configCwd, () => systemPrompt);
+	let systemPrompt = buildSystemPrompt(definition, ctx, cwd);
+	const loader = createLoader(definition, cwd, () => systemPrompt);
 	await loader.reload();
 	if (signal?.aborted) throw new Error("Subagent cancelled during resource setup.");
 	const skills = skillCatalog(loader);
@@ -49,12 +46,11 @@ export async function runNew(
 	if (!model) throw new Error(`Agent configuration error in ${definition.path}: no configured model is available.`);
 	const preferredName = modelNames[0] ?? "parent";
 	try {
-		const preferred = resolveModel(preferredName, ctx, definition);
-		if (preferred) model = preferred;
+		resolveModel(preferredName, ctx, definition);
 	} catch {
 		callbacks.onFallback(model, `Higher-priority model ${preferredName} is unavailable.`);
 	}
-	const settingsManager = SettingsManager.create(configCwd, getAgentDir());
+	const settingsManager = SettingsManager.create(cwd, getAgentDir());
 	const sessionDir = resolveSessionDir(definition.sessionDir, cwd);
 	const sessionManager = definition.persistSession
 		? SessionManager.create(cwd, sessionDir ?? settingsManager.getSessionDir?.())
@@ -81,7 +77,7 @@ export async function runNew(
 			session = (await createAgentSession(options)).session;
 			break;
 		} catch (error) {
-			const fallback = nextModel(model, models);
+			const fallback = remainingModels(model, models)[0];
 			if (!fallback) throw error;
 			options.model = fallback;
 			model = fallback;
@@ -110,7 +106,7 @@ export async function runNew(
 	if (request.fork) copyParentConversation(ctx, session);
 	callbacks.onSession(session);
 	const stopEvents = observe(session, request.maxTurns ?? definition.maxTurns, callbacks, signal);
-	const stopAbort = forwardAbort(signal, session);
+	const stopAbort = onAbort(signal, () => void session.abort());
 	const start = session.messages.length;
 	let result: { text: string; error?: string };
 	try {
@@ -158,7 +154,7 @@ export async function resumeSession(
 	if (options.thinking) session.setThinkingLevel(options.thinking);
 	const start = session.messages.length;
 	const stopEvents = observe(session, options.maxTurns, options.callbacks, options.signal);
-	const stopAbort = forwardAbort(options.signal, session);
+	const stopAbort = onAbort(options.signal, () => void session.abort());
 	try {
 		return await promptWithFallbacks(session, prompt, start, {
 			signal: options.signal,
@@ -173,14 +169,6 @@ export async function resumeSession(
 
 export function resolveThinking(input: AgentDefinition["thinking"], ctx: ExtensionContext): ThinkingLevel | undefined {
 	return input === "parent" ? (ctx.thinkingLevel as ThinkingLevel | undefined) : input;
-}
-
-export function resolveModelOverride(
-	input: string | undefined,
-	ctx: ExtensionContext,
-	definition?: AgentDefinition,
-): Model<Api> | undefined {
-	return resolveModel(input, ctx, definition);
 }
 
 function createLoader(definition: AgentDefinition, cwd: string, systemPrompt: () => string): DefaultResourceLoader {
@@ -230,16 +218,13 @@ function skillCatalog(loader: DefaultResourceLoader): string {
 	return loader
 		.getSkills()
 		.skills.map((skill) => {
-			const raw = String(skill.description ?? "")
-				.replace(/\s+/gu, " ")
-				.trim();
-			const description = raw.length > 240 ? `${raw.slice(0, 239)}…` : raw;
+			const description = compact(String(skill.description ?? ""), 240);
 			return `- ${skill.name}: ${description || "No description"} (${skill.filePath})`;
 		})
 		.join("\n");
 }
 
-function buildSystemPrompt(definition: AgentDefinition, ctx: ExtensionContext, cwd: string, configCwd: string): string {
+function buildSystemPrompt(definition: AgentDefinition, ctx: ExtensionContext, cwd: string): string {
 	const body = definitionBody(definition);
 	const bridge = `<sub_agent_context>
 You are the selected ${definition.name} subagent. Work only on the assigned task.
@@ -250,7 +235,7 @@ Use direct tools instead of shell substitutes where practical. Be concise and re
 # Environment
 Working directory: ${cwd}`;
 	const memory = definition.memory
-		? `\n\n# Memory\nMemory scope: ${definition.memory}. Use ${memoryPath(definition, configCwd)} when the task requires persistent memory; do not read it speculatively.`
+		? `\n\n# Memory\nMemory scope: ${definition.memory}. Use ${memoryPath(definition, cwd)} when the task requires persistent memory; do not read it speculatively.`
 		: "";
 	if (definition.promptMode === "append") {
 		return `${ctx.getSystemPrompt()}\n\n${bridge}\n\n${environment}\n\n<agent_instructions>\n${body}\n</agent_instructions>${memory}`;
@@ -309,17 +294,12 @@ function copyParentConversation(ctx: ExtensionContext, session: AgentSession): v
 	const resultIds = new Set(
 		selected.filter((message) => message.role === "toolResult").map((message) => message.toolCallId),
 	);
+	const callIds = new Set<string>();
 	for (const message of selected) {
 		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
 		message.content = message.content.filter((part) => part.type !== "toolCall" || resultIds.has(part.id));
+		for (const part of message.content) if (part.type === "toolCall") callIds.add(part.id);
 	}
-	const callIds = new Set(
-		selected.flatMap((message) =>
-			message.role === "assistant" && Array.isArray(message.content)
-				? message.content.filter((part) => part.type === "toolCall").map((part) => part.id)
-				: [],
-		),
-	);
 	const consistent = selected.filter((message) => {
 		if (message.role === "toolResult") return callIds.has(message.toolCallId);
 		if (message.role === "assistant" && Array.isArray(message.content)) return message.content.length > 0;
@@ -371,16 +351,6 @@ function observe(
 				);
 			} else if (limitAction === "abort") void session.abort();
 		}
-		if (event.type === "message_end" && event.message.role === "assistant") {
-			const usage = event.message.usage;
-			callbacks.onUsage({
-				input: usage?.input ?? 0,
-				output: usage?.output ?? 0,
-				cacheRead: usage?.cacheRead ?? 0,
-				cacheWrite: usage?.cacheWrite ?? 0,
-				cost: usage?.cost?.total ?? 0,
-			});
-		}
 	});
 }
 
@@ -419,16 +389,20 @@ export async function promptWithFallbacks(
 	start: number,
 	options: FallbackPromptOptions,
 ): Promise<{ text: string; error?: string }> {
-	let currentError: string | undefined;
-	try {
-		if (!options.signal?.aborted) await session.prompt(prompt);
-	} catch (error) {
-		currentError = message(error);
-	}
-	if (options.signal?.aborted) return { text: lastAssistantText(session, start) };
-	currentError ??= finalError(session, start);
-	if (!currentError) return { text: lastAssistantText(session, start) };
+	const attempt = async (text: string, errorStart: number): Promise<{ aborted: boolean; error?: string }> => {
+		let error: string | undefined;
+		try {
+			if (!options.signal?.aborted) await session.prompt(text);
+		} catch (caught) {
+			error = message(caught);
+		}
+		if (options.signal?.aborted) return { aborted: true };
+		return { aborted: false, error: error ?? finalError(session, errorStart) };
+	};
+	const first = await attempt(prompt, start);
+	if (first.aborted || !first.error) return { text: lastAssistantText(session, start) };
 
+	let currentError = first.error;
 	const failures = [`Primary model failed: ${currentError}`];
 	for (const fallback of remainingModels(session.model, options.models)) {
 		try {
@@ -444,17 +418,12 @@ export async function promptWithFallbacks(
 			"Continue the original task from the existing conversation state using this fallback model.",
 			"Do not repeat tool actions that already completed successfully.",
 		].join(" ");
-		currentError = undefined;
-		try {
-			if (!options.signal?.aborted) await session.prompt(continuation);
-		} catch (error) {
-			currentError = message(error);
-		}
-		if (options.signal?.aborted) return { text: lastAssistantText(session, start) };
-		currentError ??= finalError(session, retryStart);
-		if (!currentError) {
+		const retry = await attempt(continuation, retryStart);
+		if (retry.aborted) return { text: lastAssistantText(session, start) };
+		if (!retry.error) {
 			return { text: lastAssistantText(session, retryStart) || lastAssistantText(session, start) };
 		}
+		currentError = retry.error;
 		failures.push(`Fallback model ${modelName(fallback)} failed: ${currentError}`);
 	}
 	return { text: lastAssistantText(session, start), error: failures.join("; ") };
@@ -472,20 +441,12 @@ function remainingModels(current: Model<Api> | undefined, resolve?: () => Model<
 	return index >= 0 ? models.slice(index + 1) : models.filter((model) => !sameModel(model, current));
 }
 
-function nextModel(current: Model<Api> | undefined, resolve?: () => Model<Api>[]): Model<Api> | undefined {
-	return remainingModels(current, resolve)[0];
-}
-
 function modelName(model: Model<Api>): string {
 	return `${model.provider}/${model.id}`;
 }
 
 function sameModel(left: Model<Api>, right: Model<Api>): boolean {
 	return left.provider === right.provider && left.id === right.id;
-}
-
-function message(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 export function resolveModels(
@@ -503,7 +464,7 @@ export function resolveModels(
 	return models;
 }
 
-function resolveModel(
+export function resolveModel(
 	input: string | undefined,
 	ctx: ExtensionContext,
 	definition?: AgentDefinition,
@@ -554,14 +515,6 @@ function extensionName(path: string): string {
 	return (
 		base === "index.ts" || base === "index.js" ? basename(dirname(path)) : base.replace(/\.(?:ts|js)$/u, "")
 	).toLowerCase();
-}
-
-function forwardAbort(signal: AbortSignal | undefined, session: AgentSession): () => void {
-	if (!signal) return () => undefined;
-	const abort = () => void session.abort();
-	if (signal.aborted) abort();
-	else signal.addEventListener("abort", abort, { once: true });
-	return () => signal.removeEventListener("abort", abort);
 }
 
 function lastAssistantText(session: AgentSession, start: number): string {
@@ -630,23 +583,6 @@ export function compactTranscript(session: AgentSession): string {
 	return lines.join("\n\n");
 }
 
-export function fullConversation(session: AgentSession, maxChars = Number.POSITIVE_INFINITY): string {
-	const parts: string[] = [];
-	let chars = 0;
-	const messages = session.messages;
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		const label = message.role === "toolResult" ? `Tool result (${message.toolName ?? "tool"})` : title(message.role);
-		const content = "content" in message ? contentText(message.content) : "";
-		const part = `${label}:\n${content || "(no text)"}`;
-		parts.unshift(part);
-		chars += part.length + 2;
-		if (chars >= maxChars) break;
-	}
-	const text = parts.join("\n\n");
-	return chars > maxChars ? `[Earlier conversation omitted]\n\n${text.slice(-maxChars)}` : text;
-}
-
 function resolveSessionDir(value: string | undefined, cwd: string): string | undefined {
 	if (!value) return undefined;
 	if (value === "~" || value.startsWith("~/")) return resolve(homedir(), value.slice(2));
@@ -655,13 +591,4 @@ function resolveSessionDir(value: string | undefined, cwd: string): string | und
 
 function escapeXml(value: string): string {
 	return value.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;").replace(/</gu, "&lt;");
-}
-
-function compact(value: string, limit: number): string {
-	const text = value.replace(/\s+/gu, " ").trim();
-	return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
-}
-
-function title(value: string): string {
-	return value ? value[0].toUpperCase() + value.slice(1) : "Message";
 }

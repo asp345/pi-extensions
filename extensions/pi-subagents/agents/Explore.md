@@ -1,6 +1,5 @@
 ---
 description: Lightweight agent for bounded file, symbol, reference, and excerpt discovery only
-display_name: Explore
 tools: read, bash, grep, find, ls
 extensions: true
 skills: true

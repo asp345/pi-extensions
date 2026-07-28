@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -19,7 +19,7 @@ registerHooks({
 });
 
 const { parseDefinition } = await import("./definitions.ts");
-const { promptWithFallbacks, resolveModelOverride, resolveThinking, resumeSession, turnLimitAction } = await import(
+const { promptWithFallbacks, resolveModel, resolveThinking, resumeSession, turnLimitAction } = await import(
 	"./runner.ts"
 );
 
@@ -40,8 +40,8 @@ test("agent Markdown accepts ordered models", () => {
 test("the parent model can be selected explicitly", () => {
 	const parent = { provider: "test", id: "parent" } as Model<Api>;
 	const ctx = { model: parent, thinkingLevel: "xhigh" } as unknown as ExtensionContext;
-	assert.equal(resolveModelOverride("parent", ctx), parent);
-	assert.equal(resolveModelOverride(undefined, ctx), parent);
+	assert.equal(resolveModel("parent", ctx), parent);
+	assert.equal(resolveModel(undefined, ctx), parent);
 	assert.equal(resolveThinking("parent", ctx), "xhigh");
 	assert.equal(resolveThinking("low", ctx), "low");
 });
@@ -52,7 +52,6 @@ const callbacks = {
 	onText: () => undefined,
 	onTurn: () => undefined,
 	onTool: () => undefined,
-	onUsage: () => undefined,
 };
 
 test("a failed model tries later models until one succeeds", async () => {
