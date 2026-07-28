@@ -28,6 +28,7 @@
 	],
 	"pi": {
 		"extensions": [
+			"./extensions/herdr-handoff/index.ts",
 			"./extensions/github-copilot-auto/index.ts",
 			"./extensions/openrouter-metadata/index.ts",
 			"./extensions/question/index.ts",
