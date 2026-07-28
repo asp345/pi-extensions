@@ -1,15 +1,15 @@
 import { createServer } from "node:http";
 import {
-	anthropicMessagesApi,
 	type Api,
 	type AssistantMessageEventStream,
+	anthropicMessagesApi,
 	type Context,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai/compat";
-import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
@@ -119,6 +119,7 @@ async function callbackServer(expectedState: string) {
 }
 
 async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) {
+	let status = 0;
 	let error = "";
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const response = await fetch(TOKEN_URL, {
@@ -128,6 +129,7 @@ async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) 
 			signal,
 		});
 		if (response.ok) return response;
+		status = response.status;
 		error = `${response.status} ${await response.text()}`;
 		if (
 			response.headers.get("x-should-retry") === "false" ||
@@ -140,7 +142,24 @@ async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) 
 			setTimeout(resolve, retryAfter > 0 ? Math.min(retryAfter * 1_000, 30_000) : 5_000 * 2 ** attempt),
 		);
 	}
-	throw new OAuthRequestError(Number(error.split(" ", 1)[0]) || 0, `Anthropic OAuth request failed: ${error}`);
+	throw new OAuthRequestError(status, `Anthropic OAuth request failed: ${error}`);
+}
+
+async function requestCredentials(
+	body: Record<string, string>,
+	fallbackRefresh: string,
+	signal?: AbortSignal,
+): Promise<OAuthCredentials> {
+	const token = (await (await tokenRequest(body, signal)).json()) as {
+		access_token: string;
+		refresh_token?: string;
+		expires_in: number;
+	};
+	return {
+		access: token.access_token,
+		refresh: token.refresh_token || fallbackRefresh,
+		expires: Date.now() + token.expires_in * 1_000 - 5 * 60_000,
+	};
 }
 
 async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
@@ -149,22 +168,22 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 	let redirect = REMOTE_REDIRECT;
 	let authorization: Partial<Authorization> | undefined;
 	let server: Awaited<ReturnType<typeof callbackServer>> | undefined;
-
 	try {
 		server = await callbackServer(state);
-		redirect = LOCAL_REDIRECT;
-		callbacks.onAuth({
-			url: authorizationUrl(challenge, state, redirect),
-			instructions: "Complete login in your browser, or paste the final redirect URL.",
-		});
-		const result = callbacks.onManualCodeInput
-			? await Promise.race([server.result, callbacks.onManualCodeInput().then(parseAuthorization)])
-			: await server.result;
-		authorization = result;
-	} catch (error) {
-		if (server) throw error;
-	} finally {
-		server?.close();
+	} catch {}
+	if (server) {
+		try {
+			redirect = LOCAL_REDIRECT;
+			callbacks.onAuth({
+				url: authorizationUrl(challenge, state, redirect),
+				instructions: "Complete login in your browser, or paste the final redirect URL.",
+			});
+			authorization = callbacks.onManualCodeInput
+				? await Promise.race([server.result, callbacks.onManualCodeInput().then(parseAuthorization)])
+				: await server.result;
+		} finally {
+			server.close();
+		}
 	}
 
 	if (!authorization?.code) {
@@ -180,7 +199,7 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 		throw new Error("OAuth state mismatch.");
 	}
 
-	const response = await tokenRequest(
+	return requestCredentials(
 		{
 			grant_type: "authorization_code",
 			client_id: CLIENT_ID,
@@ -189,37 +208,21 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 			redirect_uri: redirect,
 			code_verifier: verifier,
 		},
+		"",
 		callbacks.signal,
 	);
-	const token = (await response.json()) as {
-		access_token: string;
-		refresh_token: string;
-		expires_in: number;
-	};
-	return {
-		access: token.access_token,
-		refresh: token.refresh_token,
-		expires: Date.now() + token.expires_in * 1_000 - 5 * 60_000,
-	};
 }
 
 async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials> {
 	try {
-		const response = await tokenRequest({
-			grant_type: "refresh_token",
-			client_id: CLIENT_ID,
-			refresh_token: credentials.refresh,
-		});
-		const token = (await response.json()) as {
-			access_token: string;
-			refresh_token?: string;
-			expires_in: number;
-		};
-		return {
-			access: token.access_token,
-			refresh: token.refresh_token || credentials.refresh,
-			expires: Date.now() + token.expires_in * 1_000 - 5 * 60_000,
-		};
+		return await requestCredentials(
+			{
+				grant_type: "refresh_token",
+				client_id: CLIENT_ID,
+				refresh_token: credentials.refresh,
+			},
+			credentials.refresh,
+		);
 	} catch (error) {
 		const transient = error instanceof OAuthRequestError && (error.status === 429 || error.status >= 500);
 		if (transient && credentials.expires > Date.now()) {
@@ -263,7 +266,7 @@ export default function anthropicOAuth(pi: ExtensionAPI): void {
 			login,
 			refreshToken: refresh,
 			getApiKey: (credentials: OAuthCredentials) => credentials.access,
-		} as unknown as ProviderConfig["oauth"],
+		},
 		streamSimple: stream,
 	});
 }

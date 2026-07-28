@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+	type AgyRequestScope,
 	AgyRequestSessionStore,
 	ANTIGRAVITY_ENDPOINT,
 	authorizeAntigravity,
@@ -13,15 +14,14 @@ import {
 	refreshAntigravityToken,
 	resolveModelForHeaderStyle,
 	toGeminiSchema,
-	type AgyRequestScope,
 } from "@cortexkit/antigravity-auth-core";
 import {
-	calculateCost,
-	createAssistantMessageEventStream,
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
 	type Context,
+	calculateCost,
+	createAssistantMessageEventStream,
 	type ImageContent,
 	type Message,
 	type Model,
@@ -31,14 +31,12 @@ import {
 	type TextContent,
 	type ThinkingContent,
 	type ThinkingLevel,
-	type Tool,
 	type ToolCall,
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER_ID = "google-antigravity";
-const STREAM_ACTION = "streamGenerateContent";
 const TRAILING_USAGE_TIMEOUT = 1_000;
 const requestSessions = new AgyRequestSessionStore("");
 const refreshByAccessToken = new Map<string, string>();
@@ -100,11 +98,7 @@ export function requestSessionKey(conversation: string, credential: string): str
 function rememberRefresh(access: string, refresh: string): void {
 	if (!access) return;
 	refreshByAccessToken.delete(access);
-	while (refreshByAccessToken.size >= 4) {
-		const oldest = refreshByAccessToken.keys().next().value;
-		if (oldest === undefined) break;
-		refreshByAccessToken.delete(oldest);
-	}
+	while (refreshByAccessToken.size >= 4) refreshByAccessToken.delete(refreshByAccessToken.keys().next().value!);
 	refreshByAccessToken.set(access, refresh);
 }
 
@@ -133,10 +127,10 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 }
 
 async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials> {
-	const [refreshToken = credentials.refresh] = credentials.refresh.split("|");
-	const result = await refreshAntigravityToken(refreshToken);
 	const separator = credentials.refresh.indexOf("|");
+	const refreshToken = separator === -1 ? credentials.refresh : credentials.refresh.slice(0, separator);
 	const project = separator === -1 ? "" : credentials.refresh.slice(separator);
+	const result = await refreshAntigravityToken(refreshToken);
 	return {
 		refresh: `${result.refresh}${project}`,
 		access: result.access,
@@ -144,15 +138,11 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 	};
 }
 
-function sanitize(text: string): string {
-	return text.replace(/[\uD800-\uDFFF]/gu, "\uFFFD");
-}
-
 function userParts(content: Array<TextContent | ImageContent>): GeminiPart[] {
 	const parts: GeminiPart[] = [];
 	for (const block of content) {
 		if (block.type === "text" && block.text) {
-			parts.push({ text: sanitize(block.text) });
+			parts.push({ text: block.text.toWellFormed() });
 		} else if (block.type === "image" && block.data) {
 			parts.push({
 				inlineData: { mimeType: block.mimeType, data: block.data },
@@ -168,14 +158,14 @@ function assistantParts(message: AssistantMessage, preserveSignatures: boolean):
 		if (block.type === "thinking") {
 			if (preserveSignatures && block.thinking) {
 				parts.push({
-					text: sanitize(block.thinking),
+					text: block.thinking.toWellFormed(),
 					thought: true,
 					...(block.thinkingSignature ? { thoughtSignature: block.thinkingSignature } : {}),
 				});
 			}
 		} else if (block.type === "text" && block.text.trim()) {
 			parts.push({
-				text: sanitize(block.text),
+				text: block.text.toWellFormed(),
 				...(preserveSignatures && block.textSignature ? { thoughtSignature: block.textSignature } : {}),
 			});
 		} else if (block.type === "toolCall") {
@@ -200,11 +190,10 @@ function resultResponse(message: ToolResultMessage): Record<string, unknown> {
 	return message.isError ? { error: text || "Error" } : { output: text };
 }
 
-function convertMessages(messages: Message[], target: { provider: string; model: string }): GeminiContent[] {
+function convertMessages(messages: Message[], target: Model<Api>): GeminiContent[] {
 	const output: GeminiContent[] = [];
 	const targetCalls = new Map<string, boolean>();
-	const isTarget = (message: AssistantMessage) =>
-		message.provider === target.provider && message.model === target.model;
+	const isTarget = (message: AssistantMessage) => message.provider === target.provider && message.model === target.id;
 
 	for (const message of messages) {
 		if (message?.role !== "assistant") continue;
@@ -219,7 +208,7 @@ function convertMessages(messages: Message[], target: { provider: string; model:
 			const parts =
 				typeof message.content === "string"
 					? message.content.trim()
-						? [{ text: sanitize(message.content) }]
+						? [{ text: message.content.toWellFormed() }]
 						: []
 					: userParts(message.content);
 			if (parts.length) output.push({ role: "user", parts });
@@ -246,34 +235,26 @@ function convertMessages(messages: Message[], target: { provider: string; model:
 	return output;
 }
 
-function convertTools(tools?: Tool[]): GeminiRequest["tools"] {
-	if (!tools?.length) return undefined;
-	return [
-		{
-			functionDeclarations: tools.map((tool) => ({
-				name: tool.name,
-				description: tool.description,
-				parameters: toGeminiSchema(tool.parameters),
-			})),
-		},
-	];
-}
-
 function geminiRequest(context: Context, model: Model<Api>): GeminiRequest {
-	const request: GeminiRequest = {
-		contents: convertMessages(context.messages, {
-			provider: model.provider,
-			model: model.id,
-		}),
+	return {
+		contents: convertMessages(context.messages, model),
+		...(context.tools?.length
+			? {
+					tools: [
+						{
+							functionDeclarations: context.tools.map((tool) => ({
+								name: tool.name,
+								description: tool.description,
+								parameters: toGeminiSchema(tool.parameters),
+							})),
+						},
+					],
+				}
+			: {}),
+		...(context.systemPrompt?.trim()
+			? { systemInstruction: { parts: [{ text: context.systemPrompt.toWellFormed() }] } }
+			: {}),
 	};
-	const tools = convertTools(context.tools);
-	if (tools) request.tools = tools;
-	if (context.systemPrompt?.trim()) {
-		request.systemInstruction = {
-			parts: [{ text: sanitize(context.systemPrompt) }],
-		};
-	}
-	return request;
 }
 
 const ERROR_FINISH_REASONS: Record<string, string> = {
@@ -351,11 +332,7 @@ function payloadError(value: unknown): string | undefined {
 		const message = (error as { message?: unknown }).message;
 		if (typeof message === "string") return message;
 	}
-	try {
-		return JSON.stringify(error).slice(0, 500);
-	} catch {
-		return "unknown in-band error";
-	}
+	return JSON.stringify(error).slice(0, 500);
 }
 
 export async function* parseSse(response: Response): AsyncGenerator<GeminiChunk> {
@@ -469,7 +446,7 @@ async function sendRequest(
 	}
 	const requestId = finalize(request, wireModel, requestSessions.beginRequest(sessionKey));
 	return fetchWithAgyCliTransport(
-		`${ANTIGRAVITY_ENDPOINT}/v1internal:${STREAM_ACTION}?alt=sse`,
+		`${ANTIGRAVITY_ENDPOINT}/v1internal:streamGenerateContent?alt=sse`,
 		{
 			method: "POST",
 			headers: {
@@ -550,34 +527,28 @@ function streamAntigravity(
 
 			const content = output.content as Array<TextContent | ThinkingContent | ToolCall>;
 			const pending: { signature?: string } = {};
-			let textIndex = -1;
-			let thinkingIndex = -1;
+			let openIndex = -1;
 			let terminal = false;
-			const closeText = () => {
-				if (textIndex === -1) return;
-				const block = content[textIndex];
+			const closeOpen = () => {
+				if (openIndex === -1) return;
+				const block = content[openIndex];
 				if (block?.type === "text") {
-					stream.push({
-						type: "text_end",
-						contentIndex: textIndex,
-						content: block.text,
-						partial: output,
-					});
+					stream.push({ type: "text_end", contentIndex: openIndex, content: block.text, partial: output });
+				} else if (block?.type === "thinking") {
+					stream.push({ type: "thinking_end", contentIndex: openIndex, content: block.thinking, partial: output });
 				}
-				textIndex = -1;
+				openIndex = -1;
 			};
-			const closeThinking = () => {
-				if (thinkingIndex === -1) return;
-				const block = content[thinkingIndex];
-				if (block?.type === "thinking") {
-					stream.push({
-						type: "thinking_end",
-						contentIndex: thinkingIndex,
-						content: block.thinking,
-						partial: output,
-					});
-				}
-				thinkingIndex = -1;
+			const openBlock = (type: "text" | "thinking", signature?: string) => {
+				if (content[openIndex]?.type === type) return;
+				closeOpen();
+				content.push(
+					type === "thinking"
+						? { type: "thinking", thinking: "", ...(signature ? { thinkingSignature: signature } : {}) }
+						: { type: "text", text: "", ...(signature ? { textSignature: signature } : {}) },
+				);
+				openIndex = content.length - 1;
+				stream.push({ type: `${type}_start`, contentIndex: openIndex, partial: output });
 			};
 
 			const iterator = parseSse(response)[Symbol.asyncIterator]();
@@ -593,86 +564,43 @@ function streamAntigravity(
 				const candidate = chunk.candidates?.[0];
 				for (const part of candidate?.content?.parts ?? []) {
 					if (!part.thought && !part.functionCall && !part.text && part.thoughtSignature) {
-						const block = textIndex === -1 ? undefined : content[textIndex];
+						const block = openIndex === -1 ? undefined : content[openIndex];
 						if (block?.type === "text") block.textSignature = part.thoughtSignature;
 						else pending.signature = part.thoughtSignature;
 						continue;
 					}
 					const toolCall = toToolCall(part, pending);
 					if (toolCall) {
-						closeText();
-						closeThinking();
+						closeOpen();
 						content.push(toolCall);
 						const index = content.length - 1;
 						stream.push({ type: "toolcall_start", contentIndex: index, partial: output });
-						stream.push({
-							type: "toolcall_end",
-							contentIndex: index,
-							toolCall,
-							partial: output,
-						});
+						stream.push({ type: "toolcall_end", contentIndex: index, toolCall, partial: output });
 						output.stopReason = "toolUse";
 					} else if (part.thought && part.text) {
-						closeText();
-						if (thinkingIndex === -1) {
-							content.push({
-								type: "thinking",
-								thinking: "",
-								...(part.thoughtSignature ? { thinkingSignature: part.thoughtSignature } : {}),
-							});
-							thinkingIndex = content.length - 1;
-							stream.push({
-								type: "thinking_start",
-								contentIndex: thinkingIndex,
-								partial: output,
-							});
-						}
-						const block = content[thinkingIndex];
+						openBlock("thinking", part.thoughtSignature);
+						const block = content[openIndex];
 						if (block?.type === "thinking") {
 							block.thinking += part.text;
-							if (part.thoughtSignature) {
-								block.thinkingSignature = part.thoughtSignature;
-							}
-							stream.push({
-								type: "thinking_delta",
-								contentIndex: thinkingIndex,
-								delta: part.text,
-								partial: output,
-							});
+							if (part.thoughtSignature) block.thinkingSignature = part.thoughtSignature;
+							stream.push({ type: "thinking_delta", contentIndex: openIndex, delta: part.text, partial: output });
 						}
 					} else if (part.text) {
-						closeThinking();
-						if (textIndex === -1) {
+						if (content[openIndex]?.type !== "text") {
 							const signature = part.thoughtSignature ?? pending.signature;
 							pending.signature = undefined;
-							content.push({
-								type: "text",
-								text: "",
-								...(signature ? { textSignature: signature } : {}),
-							});
-							textIndex = content.length - 1;
-							stream.push({
-								type: "text_start",
-								contentIndex: textIndex,
-								partial: output,
-							});
+							openBlock("text", signature);
 						}
-						const block = content[textIndex];
+						const block = content[openIndex];
 						if (block?.type === "text") {
 							block.text += part.text;
 							if (part.thoughtSignature) block.textSignature = part.thoughtSignature;
-							stream.push({
-								type: "text_delta",
-								contentIndex: textIndex,
-								delta: part.text,
-								partial: output,
-							});
+							stream.push({ type: "text_delta", contentIndex: openIndex, delta: part.text, partial: output });
 						}
 					}
 				}
 				if (candidate?.finishReason) {
-					closeText();
-					closeThinking();
+					closeOpen();
 					applyFinishReason(output, candidate.finishReason);
 					terminal = true;
 					if (!model.id.toLowerCase().includes("gpt-oss") || chunk.usageMetadata) {
@@ -693,11 +621,7 @@ function streamAntigravity(
 			if (output.stopReason === "error") {
 				stream.push({ type: "error", reason: "error", error: output });
 			} else {
-				stream.push({
-					type: "done",
-					reason: output.stopReason as "stop" | "length" | "toolUse",
-					message: output,
-				});
+				stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
 				if (output.stopReason === "stop" || output.stopReason === "length") {
 					requestSessions.completeExecution(sessionKey);
 				}

@@ -1,14 +1,14 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	lazyStream,
 	type Api,
 	type Context,
+	lazyStream,
 	type Model,
 	type Provider,
 	type ProviderHeaders,
 	type SimpleStreamOptions,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const PROVIDER_ID = "github-copilot";
 const AUTO_MODEL_ID = "auto";
@@ -58,7 +58,7 @@ function apiForModel(id: string): Api {
 	return "openai-completions";
 }
 
-function poolModel(id: string, name: string, api: Api = apiForModel(id)): Model<Api> {
+function poolModel(id: string, name: string, api: Api): Model<Api> {
 	const anthropic = api === "anthropic-messages";
 	const responses = api === "openai-responses";
 	let compat: Record<string, unknown>;
@@ -102,6 +102,10 @@ function poolModel(id: string, name: string, api: Api = apiForModel(id)): Model<
 			: undefined,
 		compat,
 	};
+}
+
+function stringList(value: unknown): string[] {
+	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 function latestUserPrompt(context: Context): { prompt: string; hasImage: boolean } {
@@ -165,9 +169,7 @@ async function createAutoSession(baseUrl: string, apiKey: string, signal?: Abort
 		signal,
 	);
 
-	const availableModels = Array.isArray(response.available_models)
-		? response.available_models.filter((value): value is string => typeof value === "string")
-		: [];
+	const availableModels = stringList(response.available_models);
 	if (availableModels.length === 0 || typeof response.session_token !== "string") {
 		throw new Error("Copilot Auto returned an invalid model session");
 	}
@@ -209,31 +211,13 @@ async function routePrompt(
 		signal,
 	);
 
-	const candidates = Array.isArray(response.candidate_models)
-		? response.candidate_models.filter((value): value is string => typeof value === "string")
-		: [];
+	const candidates = stringList(response.candidate_models);
 	const chosen = typeof response.chosen_model === "string" ? response.chosen_model : candidates[0];
 	if (!chosen) throw new Error("Copilot Auto router did not choose a model");
 
 	state.chosenModel = chosen;
-	if (
-		response.reasoning_bucket === "low" ||
-		response.reasoning_bucket === "medium" ||
-		response.reasoning_bucket === "high"
-	) {
-		state.reasoningBucket = response.reasoning_bucket;
-	} else {
-		state.reasoningBucket = undefined;
-	}
-}
-
-async function fetchAutoPool(baseUrl: string, apiKey: string): Promise<string[]> {
-	try {
-		const session = await createAutoSession(baseUrl, apiKey);
-		return session.availableModels;
-	} catch {
-		return [];
-	}
+	const bucket = response.reasoning_bucket;
+	state.reasoningBucket = bucket === "low" || bucket === "medium" || bucket === "high" ? bucket : undefined;
 }
 
 function wrapProvider(base: Provider, pool: string[]): Provider {
@@ -249,7 +233,6 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 	const poolIds = new Set(pool);
 	const managedIds = new Set([AUTO_MODEL_ID, ...pool.map((id) => `${AUTO_PREFIX}${id}`)]);
 	const poolModels = pool.map((id) => templateFor(id, `${AUTO_PREFIX}${id}`));
-	const poolModelByRealId = new Map(pool.map((id, index) => [id, poolModels[index]]));
 	const sessions = new Map<string, AutoSession>();
 
 	async function prepare(
@@ -260,7 +243,8 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 		const apiKey = options?.apiKey;
 		if (!apiKey) throw new Error("GitHub Copilot authentication is unavailable");
 
-		const forced = poolIds.has(realModelId(requestModel.id)) ? realModelId(requestModel.id) : undefined;
+		const realId = realModelId(requestModel.id);
+		const forced = poolIds.has(realId) ? realId : undefined;
 		const baseUrl = requestModel.baseUrl ?? base.baseUrl ?? routerModel.baseUrl ?? DEFAULT_BASE_URL;
 
 		const fingerprint = await credentialFingerprint(apiKey);
@@ -283,7 +267,7 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 		}
 		if (!state.chosenModel) throw new Error("Copilot Auto did not select a model");
 
-		const template = poolModelByRealId.get(state.chosenModel) ?? templateFor(state.chosenModel, state.chosenModel);
+		const template = templateFor(state.chosenModel, state.chosenModel);
 		return {
 			model: { ...template, id: state.chosenModel, name: state.chosenModel, baseUrl },
 			options: {
@@ -305,16 +289,11 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 		});
 
 	return {
-		id: base.id,
-		name: base.name,
-		baseUrl: base.baseUrl,
-		headers: base.headers,
-		auth: base.auth,
+		...base,
 		getModels: () => {
 			const models = base.getModels().filter((entry) => !managedIds.has(entry.id));
 			return [routerModel, ...poolModels, ...models];
 		},
-		refreshModels: base.refreshModels ? (context) => base.refreshModels!(context) : undefined,
 		filterModels: (models, credential) => {
 			const remaining = models.filter((entry) => !managedIds.has(entry.id));
 			const filtered = base.filterModels?.(remaining, credential) ?? remaining;
@@ -345,7 +324,7 @@ export default function githubCopilotAuto(pi: ExtensionAPI) {
 				const apiKey = resolved?.auth.apiKey;
 				const baseUrl = resolved?.auth.baseUrl ?? base.baseUrl ?? DEFAULT_BASE_URL;
 				if (!apiKey) return;
-				const pool = await fetchAutoPool(baseUrl, apiKey);
+				const { availableModels: pool } = await createAutoSession(baseUrl, apiKey);
 				if (pool.length > 0) {
 					const latest = ctx.modelRegistry.getProvider(PROVIDER_ID);
 					const source = latest && !latest.getModels().some((model) => model.id === AUTO_MODEL_ID) ? latest : base;
