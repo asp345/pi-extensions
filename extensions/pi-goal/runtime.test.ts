@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createGoal } from "./state.ts";
+import { createGoal } from "./runtime.ts";
 
 registerHooks({
 	resolve(specifier, context, nextResolve) {

@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
 
-export type TaskStatus = "running" | "completed" | "failed" | "stopped";
+type TaskStatus = "running" | "completed" | "failed" | "stopped";
 
 export interface TaskSnapshot {
 	id: string;
@@ -29,7 +29,8 @@ export interface TaskEvent {
 	output: string;
 }
 
-type ManagedTask = TaskSnapshot & {
+type ManagedTask = {
+	info: TaskSnapshot;
 	child: ReturnType<typeof spawn>;
 	output: string;
 	closed: boolean;
@@ -49,7 +50,7 @@ export interface RuntimeOptions {
 }
 
 const BUFFER_LIMIT = 120_000;
-export const READ_LIMIT = 5_000;
+const READ_LIMIT = 5_000;
 const ALERT_LIMIT = 3_000;
 const TIMEOUT_MS = 10 * 60_000;
 const NOTIFY_DEBOUNCE_MS = 1500;
@@ -60,21 +61,7 @@ export function tail(text: string, limit = READ_LIMIT): string {
 }
 
 function snapshot(task: ManagedTask): TaskSnapshot {
-	const {
-		child: _child,
-		output: _output,
-		closed: _closed,
-		stopRequested: _stop,
-		notifyTimer: _notify,
-		expiryTimer: _expiry,
-		forceTimer: _force,
-		logBytes: _logBytes,
-		pendingNotify: _pendingNotify,
-		notifyDeadline: _notifyDeadline,
-		flushOutput: _flushOutput,
-		...value
-	} = task;
-	return value;
+	return { ...task.info };
 }
 
 export class BackgroundRuntime {
@@ -97,26 +84,18 @@ export class BackgroundRuntime {
 	}
 
 	list(): TaskSnapshot[] {
-		return [...this.tasks.values()].sort((a, b) => b.startedAt - a.startedAt).map(snapshot);
+		return [...this.tasks.values()].sort((a, b) => b.info.startedAt - a.info.startedAt).map(snapshot);
 	}
 
 	get(id: string | undefined): TaskSnapshot | undefined {
-		if (!id) return undefined;
-		const task = this.tasks.get(id) ?? [...this.tasks.values()].find((item) => String(item.pid) === id);
+		const task = this.find(id);
 		return task ? snapshot(task) : undefined;
 	}
 
 	output(id: string | undefined): string | undefined {
-		const task = id
-			? (this.tasks.get(id) ?? [...this.tasks.values()].find((item) => String(item.pid) === id))
-			: undefined;
+		const task = this.find(id);
 		if (!task) return undefined;
-		if (task.output) return task.output;
-		try {
-			return existsSync(task.logFile) ? readFileSync(task.logFile, "utf8") : "";
-		} catch {
-			return "";
-		}
+		return task.output;
 	}
 
 	start(command: string, cwd: string): TaskSnapshot {
@@ -132,19 +111,21 @@ export class BackgroundRuntime {
 		});
 		writeFileSync(logFile, "", "utf8");
 		const task: ManagedTask = {
-			id,
-			command,
-			title: command,
-			cwd,
-			pid: child.pid ?? 0,
-			logFile,
-			startedAt: now,
-			updatedAt: now,
-			lastOutputAt: null,
-			expiresAt: now + TIMEOUT_MS,
-			status: "running",
-			exitCode: null,
-			outputBytes: 0,
+			info: {
+				id,
+				command,
+				title: command,
+				cwd,
+				pid: child.pid ?? 0,
+				logFile,
+				startedAt: now,
+				updatedAt: now,
+				lastOutputAt: null,
+				expiresAt: now + TIMEOUT_MS,
+				status: "running",
+				exitCode: null,
+				outputBytes: 0,
+			},
 			child,
 			output: "",
 			closed: false,
@@ -162,16 +143,16 @@ export class BackgroundRuntime {
 		const stdoutDecoder = new StringDecoder("utf8");
 		const stderrDecoder = new StringDecoder("utf8");
 		const append = (value: string): void => {
-			if (!value || task.closed || !this.tasks.has(task.id)) return;
-			task.outputBytes += Buffer.byteLength(value);
+			if (!value || task.closed || !this.tasks.has(task.info.id)) return;
+			task.info.outputBytes += Buffer.byteLength(value);
 			task.output = `${task.output}${value}`.slice(-BUFFER_LIMIT);
-			task.updatedAt = Date.now();
-			task.lastOutputAt = task.updatedAt;
+			task.info.updatedAt = Date.now();
+			task.info.lastOutputAt = task.info.updatedAt;
 			try {
-				appendFileSync(task.logFile, value, "utf8");
+				appendFileSync(task.info.logFile, value, "utf8");
 				task.logBytes += Buffer.byteLength(value);
 				if (task.logBytes > BUFFER_LIMIT * 2) {
-					writeFileSync(task.logFile, task.output, "utf8");
+					writeFileSync(task.info.logFile, task.output, "utf8");
 					task.logBytes = Buffer.byteLength(task.output);
 				}
 			} catch {}
@@ -199,13 +180,11 @@ export class BackgroundRuntime {
 	}
 
 	stop(id: string | undefined): boolean {
-		const task = id
-			? (this.tasks.get(id) ?? [...this.tasks.values()].find((item) => String(item.pid) === id))
-			: undefined;
+		const task = this.find(id);
 		if (!task) return false;
-		if (task.status !== "running") return true;
+		if (task.info.status !== "running") return true;
 		task.stopRequested = true;
-		task.updatedAt = Date.now();
+		task.info.updatedAt = Date.now();
 		this.kill(task, "SIGTERM");
 		if (task.forceTimer) clearTimeout(task.forceTimer);
 		task.forceTimer = setTimeout(() => {
@@ -220,7 +199,7 @@ export class BackgroundRuntime {
 	clear(): number {
 		let count = 0;
 		for (const [id, task] of this.tasks) {
-			if (task.status === "running") continue;
+			if (task.info.status === "running") continue;
 			this.tasks.delete(id);
 			this.removeLog(task);
 			count++;
@@ -232,21 +211,26 @@ export class BackgroundRuntime {
 	shutdown(): void {
 		this.shuttingDown = true;
 		for (const task of [...this.tasks.values()]) {
-			if (task.status === "running") {
+			if (task.info.status === "running") {
 				task.stopRequested = true;
 				task.child.once("close", () => this.removeLog(task));
 				this.kill(task, "SIGTERM");
 				this.kill(task, "SIGKILL");
 			}
-			this.finish(task, task.exitCode);
+			this.finish(task, task.info.exitCode);
 			this.removeLog(task);
 		}
 		this.tasks.clear();
 	}
 
+	private find(id: string | undefined): ManagedTask | undefined {
+		if (!id) return undefined;
+		return this.tasks.get(id) ?? [...this.tasks.values()].find((item) => String(item.info.pid) === id);
+	}
+
 	private removeLog(task: ManagedTask): void {
 		try {
-			unlinkSync(task.logFile);
+			unlinkSync(task.info.logFile);
 		} catch {}
 	}
 
@@ -259,15 +243,15 @@ export class BackgroundRuntime {
 			task.notifyTimer = null;
 			const output = task.pendingNotify;
 			task.pendingNotify = "";
-			if (task.status === "running" && output) this.emit({ type: "output", task: snapshot(task), output });
+			if (task.info.status === "running" && output) this.emit({ type: "output", task: snapshot(task), output });
 		}, wait);
 		task.notifyTimer.unref?.();
 	}
 
 	private kill(task: ManagedTask, signal: NodeJS.Signals): void {
-		if (!task.pid) return this.finish(task, null);
+		if (!task.info.pid) return this.finish(task, null);
 		try {
-			process.kill(process.platform === "win32" ? task.pid : -task.pid, signal);
+			process.kill(process.platform === "win32" ? task.info.pid : -task.info.pid, signal);
 		} catch {
 			try {
 				if (!task.child.kill(signal)) this.finish(task, null);
@@ -284,9 +268,9 @@ export class BackgroundRuntime {
 		task.flushOutput?.();
 		task.flushOutput = null;
 		task.closed = true;
-		task.exitCode = code;
-		task.status = task.stopRequested ? "stopped" : code === 0 ? "completed" : "failed";
-		task.updatedAt = Date.now();
+		task.info.exitCode = code;
+		task.info.status = task.stopRequested ? "stopped" : code === 0 ? "completed" : "failed";
+		task.info.updatedAt = Date.now();
 		task.pendingNotify = "";
 		if (task.notifyTimer) clearTimeout(task.notifyTimer);
 		if (task.expiryTimer) clearTimeout(task.expiryTimer);

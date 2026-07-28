@@ -1,11 +1,20 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { GoalRuntime, rejection, type GoalContext } from "./runtime.js";
-import { createGoal, loadGoal, resumeGoal } from "./state.js";
+import {
+	createGoal,
+	type GoalContext,
+	GoalRuntime,
+	type GoalState,
+	loadGoal,
+	MAX_AUTOMATIC_TURNS,
+	MAX_OBJECTIVE,
+	rejection,
+	resumeGoal,
+} from "./runtime.js";
 
-const MAX_OBJECTIVE = 4_000;
 const MAX_REASON = 1_000;
 const MAX_EVIDENCE = 4_000;
+const SUBCOMMANDS = ["status", "pause", "resume", "clear"];
 
 export default function goalExtension(pi: ExtensionAPI) {
 	const runtime = new GoalRuntime(pi);
@@ -70,17 +79,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			const evidence = params.evidence.trim();
 			const rejected =
 				rejection(runtime.goal, requestedId) ??
-				(!reason
-					? "reason is empty"
-					: reason.length > MAX_REASON
-						? "reason is too long"
-						: !evidence
-							? "evidence is empty"
-							: evidence.length > MAX_EVIDENCE
-								? "evidence is too long"
-								: !Number.isInteger(params.repeated_turns) || params.repeated_turns < 3
-									? "repeated_turns must be a whole number of at least 3"
-									: undefined);
+				(!reason ? "reason is empty" : !evidence ? "evidence is empty" : undefined);
 			if (rejected) return rejectedResult("goal_blocked rejected", rejected, requestedId);
 
 			runtime.cancelContinuation();
@@ -108,13 +107,13 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.registerCommand("goal", {
 		description: "Start, show, pause, resume, or clear one completion goal",
 		getArgumentCompletions: (prefix) => {
-			const options = ["status", "pause", "resume", "clear"].filter((item) => item.startsWith(prefix.trim()));
+			const options = SUBCOMMANDS.filter((item) => item.startsWith(prefix.trim()));
 			return options.length ? options.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
 			const input = args.trim();
 			if (!input || input === "status") {
-				showGoal(runtime, ctx);
+				showGoal(runtime.goal, ctx);
 				return;
 			}
 			if (input === "pause") {
@@ -138,7 +137,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				ctx.ui.notify(objective ? `Goal cleared: ${safeText(objective, 160)}` : "No goal is set.", "info");
 				return;
 			}
-			if (["pause", "resume", "clear", "status"].some((command) => input.startsWith(`${command} `))) {
+			if (SUBCOMMANDS.some((command) => input.startsWith(`${command} `))) {
 				ctx.ui.notify(`Usage: /goal ${input.split(/\s/u, 1)[0]}`, "warning");
 				return;
 			}
@@ -170,7 +169,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		ctx.ui.setStatus("goal", undefined);
 	});
 	pi.on("input", (event) => {
-		if (event.source !== "extension") runtime.manualInput(true);
+		if (event.source !== "extension") runtime.manualInput();
 	});
 	pi.on("before_agent_start", (event) => {
 		runtime.beforeAgentStart(event.prompt);
@@ -189,11 +188,10 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 }
 
-function showGoal(runtime: GoalRuntime, ctx: GoalContext) {
-	const goal = runtime.goal;
+function showGoal(goal: GoalState | undefined, ctx: GoalContext) {
 	ctx.ui.notify(
 		goal
-			? `Goal: ${safeText(goal.objective, MAX_OBJECTIVE)}\nStatus: ${goal.status}\nGoal ID: ${goal.id}\nAutomatic turns: ${goal.automaticTurns}/25`
+			? `Goal: ${safeText(goal.objective, MAX_OBJECTIVE)}\nStatus: ${goal.status}\nGoal ID: ${goal.id}\nAutomatic turns: ${goal.automaticTurns}/${MAX_AUTOMATIC_TURNS}`
 			: "Usage: /goal <objective>\nNo goal is currently set.",
 		"info",
 	);
@@ -217,12 +215,8 @@ function rejectedResult(prefix: string, reason: string, goalId: string) {
 }
 
 function safeText(value: string, limit: number) {
-	const text = [...value]
-		.map((character) => {
-			const code = character.codePointAt(0) ?? 0;
-			return code <= 31 || (code >= 127 && code <= 159) ? " " : character;
-		})
-		.join("")
+	const text = value
+		.replace(/[-\u001F\u007F-\u009F]/gu, " ")
 		.replace(/\s+/gu, " ")
 		.trim();
 	return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;

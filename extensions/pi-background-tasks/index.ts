@@ -1,12 +1,20 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { BackgroundRuntime, tail } from "./runtime.js";
+import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.js";
 import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.js";
 
+const NO_MATCH = "No background task matched that id.";
+
 function result(text: string, isError = false): AgentToolResult<unknown> & { isError?: boolean } {
-	return { content: [{ type: "text", text: tail(text, 8_000) }], details: {}, isError } as AgentToolResult<unknown> & {
-		isError?: boolean;
-	};
+	return { content: [{ type: "text", text: tail(text, 8_000) }], details: {}, isError };
+}
+
+function startedText(task: TaskSnapshot): string {
+	return `Started ${task.id} (pid ${task.pid}).`;
+}
+
+function stoppingText(id: string): string {
+	return `Stopping ${id}.`;
 }
 
 export default function backgroundTasks(pi: ExtensionAPI): void {
@@ -16,6 +24,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		() => ui.refresh(),
 	);
 	ui = new BackgroundUI(pi, runtime);
+
+	const clearedText = (): string => `Removed ${runtime.clear()} finished background task(s).`;
 
 	const attach = (_event: unknown, ctx: ExtensionContext): void => {
 		runtime.activate();
@@ -55,24 +65,21 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				if (!command) return result("command is required for action=start.", true);
 				const task = runtime.start(command, ctx.cwd);
 				return result(
-					`Started ${task.id} (pid ${task.pid}). Completion arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
+					`${startedText(task)} Completion arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
 				);
 			}
 			if (params.action === "list") {
 				const tasks = runtime.list().slice(0, 50);
 				return result(tasks.length ? tasks.map(taskLine).join("\n") : "No background tasks.");
 			}
-			if (params.action === "clear") return result(`Removed ${runtime.clear()} finished background task(s).`);
-			if (!params.id?.trim()) return result(`id is required for action=${params.action}.`, true);
+			if (params.action === "clear") return result(clearedText());
+			const id = params.id?.trim();
+			if (!id) return result(`id is required for action=${params.action}.`, true);
 			if (params.action === "read") {
-				const output = runtime.output(params.id.trim());
-				return output === undefined
-					? result("No background task matched that id.", true)
-					: result(tail(output) || "(empty)");
+				const output = runtime.output(id);
+				return output === undefined ? result(NO_MATCH, true) : result(tail(output) || "(empty)");
 			}
-			return runtime.stop(params.id.trim())
-				? result(`Stopping ${params.id.trim()}.`)
-				: result("No background task matched that id.", true);
+			return runtime.stop(id) ? result(stoppingText(id)) : result(NO_MATCH, true);
 		},
 	});
 
@@ -83,24 +90,21 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			const value = args.trim();
 			if (!value || value === "dashboard") return ui.open(ctx);
 			if (value === "list" || value === "status") return ctx.ui.notify(ui.listText(), "info");
-			if (value === "clear") return ctx.ui.notify(`Removed ${runtime.clear()} finished background task(s).`, "info");
+			if (value === "clear") return ctx.ui.notify(clearedText(), "info");
 			if (value.startsWith("run ")) {
 				const command = value.slice(4).trim();
 				if (!command) return ctx.ui.notify("Usage: /bg run <command>", "warning");
 				const task = runtime.start(command, ctx.cwd);
-				return ctx.ui.notify(`Started ${task.id} (pid ${task.pid}).`, "info");
+				return ctx.ui.notify(startedText(task), "info");
 			}
 			if (value.startsWith("stop ")) {
 				const id = value.slice(5).trim();
-				return ctx.ui.notify(
-					runtime.stop(id) ? `Stopping ${id}.` : "No background task matched that id.",
-					runtime.get(id) ? "info" : "warning",
-				);
+				return ctx.ui.notify(runtime.stop(id) ? stoppingText(id) : NO_MATCH, runtime.get(id) ? "info" : "warning");
 			}
 			const watch = value.match(/^(?:watch|read|log)(?:\s+--follow)?\s+(.+)$/);
 			if (watch) {
 				const id = watch[1]?.trim();
-				if (!runtime.get(id)) return ctx.ui.notify("No background task matched that id.", "warning");
+				if (!runtime.get(id)) return ctx.ui.notify(NO_MATCH, "warning");
 				return ui.open(ctx, id, "output");
 			}
 			ctx.ui.notify("Usage: /bg [dashboard|list|run <command>|watch <id>|stop <id>|clear]", "warning");
@@ -115,5 +119,3 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		},
 	});
 }
-
-export { BackgroundRuntime } from "./runtime.js";

@@ -1,12 +1,51 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GOAL_STATE_ENTRY, type GoalState, serializeGoal } from "./state.js";
+import type { CustomEntry, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const MAX_AUTOMATIC_TURNS = 25;
+const GOAL_STATE_ENTRY = "goal-state";
+export const MAX_AUTOMATIC_TURNS = 25;
+export const MAX_OBJECTIVE = 4_000;
 const MAX_NO_PROGRESS_TURNS = 3;
 const MAX_OWNED_PROMPTS = 16;
 const OWNED_PROMPT_TTL_MS = 10 * 60_000;
 const MARKER = /<!-- pi-goal:(start|continue):([^\s>]+) -->/u;
+
+type GoalStatus = "active" | "paused" | "blocked" | "complete";
+
+export interface GoalState {
+	id: string;
+	objective: string;
+	status: GoalStatus;
+	startedAt: number;
+	updatedAt: number;
+	automaticTurns: number;
+	noProgressTurns: number;
+	lastOutput?: string;
+	reason?: string;
+}
+
+export function createGoal(objective: string): GoalState {
+	const now = Date.now();
+	return {
+		id: randomUUID(),
+		objective,
+		status: "active",
+		startedAt: now,
+		updatedAt: now,
+		automaticTurns: 0,
+		noProgressTurns: 0,
+	};
+}
+
+export function resumeGoal(goal: GoalState): GoalState {
+	return { ...createGoal(goal.objective), startedAt: goal.startedAt };
+}
+
+export function loadGoal(ctx: ExtensionContext): GoalState | undefined {
+	const entry = ctx.sessionManager
+		.getBranch()
+		.findLast((item): item is CustomEntry => item.type === "custom" && item.customType === GOAL_STATE_ENTRY);
+	return parseState(entry?.data);
+}
 
 export interface GoalContext {
 	cwd: string;
@@ -30,7 +69,7 @@ export class GoalRuntime {
 	constructor(private readonly pi: ExtensionAPI) {}
 
 	persist() {
-		this.pi.appendEntry(GOAL_STATE_ENTRY, serializeGoal(this.goal));
+		this.pi.appendEntry(GOAL_STATE_ENTRY, { goal: this.goal ?? null });
 	}
 
 	setGoal(goal: GoalState | undefined, ctx: GoalContext) {
@@ -59,14 +98,12 @@ export class GoalRuntime {
 	}
 
 	async startPrompt(ctx: GoalContext) {
-		if (!this.goal) return false;
 		return this.sendOwnedPrompt(ctx, "start", "Work on the active /goal until it is complete.");
 	}
 
 	async resumeRestored(ctx: GoalContext) {
 		if (!this.goal || this.goal.status !== "active") return;
-		this.pendingContinuation = this.goal.id;
-		await this.settled(ctx);
+		await this.queueContinuation(ctx);
 	}
 
 	beforeAgentStart(prompt: string) {
@@ -163,9 +200,9 @@ export class GoalRuntime {
 		}
 	}
 
-	manualInput(resetSafety = true) {
+	manualInput() {
 		this.currentRunAutomatic = false;
-		this.cancelContinuation(resetSafety);
+		this.cancelContinuation(true);
 	}
 
 	cancelContinuation(resetSafety = false) {
@@ -183,6 +220,11 @@ export class GoalRuntime {
 		if (!this.goal || this.goal.status !== "active") return;
 		this.persist();
 		if (willRetry) return;
+		await this.queueContinuation(ctx);
+	}
+
+	private async queueContinuation(ctx: GoalContext) {
+		if (!this.goal) return;
 		this.pendingContinuation = this.goal.id;
 		await this.settled(ctx);
 	}
@@ -192,10 +234,9 @@ export class GoalRuntime {
 		for (const [key, stamp] of this.ownedPrompts) {
 			if (now - stamp > OWNED_PROMPT_TTL_MS) this.ownedPrompts.delete(key);
 		}
-		while (this.ownedPrompts.size >= MAX_OWNED_PROMPTS) {
-			const oldest = this.ownedPrompts.keys().next().value;
-			if (oldest === undefined) break;
-			this.ownedPrompts.delete(oldest);
+		for (const key of this.ownedPrompts.keys()) {
+			if (this.ownedPrompts.size < MAX_OWNED_PROMPTS) break;
+			this.ownedPrompts.delete(key);
 		}
 		this.ownedPrompts.set(marker, now);
 	}
@@ -227,14 +268,51 @@ export function rejection(goal: GoalState | undefined, requestedId: string) {
 	return undefined;
 }
 
-function finalAssistant(messages: readonly unknown[]) {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (isRecord(message) && message.role === "assistant") {
-			return message as { stopReason?: "aborted" | "error" | string };
-		}
+function parseState(value: unknown): GoalState | undefined {
+	if (!isRecord(value)) return undefined;
+	const raw = value.goal;
+	if (!isRecord(raw)) return undefined;
+
+	const objective = typeof raw.objective === "string" ? raw.objective : undefined;
+	if (typeof raw.id !== "string" || !raw.id.trim() || !objective?.trim() || objective.length > MAX_OBJECTIVE) {
+		return undefined;
 	}
-	return undefined;
+
+	const status = normalizeStatus(raw.status);
+	if (status === "complete") return undefined;
+	const now = Date.now();
+	return {
+		id: raw.id,
+		objective,
+		status,
+		startedAt: finiteNumber(raw.startedAt, now),
+		updatedAt: finiteNumber(raw.updatedAt, now),
+		automaticTurns: safeCounter(raw.automaticTurns),
+		noProgressTurns: safeCounter(raw.noProgressTurns),
+		lastOutput: typeof raw.lastOutput === "string" ? raw.lastOutput : undefined,
+		reason: typeof raw.reason === "string" ? raw.reason : undefined,
+	};
+}
+
+function normalizeStatus(value: unknown): GoalStatus {
+	if (value === "active" || value === "paused" || value === "blocked" || value === "complete") {
+		return value;
+	}
+	return "paused";
+}
+
+function finiteNumber(value: unknown, fallback: number) {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function safeCounter(value: unknown) {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function finalAssistant(messages: readonly unknown[]): { stopReason?: string } | undefined {
+	return messages.findLast(
+		(message): message is { stopReason?: string } => isRecord(message) && message.role === "assistant",
+	);
 }
 
 function assistantText(messages: readonly unknown[]) {

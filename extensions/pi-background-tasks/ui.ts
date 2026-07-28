@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { Text, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.js";
 import { tail } from "./runtime.js";
 
@@ -12,7 +12,7 @@ const OUTPUT_ROWS = 14;
 
 type Pane = "tasks" | "output";
 
-export function duration(ms: number): string {
+function duration(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
 	if (seconds < 60) return `${seconds}s`;
 	const minutes = Math.floor(seconds / 60);
@@ -20,7 +20,7 @@ export function duration(ms: number): string {
 	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-export function relative(timestamp: number, now = Date.now()): string {
+function relative(timestamp: number, now = Date.now()): string {
 	const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
 	if (seconds < 1) return "just now";
 	if (seconds < 60) return `${seconds}s ago`;
@@ -28,10 +28,14 @@ export function relative(timestamp: number, now = Date.now()): string {
 	return `${Math.floor(seconds / 3600)}h ago`;
 }
 
-export function taskStatus(task: TaskSnapshot): string {
+function taskStatus(task: TaskSnapshot): string {
 	if (task.status === "running") return "running";
 	if (task.status === "stopped") return "stopped";
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
+}
+
+function exitText(event: TaskEvent): string {
+	return `Background task ${event.task.id} finished (${taskStatus(event.task)}).`;
 }
 
 export function taskLine(task: TaskSnapshot): string {
@@ -99,7 +103,7 @@ export class BackgroundUI {
 			return;
 		}
 		this.pendingExits.set(event.task.id, event);
-		this.active?.ui.notify(`Background task ${event.task.id} finished (${taskStatus(event.task)}).`, "info");
+		this.active?.ui.notify(exitText(event), "info");
 		if (this.active?.isIdle() && !this.active.hasPendingMessages()) void this.flushExits();
 	}
 
@@ -107,9 +111,7 @@ export class BackgroundUI {
 		const events = [...this.pendingExits.values()].filter((event) => this.runtime.get(event.task.id));
 		this.pendingExits.clear();
 		if (!events.length) return;
-		const content = events
-			.map((event) => `Background task ${event.task.id} finished (${taskStatus(event.task)}).`)
-			.join("\n");
+		const content = events.map(exitText).join("\n");
 		try {
 			await this.pi.sendMessage(
 				{ customType: MESSAGE, content, details: events.length === 1 ? events[0] : undefined, display: true },
