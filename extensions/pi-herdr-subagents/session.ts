@@ -165,7 +165,7 @@ export function appendBranchSummary(
 }
 
 /**
- * Copy the session file to destDir for parallel worker isolation.
+ * Copy the session file to destDir for parallel subagent isolation.
  * Returns the path of the copy.
  */
 export function copySessionFile(sessionFile: string, destDir: string): string {

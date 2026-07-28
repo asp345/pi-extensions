@@ -120,7 +120,7 @@ const SubagentParams = Type.Object({
 	agent: Type.Optional(
 		Type.String({
 			description:
-				"Agent name to load defaults from (e.g. 'worker', 'scout', 'reviewer'). Reads ~/.pi/agent/agents/<name>.md for model, tools, skills.",
+				"Agent name to load defaults from (explore, general, oracle, plan, or review). Reads ~/.pi/agent/agents/<name>.md for model, tools, and skills.",
 		}),
 	),
 	systemPrompt: Type.Optional(Type.String({ description: "Appended to system prompt (role instructions)" })),
@@ -360,10 +360,10 @@ function resolveLaunchBehavior(
  *   1. Explicit `interactive` tool parameter wins.
  *   2. Explicit `interactive` frontmatter field on the agent.
  *   3. Default: the inverse of `auto-exit`. Agents that auto-exit are
- *      autonomous (scout, worker, reviewer) and the parent session should be
- *      woken on stall/recovery transitions. Agents that don't auto-exit are
- *      driven by the user in their own pane (planner, iterate/fork) and
- *      stall pings are noise.
+ *      autonomous (explore, general, oracle, review) and the parent session
+ *      should be woken on stall/recovery transitions. Agents that don't
+ *      auto-exit are driven by the user in their own pane (plan,
+ *      iterate/fork) and stall pings are noise.
  *
  * When no agent defs exist at all (bare `subagent({ name, task })` call,
  * typical for `/iterate` with `fork: true`), `autoExit` is undefined and the
@@ -516,7 +516,7 @@ interface RunningSubagent {
 	 * When true, status transitions (stalled/recovered) do not wake the parent
 	 * session via a steer message. The widget still updates locally. Used for
 	 * long-running agents where the user drives the conversation in the
-	 * subagent's pane (e.g. planner).
+	 * subagent's pane (e.g. plan).
 	 */
 	interactive: boolean;
 	/** Parent-resolved model/thinking selection and provenance. */
@@ -1444,7 +1444,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			parameters: SubagentParams,
 
 			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-				// Prevent self-spawning (e.g. planner spawning another planner)
+				// Prevent self-spawning (e.g. plan spawning another plan)
 				const currentAgent = process.env.PI_SUBAGENT_AGENT;
 				if (params.agent && currentAgent && params.agent === currentAgent) {
 					return {
