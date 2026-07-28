@@ -48,9 +48,9 @@ import {
 } from "./session.ts";
 import {
 	capStatusLines,
+	DEFAULT_STATUS_LINE_LIMIT,
 	formatElapsedDuration,
 	formatStatusAggregate,
-	loadStatusConfig,
 	normalizeStatusName,
 	type SubagentStatusState,
 } from "./status.ts";
@@ -439,7 +439,7 @@ function getArtifactDir(sessionDir: string, sessionId: string): string {
 	return join(sessionDir, "artifacts", sessionId);
 }
 
-const statusConfig = loadStatusConfig();
+const statusConfig = { enabled: true, lineLimit: DEFAULT_STATUS_LINE_LIMIT };
 
 function resolveResultPresentation(
 	result: Pick<SubagentResult, "exitCode" | "elapsed" | "summary" | "sessionFile" | "errorMessage">,
