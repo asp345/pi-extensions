@@ -22,7 +22,7 @@ The only included theme is `themes/flatland.json`.
 
 `openrouter-metadata` keeps Pi's bundled OpenRouter catalog as an offline and compatibility baseline, then refreshes validated metadata for matching models from OpenRouter's public catalog. It persists validated overlays in `~/.pi/agent/openrouter-metadata-store.json`, revalidates them after five minutes, and retains the previous catalog on failure.
 
-Subagents come from the `pi-herdr-subagents` npm dependency, loaded directly from `node_modules` via `pi.extensions`; each subagent runs as a separate pi process in its own herdr pane. Agent definitions live in `~/.pi/agent/agents/`.
+Subagents come from `extensions/pi-herdr-subagents/`, vendored from `pi-herdr-subagents@0.1.5` (MIT) and trimmed to the pi-only paths: bundled agents, the Claude CLI backend, the `/plan` workflow, and the config.json model layer were removed. Each subagent runs as a separate pi process in its own herdr pane. Agent definitions live in `~/.pi/agent/agents/`.
 
 herdr's pi integration (agent state reporting) stays herdr-managed at `~/.pi/agent/extensions/herdr-agent-state.ts` via `herdr integration install pi`.
 
