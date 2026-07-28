@@ -2036,6 +2036,37 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			},
 		});
 
+	// /plan and /review — fork context into the matching user-defined agent
+	pi.registerCommand("plan", {
+		description: "Create an implementation plan: /plan [task]",
+		handler: async (args, ctx) => {
+			if (!loadAgentDefaults("plan")) {
+				ctx.ui.notify('Agent "plan" not found in ~/.pi/agent/agents/ or .pi/agents/', "error");
+				return;
+			}
+			const task =
+				args.trim() ||
+				"Create a detailed implementation plan for the current task using the inherited conversation context.";
+			pi.sendUserMessage(`Use subagent with agent: "plan", name: "Plan", fork: true, task: ${JSON.stringify(task)}`);
+		},
+	});
+
+	pi.registerCommand("review", {
+		description: "Review changes: /review [scope]",
+		handler: async (args, ctx) => {
+			if (!loadAgentDefaults("review")) {
+				ctx.ui.notify('Agent "review" not found in ~/.pi/agent/agents/ or .pi/agents/', "error");
+				return;
+			}
+			const task =
+				args.trim() ||
+				"Review the current working-tree changes. Report concrete correctness, security, test coverage, or maintainability issues.";
+			pi.sendUserMessage(
+				`Use subagent with agent: "review", name: "Review", fork: true, task: ${JSON.stringify(task)}`,
+			);
+		},
+	});
+
 	// /iterate command — fork the session into a subagent
 	pi.registerCommand("iterate", {
 		description: "Fork session into a subagent for focused work (bugfixes, iteration)",
