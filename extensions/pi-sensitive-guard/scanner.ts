@@ -1,10 +1,5 @@
 import type { GuardConfig, Severity } from "./config.js";
 
-export interface Finding {
-	name: string;
-	severity: Severity;
-}
-
 interface Pattern {
 	name: string;
 	severity: Severity;
@@ -59,16 +54,14 @@ function global(re: RegExp): RegExp {
 	return new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
 }
 
-export function scanSecrets(content: string, threshold: Severity, limit = 20): Finding[] {
+const GLOBAL_PATTERNS = PATTERNS.map((pattern) => ({ ...pattern, re: global(pattern.re) }));
+
+export function scanSecrets(content: string, threshold: Severity): string[] {
 	if (!content) return [];
-	const findings: Finding[] = [];
+	const findings: string[] = [];
 	for (const pattern of PATTERNS) {
 		if (ORDER[pattern.severity] < ORDER[threshold]) continue;
-		const match = pattern.re.exec(content);
-		pattern.re.lastIndex = 0;
-		if (!match) continue;
-		findings.push({ name: pattern.name, severity: pattern.severity });
-		if (findings.length >= limit) break;
+		if (pattern.re.test(content)) findings.push(pattern.name);
 	}
 	return findings;
 }
@@ -93,8 +86,8 @@ export function redactOutput(content: string, config: GuardConfig["readRedaction
 	}
 
 	let redacted = redactStructured(content);
-	for (const pattern of PATTERNS) {
-		redacted = redacted.replace(global(pattern.re), (...args: unknown[]) => {
+	for (const pattern of GLOBAL_PATTERNS) {
+		redacted = redacted.replace(pattern.re, (...args: unknown[]) => {
 			const match = String(args[0] ?? "");
 			if (pattern.secretGroup) {
 				const secret = args[pattern.secretGroup];

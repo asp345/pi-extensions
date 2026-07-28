@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { CONFIG_PATH, type GuardConfig, type Severity, loadConfig, saveConfig } from "./config.js";
+import { CONFIG_PATH, type GuardConfig, loadConfig, type Severity, saveConfig } from "./config.js";
 
 function onOff(value: boolean): string {
 	return value ? "on" : "off";
@@ -50,44 +50,77 @@ export function registerSensitiveGuardUI(pi: ExtensionAPI, apply: (config: Guard
 			}
 
 			for (;;) {
-				const choices = [
-					`Guard: ${onOff(config.enabled)}`,
-					`Read redaction: ${onOff(config.readRedaction.enabled)}`,
-					`Read scope: ${config.readRedaction.scope}`,
-					`Shell output redaction: ${onOff(config.readRedaction.includeShellOutput)}`,
-					`Content scanning: ${onOff(config.contentScanning.enabled)}`,
-					`Content severity: ${config.contentScanning.blockSeverity}`,
-					`Git protection: ${onOff(config.gitProtection.enabled)}`,
-					`Protected paths (${config.protectedPaths.length})`,
-					`Allowed paths (${config.allowedPaths.length})`,
+				const entries: Array<{ label: string; run: () => void | Promise<void> }> = [
+					{
+						label: `Guard: ${onOff(config.enabled)}`,
+						run: () => {
+							config.enabled = !config.enabled;
+						},
+					},
+					{
+						label: `Read redaction: ${onOff(config.readRedaction.enabled)}`,
+						run: () => {
+							config.readRedaction.enabled = !config.readRedaction.enabled;
+						},
+					},
+					{
+						label: `Read scope: ${config.readRedaction.scope}`,
+						run: () => {
+							config.readRedaction.scope =
+								config.readRedaction.scope === "protectedOnly" ? "allOutput" : "protectedOnly";
+						},
+					},
+					{
+						label: `Shell output redaction: ${onOff(config.readRedaction.includeShellOutput)}`,
+						run: () => {
+							config.readRedaction.includeShellOutput = !config.readRedaction.includeShellOutput;
+						},
+					},
+					{
+						label: `Content scanning: ${onOff(config.contentScanning.enabled)}`,
+						run: () => {
+							config.contentScanning.enabled = !config.contentScanning.enabled;
+						},
+					},
+					{
+						label: `Content severity: ${config.contentScanning.blockSeverity}`,
+						run: async () => {
+							const selected = await ctx.ui.select("Block findings at or above", ["critical", "high", "medium"]);
+							if (selected) config.contentScanning.blockSeverity = selected as Severity;
+						},
+					},
+					{
+						label: `Git protection: ${onOff(config.gitProtection.enabled)}`,
+						run: () => {
+							config.gitProtection.enabled = !config.gitProtection.enabled;
+						},
+					},
+					{
+						label: `Protected paths (${config.protectedPaths.length})`,
+						run: async () => {
+							const patterns = await editPatterns(ctx, "Protected path globs, one per line", config.protectedPaths);
+							if (patterns) config.protectedPaths = patterns;
+						},
+					},
+					{
+						label: `Allowed paths (${config.allowedPaths.length})`,
+						run: async () => {
+							const patterns = await editPatterns(ctx, "Allowed path globs, one per line", config.allowedPaths);
+							if (patterns) config.allowedPaths = patterns;
+						},
+					},
+				];
+				const choice = await ctx.ui.select("Sensitive Guard", [
+					...entries.map((entry) => entry.label),
 					"Show status",
 					"Done",
-				];
-				const choice = await ctx.ui.select("Sensitive Guard", choices);
+				]);
 				if (!choice || choice === "Done") return;
-
-				if (choice.startsWith("Guard:")) config.enabled = !config.enabled;
-				else if (choice.startsWith("Read redaction:")) config.readRedaction.enabled = !config.readRedaction.enabled;
-				else if (choice.startsWith("Read scope:"))
-					config.readRedaction.scope = config.readRedaction.scope === "protectedOnly" ? "allOutput" : "protectedOnly";
-				else if (choice.startsWith("Shell output"))
-					config.readRedaction.includeShellOutput = !config.readRedaction.includeShellOutput;
-				else if (choice.startsWith("Content scanning:"))
-					config.contentScanning.enabled = !config.contentScanning.enabled;
-				else if (choice.startsWith("Content severity:")) {
-					const selected = await ctx.ui.select("Block findings at or above", ["critical", "high", "medium"]);
-					if (selected) config.contentScanning.blockSeverity = selected as Severity;
-				} else if (choice.startsWith("Git protection:")) config.gitProtection.enabled = !config.gitProtection.enabled;
-				else if (choice.startsWith("Protected paths")) {
-					const patterns = await editPatterns(ctx, "Protected path globs, one per line", config.protectedPaths);
-					if (patterns) config.protectedPaths = patterns;
-				} else if (choice.startsWith("Allowed paths")) {
-					const patterns = await editPatterns(ctx, "Allowed path globs, one per line", config.allowedPaths);
-					if (patterns) config.allowedPaths = patterns;
-				} else if (choice === "Show status") {
+				if (choice === "Show status") {
 					ctx.ui.notify(status(config), "info");
 					continue;
 				}
+				await entries.find((entry) => entry.label === choice)?.run();
 
 				try {
 					saveConfig(config);

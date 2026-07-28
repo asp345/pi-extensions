@@ -1,8 +1,8 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { commandFor, resolveCommand, type ServerConfig } from "./routing.js";
+import { commandFor, envName, record, resolveCommand, type ServerConfig } from "./routing.js";
 
 export interface Position {
 	line: number;
@@ -27,16 +27,16 @@ export interface WorkspaceEdit {
 	changes?: Record<string, TextEdit[]>;
 	documentChanges?: Array<{ textDocument?: { uri?: string }; edits?: TextEdit[] }>;
 }
-export interface CodeAction {
+interface CodeAction {
 	title: string;
 	kind?: string;
 	edit?: WorkspaceEdit;
 	data?: unknown;
 }
 
-export const MAX_HEADER_BYTES = 16 * 1024;
-export const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
-export const MAX_BUFFER_BYTES = MAX_CONTENT_BYTES + MAX_HEADER_BYTES + 4;
+const MAX_HEADER_BYTES = 16 * 1024;
+const MAX_CONTENT_BYTES = 32 * 1024 * 1024;
+const MAX_BUFFER_BYTES = MAX_CONTENT_BYTES + MAX_HEADER_BYTES + 4;
 
 interface Message {
 	id?: number | string | null;
@@ -70,7 +70,7 @@ export class LspClient {
 		const command = rawCommand && resolveCommand(rawCommand, this.root, this.server.env);
 		if (!rawCommand || !command) {
 			throw new Error(
-				`${this.server.name} LSP command is missing: ${rawCommand ?? "(empty)"}. Install it or set ${commandEnv(this.server.name)}.`,
+				`${this.server.name} LSP command is missing: ${rawCommand ?? "(empty)"}. Install it or set ${envName(this.server.name)}.`,
 			);
 		}
 		if (signal?.aborted) throw new Error(`${this.server.name} LSP request aborted.`);
@@ -153,15 +153,7 @@ export class LspClient {
 	}
 
 	close() {
-		for (const pending of this.pending.values()) {
-			clearTimeout(pending.timer);
-			pending.reject(new Error(`${this.server.name} LSP request cancelled.`));
-		}
-		this.pending.clear();
-		for (const waiters of this.diagnosticWaiters.values()) {
-			for (const finish of waiters) finish([]);
-		}
-		this.diagnosticWaiters.clear();
+		this.settle(new Error(`${this.server.name} LSP request cancelled.`));
 		this.buffer = Buffer.alloc(0);
 		const child = this.child;
 		if (child && !child.killed) {
@@ -324,7 +316,10 @@ export class LspClient {
 	}
 
 	private fail(reason: string) {
-		const error = new Error(`${this.server.name} LSP ${reason}.${this.stderrText()}`);
+		this.settle(new Error(`${this.server.name} LSP ${reason}.${this.stderrText()}`));
+	}
+
+	private settle(error: Error) {
 		for (const pending of this.pending.values()) {
 			clearTimeout(pending.timer);
 			pending.reject(error);
@@ -341,7 +336,7 @@ export class LspClient {
 	}
 }
 
-export function positionAt(text: string, offset: number): Position {
+function positionAt(text: string, offset: number): Position {
 	const prefix = text.slice(0, Math.max(0, Math.min(text.length, offset)));
 	const lines = prefix.split("\n");
 	return { line: lines.length - 1, character: lines.at(-1)?.length ?? 0 };
@@ -383,17 +378,6 @@ export function applyEdits(text: string, edits: TextEdit[]) {
 	return output;
 }
 
-export function directoryUri(root: string) {
+function directoryUri(root: string) {
 	return pathToFileURL(root.endsWith(path.sep) ? root : `${root}${path.sep}`).href;
-}
-
-function commandEnv(name: string) {
-	return `PI_${name
-		.replace(/[^a-zA-Z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "")
-		.toUpperCase()}_LSP_COMMAND`;
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

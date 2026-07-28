@@ -50,6 +50,10 @@ function bool(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
 
+function oneOf<T extends string>(value: unknown, options: readonly T[], fallback: T): T {
+	return options.includes(value as T) ? (value as T) : fallback;
+}
+
 function strings(value: unknown, fallback: string[]): string[] {
 	if (!Array.isArray(value)) return [...fallback];
 	return value
@@ -68,9 +72,6 @@ export function loadConfig(): GuardConfig {
 	const readRedaction = record(raw.readRedaction);
 	const contentScanning = record(raw.contentScanning);
 	const gitProtection = record(raw.gitProtection);
-	const scope = readRedaction.scope;
-	const severity = contentScanning.blockSeverity;
-	const maxBytes = readRedaction.maxBytes;
 
 	return {
 		enabled: bool(raw.enabled, DEFAULTS.enabled),
@@ -79,18 +80,21 @@ export function loadConfig(): GuardConfig {
 		readRedaction: {
 			enabled: bool(readRedaction.enabled, DEFAULTS.readRedaction.enabled),
 			includeShellOutput: bool(readRedaction.includeShellOutput, DEFAULTS.readRedaction.includeShellOutput),
-			scope: scope === "allOutput" || scope === "protectedOnly" ? scope : DEFAULTS.readRedaction.scope,
+			scope: oneOf(readRedaction.scope, ["allOutput", "protectedOnly"], DEFAULTS.readRedaction.scope),
 			maxBytes:
-				typeof maxBytes === "number" && Number.isInteger(maxBytes) && maxBytes > 0
-					? maxBytes
+				typeof readRedaction.maxBytes === "number" &&
+				Number.isInteger(readRedaction.maxBytes) &&
+				readRedaction.maxBytes > 0
+					? readRedaction.maxBytes
 					: DEFAULTS.readRedaction.maxBytes,
 		},
 		contentScanning: {
 			enabled: bool(contentScanning.enabled, DEFAULTS.contentScanning.enabled),
-			blockSeverity:
-				severity === "critical" || severity === "high" || severity === "medium"
-					? severity
-					: DEFAULTS.contentScanning.blockSeverity,
+			blockSeverity: oneOf(
+				contentScanning.blockSeverity,
+				["critical", "high", "medium"],
+				DEFAULTS.contentScanning.blockSeverity,
+			),
 		},
 		gitProtection: {
 			enabled: bool(gitProtection.enabled, DEFAULTS.gitProtection.enabled),
@@ -144,7 +148,8 @@ function matchesConfigured(path: string, patterns: string[], cwd: string): boole
 	const local = normalize(relative(cwd, absolute));
 	return patterns.some((pattern) => {
 		try {
-			return globPattern(pattern).test(absolute) || globPattern(pattern).test(local);
+			const re = globPattern(pattern);
+			return re.test(absolute) || re.test(local);
 		} catch {
 			return false;
 		}

@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type ExtensionAPI, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { applyEdits, type Diagnostic, LspClient, type TextEdit, type WorkspaceEdit } from "./protocol.js";
-import { diagnosticRoutes, fixRoute, languageId, loadConfig, type ServerConfig } from "./routing.js";
+import { diagnosticRoutes, fixRoute, inside, languageId, loadConfig, type ServerConfig } from "./routing.js";
 
 const STATUS = "lsp";
 const MAX_OUTPUT_BYTES = 30_000;
@@ -68,10 +68,8 @@ export default function lspExtension(pi: ExtensionAPI) {
 			ctx.ui.setStatus(STATUS, `${route.server.name} ${action}`);
 			try {
 				const computed = await runAction(route.server, route.file, root, action, config.timeoutMs, signal);
-				if (params.apply && computed.files.some((file) => file.changed)) {
-					await queueWrites(computed.files.filter((file) => file.changed));
-				}
 				const changed = computed.files.filter((file) => file.changed);
+				if (params.apply) await queueWrites(changed);
 				const summary = [
 					`${route.server.name} LSP action ${action}: ${changed.length} file(s) changed${params.apply ? " and applied" : " (preview only)"}.`,
 					...changed.map((file) => `- ${path.relative(root, file.path) || file.path}`),
@@ -105,26 +103,24 @@ async function runDiagnostics(
 	timeout: number,
 	signal?: AbortSignal,
 ) {
-	const client = new LspClient(server, root, timeout);
-	await client.start(signal);
-	const opened: Array<{ file: string; uri: string }> = [];
-	try {
-		for (const file of files) {
-			if (signal?.aborted) throw new Error(`${server.name} LSP request aborted.`);
-			const uri = pathToFileURL(file).href;
-			client.open(uri, readFileSync(file, "utf8"), languageId(file));
-			opened.push({ file, uri });
+	return withClient(server, root, timeout, signal, async (client) => {
+		const opened: Array<{ file: string; uri: string }> = [];
+		try {
+			for (const file of files) {
+				if (signal?.aborted) throw new Error(`${server.name} LSP request aborted.`);
+				const { uri } = openFile(client, file);
+				opened.push({ file, uri });
+			}
+			return await Promise.all(
+				opened.map(async ({ file, uri }) => ({
+					path: path.relative(root, file) || file,
+					diagnostics: await client.diagnostics(uri),
+				})),
+			);
+		} finally {
+			for (const { uri } of opened) client.closeDocument(uri);
 		}
-		return await Promise.all(
-			opened.map(async ({ file, uri }) => ({
-				path: path.relative(root, file) || file,
-				diagnostics: await client.diagnostics(uri),
-			})),
-		);
-	} finally {
-		for (const { uri } of opened) client.closeDocument(uri);
-		await client.shutdown();
-	}
+	});
 }
 
 async function runAction(
@@ -135,32 +131,52 @@ async function runAction(
 	timeout: number,
 	signal?: AbortSignal,
 ) {
+	return withClient(server, root, timeout, signal, async (client) => {
+		const { uri, text } = openFile(client, file);
+		try {
+			const diagnostics = await client.diagnostics(uri);
+			const allActions = await client.actions(uri, text, diagnostics, kind);
+			const actions = allActions.filter((action) => action.kind === kind || action.kind?.startsWith(`${kind}.`));
+			const workspace = mergeWorkspaceEdits(
+				actions.map((action) => action.edit).filter((edit): edit is WorkspaceEdit => edit !== undefined),
+			);
+			if (workspace.size > 100) throw new Error(`LSP action attempted to edit ${workspace.size} files; limit is 100.`);
+			const files = [...workspace.entries()].map(([editUri, edits]) => {
+				if (!editUri.startsWith("file:")) throw new Error(`LSP workspace edit uses a non-file URI: ${editUri}`);
+				const editPath = fileURLToPath(editUri);
+				assertWorkspaceFile(root, editPath);
+				const current = readFileSync(editPath, "utf8");
+				const next = applyEdits(current, edits);
+				return { path: editPath, current, next, edits, changed: current !== next };
+			});
+			return { actions, files };
+		} finally {
+			client.closeDocument(uri);
+		}
+	});
+}
+
+async function withClient<T>(
+	server: ServerConfig,
+	root: string,
+	timeout: number,
+	signal: AbortSignal | undefined,
+	fn: (client: LspClient) => Promise<T>,
+): Promise<T> {
 	const client = new LspClient(server, root, timeout);
 	await client.start(signal);
+	try {
+		return await fn(client);
+	} finally {
+		await client.shutdown();
+	}
+}
+
+function openFile(client: LspClient, file: string) {
 	const uri = pathToFileURL(file).href;
 	const text = readFileSync(file, "utf8");
 	client.open(uri, text, languageId(file));
-	try {
-		const diagnostics = await client.diagnostics(uri);
-		const allActions = await client.actions(uri, text, diagnostics, kind);
-		const actions = allActions.filter((action) => action.kind === kind || action.kind?.startsWith(`${kind}.`));
-		const workspace = mergeWorkspaceEdits(
-			actions.map((action) => action.edit).filter((edit): edit is WorkspaceEdit => edit !== undefined),
-		);
-		if (workspace.size > 100) throw new Error(`LSP action attempted to edit ${workspace.size} files; limit is 100.`);
-		const files = [...workspace.entries()].map(([editUri, edits]) => {
-			if (!editUri.startsWith("file:")) throw new Error(`LSP workspace edit uses a non-file URI: ${editUri}`);
-			const editPath = fileURLToPath(editUri);
-			assertWorkspaceFile(root, editPath);
-			const current = readFileSync(editPath, "utf8");
-			const next = applyEdits(current, edits);
-			return { path: editPath, current, next, edits, changed: current !== next };
-		});
-		return { actions, files };
-	} finally {
-		client.closeDocument(uri);
-		await client.shutdown();
-	}
+	return { uri, text };
 }
 
 function mergeWorkspaceEdits(edits: WorkspaceEdit[]) {
@@ -217,8 +233,7 @@ function workspaceRoot(cwd: string) {
 
 function assertWorkspaceFile(root: string, file: string) {
 	if (!existsSync(file) || !statSync(file).isFile()) throw new Error(`Workspace edit target does not exist: ${file}`);
-	const relative = path.relative(realpathSync(root), realpathSync(file));
-	if (relative.startsWith("..") || path.isAbsolute(relative))
+	if (!inside(realpathSync(root), realpathSync(file)))
 		throw new Error(`Workspace edit targets a file outside the workspace: ${file}`);
 }
 

@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -139,7 +139,7 @@ export function loadConfig(root: string): LspConfig {
 export function diagnosticRoutes(config: LspConfig, root: string, paths: string[] | undefined, server?: string) {
 	const candidates = selectServers(config.servers, server);
 	const routes = candidates
-		.filter((item) => server || commandExists(commandFor(item)[0] ?? "", root, item.env))
+		.filter((item) => server || resolveCommand(commandFor(item)[0] ?? "", root, item.env) !== undefined)
 		.map((item) => ({ server: item, files: collectFiles(item, root, paths) }))
 		.filter((route) => route.files.length > 0);
 	if (!routes.length) {
@@ -167,10 +167,6 @@ export function fixRoute(config: LspConfig, root: string, input: string, selecte
 export function commandFor(server: ServerConfig) {
 	const override = process.env[envName(server.name)]?.trim();
 	return override ? splitCommand(override) : server.command;
-}
-
-export function commandExists(command: string, cwd: string, overrides?: Record<string, string>) {
-	return resolveCommand(command, cwd, overrides) !== undefined;
 }
 
 export function resolveCommand(command: string, cwd: string, overrides?: Record<string, string>) {
@@ -232,7 +228,6 @@ function collectFiles(server: ServerConfig, root: string, requested?: string[]) 
 		for (const entry of readdirSync(target, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
 			if (server.skipDirectories.has(entry.name)) continue;
 			walk(path.join(target, entry.name));
-			if (files.length >= FILE_LIMIT) return;
 		}
 	}
 }
@@ -277,7 +272,7 @@ function supports(server: ServerConfig, file: string) {
 	return server.extensions.includes(path.extname(file));
 }
 
-function envName(name: string) {
+export function envName(name: string) {
 	return `PI_${name
 		.replace(/[^a-zA-Z0-9]+/g, "_")
 		.replace(/^_+|_+$/g, "")
@@ -299,7 +294,7 @@ function splitCommand(input: string) {
 	return parts.map((part) => part.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/u, "$1$2"));
 }
 
-function inside(parent: string, child: string) {
+export function inside(parent: string, child: string) {
 	const relative = path.relative(parent, child);
 	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
@@ -327,7 +322,7 @@ function object(value: unknown, label: string) {
 	return value;
 }
 
-function record(value: unknown): value is Record<string, unknown> {
+export function record(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

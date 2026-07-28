@@ -5,10 +5,6 @@ import { type GuardConfig, isProtectedPath, loadConfig } from "./config.js";
 import { redactOutput, scanSecrets } from "./scanner.js";
 import { registerSensitiveGuardUI } from "./ui.js";
 
-interface PendingRedaction {
-	source: "read" | "bash";
-}
-
 interface ShellPart {
 	command: string;
 	words: string[];
@@ -16,7 +12,7 @@ interface ShellPart {
 
 const READ_COMMANDS = new Set(["cat", "less", "more", "head", "tail", "bat", "grep", "rg", "ag", "source", "."]);
 const COPY_COMMANDS = new Set(["cp", "copy", "mv", "move", "install"]);
-const WRITE_COMMANDS = new Set([
+const MUTATE_COMMANDS = new Set([
 	"tee",
 	"touch",
 	"truncate",
@@ -26,22 +22,22 @@ const WRITE_COMMANDS = new Set([
 	"out-file",
 	"sed",
 	"perl",
+	"rm",
+	"unlink",
+	"shred",
+	"del",
+	"erase",
+	"remove-item",
+	"trash",
+	"trash-put",
 ]);
-const DELETE_COMMANDS = new Set(["rm", "unlink", "shred", "del", "erase", "remove-item", "trash", "trash-put"]);
 const SHELL_COMMANDS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
 const INLINE_INTERPRETER = /^(?:python(?:\d+(?:\.\d+)?)?|node|ruby|php|lua|perl|[gm]?awk)$/iu;
 const INLINE_SCRIPT_FLAG = /^(?:-[A-Za-z]*[ce]|--eval|--execute|--command)$/iu;
 const FILE_ACCESS =
 	/\b(?:open|file|readFile|readFileSync|writeFile|writeFileSync|appendFile|appendFileSync|unlink|unlinkSync|remove|rename|truncate)\s*\(/u;
 const DYNAMIC_PATH = /(?:\+|`|\bjoin\s*\(|\bconcat\s*\(|process\.env|os\.environ|\$\{|\$[A-Za-z_])/u;
-const KNOWN_COMMANDS = new Set([
-	"git",
-	...SHELL_COMMANDS,
-	...READ_COMMANDS,
-	...COPY_COMMANDS,
-	...WRITE_COMMANDS,
-	...DELETE_COMMANDS,
-]);
+const KNOWN_COMMANDS = new Set(["git", ...SHELL_COMMANDS, ...READ_COMMANDS, ...COPY_COMMANDS, ...MUTATE_COMMANDS]);
 const TOKEN = /"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g;
 const REDIRECT = /(?<![<>])(?:\d*(>>?|<)|(&>>?))\s*(["']?)([^\s;&|"']+)\3/g;
 const SECRET_ENV =
@@ -106,12 +102,12 @@ function pathCandidates(words: string[]): Array<string | null> {
 		.filter((path) => path !== "");
 }
 
-function candidateProtected(path: string | null, cwd: string, config: GuardConfig): boolean {
+function isCandidateProtected(path: string | null, cwd: string, config: GuardConfig): boolean {
 	return path === null || isProtectedPath(path, cwd, config);
 }
 
-function protectedCandidate(words: string[], cwd: string, config: GuardConfig): boolean {
-	return pathCandidates(words).some((path) => candidateProtected(path, cwd, config));
+function anyProtectedOperand(words: string[], cwd: string, config: GuardConfig): boolean {
+	return pathCandidates(words).some((path) => isCandidateProtected(path, cwd, config));
 }
 
 function unsafeInlineFileAccess(part: ShellPart): boolean {
@@ -132,24 +128,26 @@ function referencesProtected(part: ShellPart, cwd: string, config: GuardConfig):
 		});
 }
 
-function inspectShell(command: string, cwd: string, config: GuardConfig): { blocked: boolean; protectedRead: boolean } {
+export function inspectShell(
+	command: string,
+	cwd: string,
+	config: GuardConfig,
+): { blocked: boolean; protectedRead: boolean } {
 	let protectedRead = false;
 	for (const part of shellParts(command)) {
-		if (READ_COMMANDS.has(part.command) && protectedCandidate(part.words, cwd, config)) protectedRead = true;
+		if (READ_COMMANDS.has(part.command) && anyProtectedOperand(part.words, cwd, config)) protectedRead = true;
 		if (COPY_COMMANDS.has(part.command)) {
 			const operands = pathCandidates(part.words);
-			if (operands.slice(0, -1).some((path) => candidateProtected(path, cwd, config))) protectedRead = true;
-			if (operands.slice(-1).some((path) => candidateProtected(path, cwd, config)))
+			if (operands.slice(0, -1).some((path) => isCandidateProtected(path, cwd, config))) protectedRead = true;
+			if (operands.slice(-1).some((path) => isCandidateProtected(path, cwd, config)))
 				return { blocked: true, protectedRead };
 		}
-		if (WRITE_COMMANDS.has(part.command) && protectedCandidate(part.words, cwd, config))
-			return { blocked: true, protectedRead };
-		if (DELETE_COMMANDS.has(part.command) && protectedCandidate(part.words, cwd, config))
+		if (MUTATE_COMMANDS.has(part.command) && anyProtectedOperand(part.words, cwd, config))
 			return { blocked: true, protectedRead };
 		if (
 			part.command === "git" &&
 			["rm", "clean"].includes(commandName(part.words[0] ?? "")) &&
-			protectedCandidate(part.words.slice(1), cwd, config)
+			anyProtectedOperand(part.words.slice(1), cwd, config)
 		) {
 			return { blocked: true, protectedRead };
 		}
@@ -170,7 +168,7 @@ function inspectShell(command: string, cwd: string, config: GuardConfig): { bloc
 	for (const match of command.matchAll(REDIRECT)) {
 		const operator = match[1] ?? match[2] ?? "";
 		const target = expandShellWord(unquote(match[4] ?? ""));
-		if (!candidateProtected(target, cwd, config)) continue;
+		if (!isCandidateProtected(target, cwd, config)) continue;
 		if (operator.includes(">")) return { blocked: true, protectedRead };
 		protectedRead = true;
 	}
@@ -200,9 +198,7 @@ function replacementText(input: Record<string, unknown>): string {
 				collect(entry[key]);
 		}
 	};
-	collect(input.newText);
-	collect(input.new_text);
-	collect(input.edits);
+	for (const key of ["newText", "new_text", "edits"]) collect(input[key]);
 	return chunks.join("\n");
 }
 
@@ -238,13 +234,12 @@ async function gitDiffForAction(
 		return `${staged.stdout}\n${tracked.stdout}`;
 	}
 
-	const hashes = await run(["rev-list", "--reverse", "@{upstream}..HEAD"]);
-	let commits = hashes.code === 0 ? hashes.stdout.trim().split(/\s+/).filter(Boolean) : [];
-	if (hashes.code !== 0) {
-		const unpushed = await run(["rev-list", "--reverse", "HEAD", "--not", "--remotes"]);
-		if (unpushed.code !== 0) throw new Error("outgoing commit inspection failed");
-		commits = unpushed.stdout.trim().split(/\s+/).filter(Boolean);
+	let revs = await run(["rev-list", "--reverse", "@{upstream}..HEAD"]);
+	if (revs.code !== 0) {
+		revs = await run(["rev-list", "--reverse", "HEAD", "--not", "--remotes"]);
+		if (revs.code !== 0) throw new Error("outgoing commit inspection failed");
 	}
+	const commits = revs.stdout.trim().split(/\s+/).filter(Boolean);
 	const parts: string[] = [];
 	for (const hash of commits.slice(0, 50)) {
 		const shown = await run(["show", "--binary", "--no-ext-diff", "--format=", "--relative", hash]);
@@ -297,7 +292,7 @@ function block(ctx: ExtensionContext, reason: string): { block: true; reason: st
 
 export default function sensitiveGuard(pi: ExtensionAPI): void {
 	let config = loadConfig();
-	const pending = new Map<string, PendingRedaction>();
+	const pending = new Set<string>();
 	registerSensitiveGuardUI(pi, (next) => {
 		config = next;
 		pending.clear();
@@ -316,7 +311,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 			if (event.toolName === "read") {
 				const protectedPath = isProtectedPath(path, ctx.cwd, config);
 				if (config.readRedaction.enabled && (protectedPath || config.readRedaction.scope === "allOutput")) {
-					pending.set(event.toolCallId, { source: "read" });
+					pending.add(event.toolCallId);
 					return {};
 				}
 				return protectedPath ? block(ctx, "Sensitive Guard blocked a protected read.") : {};
@@ -328,10 +323,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 				if (config.contentScanning.enabled) {
 					const findings = scanSecrets(content, config.contentScanning.blockSeverity);
 					if (findings.length)
-						return block(
-							ctx,
-							`Sensitive Guard blocked secret-bearing content (${findings.map((finding) => finding.name).join(", ")}).`,
-						);
+						return block(ctx, `Sensitive Guard blocked secret-bearing content (${findings.join(", ")}).`);
 				}
 				return {};
 			}
@@ -353,7 +345,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 					config.readRedaction.includeShellOutput &&
 					(shell.protectedRead || config.readRedaction.scope === "allOutput")
 				) {
-					pending.set(event.toolCallId, { source: "bash" });
+					pending.add(event.toolCallId);
 				}
 			}
 			return {};
@@ -372,5 +364,3 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 		return { content };
 	});
 }
-
-export { inspectShell, isProtectedPath, loadConfig, redactOutput, scanSecrets };
