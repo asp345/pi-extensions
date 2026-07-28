@@ -4,7 +4,7 @@ const ABORT_MESSAGE = "Aborted while waiting for subagent to finish";
 const TERMINAL_SENTINEL = /__SUBAGENT_DONE_(\d+)__/;
 
 export interface CompletionResult {
-	reason: "done" | "ping" | "sentinel" | "error";
+	reason: "done" | "ping" | "sentinel" | "error" | "cancelled";
 	exitCode: number;
 	ping?: { name: string; message: string };
 	errorMessage?: string;
@@ -49,6 +49,9 @@ export function interpretExitSidecar(data: unknown): CompletionResult {
 	}
 
 	if (payload?.type === "done") return { reason: "done", exitCode: 0 };
+	if (payload?.type === "cancelled") {
+		return { reason: "cancelled", exitCode: 1, errorMessage: "Subagent cancelled by user." };
+	}
 
 	return {
 		reason: "error",

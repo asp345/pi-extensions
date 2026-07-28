@@ -14,6 +14,7 @@ export interface MessageEntry extends SessionEntry {
 	message: {
 		role: "user" | "assistant" | "toolResult";
 		content: Array<{ type: string; text?: string; [key: string]: unknown }>;
+		stopReason?: string;
 	};
 }
 
@@ -119,12 +120,24 @@ export function findObservedSessionRuntime(entries: SessionEntry[]): ObservedSes
 	return observed;
 }
 
+export function findLastAssistantStopReason(entries: SessionEntry[]): string | null {
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type !== "message") continue;
+		const msg = entry as MessageEntry;
+		if (msg.message.role !== "assistant") continue;
+		return msg.message.stopReason ?? null;
+	}
+	return null;
+}
+
 export function findLastAssistantMessage(entries: SessionEntry[]): string | null {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		if (entry.type !== "message") continue;
 		const msg = entry as MessageEntry;
 		if (msg.message.role !== "assistant") continue;
+		if (msg.message.stopReason === "aborted") return null;
 
 		const texts = msg.message.content
 			.filter((block) => block.type === "text" && typeof block.text === "string" && block.text.trim() !== "")

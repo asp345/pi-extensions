@@ -4,7 +4,7 @@
  * - Provides a `subagent_done` tool for autonomous agents to self-terminate
  */
 
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "@sinclair/typebox";
@@ -36,6 +36,17 @@ export function shouldAutoExitOnAgentEnd(
 	}
 
 	return true;
+}
+
+export function latestAssistantWasAborted(
+	messages: readonly { role?: string; stopReason?: string }[] | undefined,
+): boolean {
+	if (!messages) return false;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message?.role === "assistant") return message.stopReason === "aborted";
+	}
+	return false;
 }
 
 export interface SubagentErrorInfo {
@@ -141,6 +152,7 @@ export default function (pi: ExtensionAPI) {
 
 	let userTookOver = false;
 	let agentStarted = false;
+	let lastAgentTurnAborted = false;
 
 	// Show widget + status bar on session start
 	pi.on("session_start", (_event, ctx) => {
@@ -171,6 +183,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("agent_end", (event, ctx) => {
 		const messages = event.messages;
+		lastAgentTurnAborted = latestAssistantWasAborted(messages);
 		const shouldExit = autoExit && shouldAutoExitOnAgentEnd(userTookOver, messages);
 
 		if (shouldExit) {
@@ -244,6 +257,15 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", (event) => {
 		recorder.sessionShutdown(event.reason);
+		const sessionFile = process.env.PI_SUBAGENT_SESSION;
+		const exitFile = sessionFile ? `${sessionFile}.exit` : undefined;
+		if (autoExit && lastAgentTurnAborted && exitFile && !existsSync(exitFile)) {
+			try {
+				writeFileSync(exitFile, JSON.stringify({ type: "cancelled" }));
+			} catch {
+				// The parent also checks the final session entry as a fallback.
+			}
+		}
 	});
 
 	// Toggle expand/collapse with Ctrl+J

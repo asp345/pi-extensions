@@ -42,6 +42,7 @@ import {
 } from "./runtime-routing.ts";
 import {
 	findLastAssistantMessage,
+	findLastAssistantStopReason,
 	findObservedSessionRuntime,
 	getNewEntries,
 	seedSubagentSessionFile,
@@ -1261,7 +1262,7 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 	const { name, task, surface, startTime, sessionFile } = running;
 
 	try {
-		const result = await waitForCompletion(signal, {
+		let result = await waitForCompletion(signal, {
 			intervalMs: 1000,
 			sessionFile,
 			readTerminalTail: () => readPaneAsync(surface, 5),
@@ -1275,6 +1276,13 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 				observeRunningSubagent(running);
 			},
 		});
+
+		if (existsSync(sessionFile)) {
+			const entries = getNewEntries(sessionFile, 0);
+			if (findLastAssistantStopReason(entries) === "aborted" && !result.ping) {
+				result = { reason: "cancelled", exitCode: 1, errorMessage: "Subagent cancelled by user." };
+			}
+		}
 
 		const detectedAt = Date.now();
 		running.lifecycle = markCompletionDetected(running.lifecycle, result, detectedAt);
