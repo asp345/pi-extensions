@@ -239,6 +239,10 @@ Keep:
 
 Rewrite as one provider wrapper with a small session cache.
 
+### OpenRouter Metadata
+
+Keep Pi's bundled OpenRouter catalog as the compatibility and offline baseline. Refresh matching model metadata from OpenRouter's public catalog, merge only validated runtime fields, preserve Pi-specific compatibility settings, persist successful results in a separate versioned metadata store, revalidate them after five minutes, honor cancellation and offline mode, and retain the previous catalog on failure.
+
 ### Anthropic OAuth
 
 Keep OAuth login, refresh, and request/stream adaptation required for Claude Pro/Max. Prompt rewriting has one fixed behavior: path-safe replacement of standalone `Pi` while preserving paths and technical identifiers.
@@ -275,6 +279,7 @@ Use flat, publisher-neutral extension directories. Repository documentation and 
 ```text
 extensions/
 ├── github-copilot-auto/
+├── openrouter-metadata/
 ├── pi-anthropic-oauth/
 ├── pi-antigravity-auth/
 ├── pi-background-tasks/
@@ -344,7 +349,7 @@ Expected retained dependencies:
 
 ## Completion criteria
 
-- All eleven extensions use flat `extensions/<name>/` paths and consistent TypeScript entrypoints.
+- All twelve extensions use flat `extensions/<name>/` paths and consistent TypeScript entrypoints.
 - Default agents are `Plan`, `Explore`, `General`, and `Oracle`.
 - Every agent explicitly declares tools in Markdown.
 - Complex analysis is never recommended for the lightweight Explore model.

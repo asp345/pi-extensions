@@ -21,6 +21,7 @@ const extensions = manifest.pi?.extensions ?? [];
 const themes = manifest.pi?.themes ?? [];
 const expectedDirs = [
 	"github-copilot-auto",
+	"openrouter-metadata",
 	"pi-anthropic-oauth",
 	"pi-antigravity-auth",
 	"pi-background-tasks",

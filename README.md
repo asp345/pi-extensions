@@ -7,6 +7,7 @@ My personal Pi monorepo.
 ### Extensions
 
 - `extensions/github-copilot-auto/`
+- `extensions/openrouter-metadata/`
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
@@ -18,6 +19,8 @@ My personal Pi monorepo.
 - `extensions/question/`
 
 The only included theme is `themes/flatland.json`.
+
+`openrouter-metadata` keeps Pi's bundled OpenRouter catalog as an offline and compatibility baseline, then refreshes validated metadata for matching models from OpenRouter's public catalog. It persists validated overlays in `~/.pi/agent/openrouter-metadata-store.json`, revalidates them after five minutes, and retains the previous catalog on failure.
 
 Subagents come from the external `pi-herdr-subagents` package (installed via `pi install npm:pi-herdr-subagents`), which runs each subagent as a separate pi process in its own herdr pane. Agent definitions live in `~/.pi/agent/agents/`.
 
