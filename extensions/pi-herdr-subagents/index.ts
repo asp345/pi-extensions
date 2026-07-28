@@ -2036,7 +2036,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			},
 		});
 
-	// /plan and /review — fork context into the matching user-defined agent
+	// /plan and /review — launch the matching user-defined agent in a fresh session
 	pi.registerCommand("plan", {
 		description: "Create an implementation plan: /plan [task]",
 		handler: async (args, ctx) => {
@@ -2046,8 +2046,8 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			}
 			const task =
 				args.trim() ||
-				"Create a detailed implementation plan for the current task using the inherited conversation context.";
-			pi.sendUserMessage(`Use subagent with agent: "plan", name: "Plan", fork: true, task: ${JSON.stringify(task)}`);
+				"Create a detailed implementation plan for the current working-tree task. Inspect the repository to determine context.";
+			pi.sendUserMessage(`Use subagent with agent: "plan", name: "Plan", task: ${JSON.stringify(task)}`);
 		},
 	});
 
@@ -2061,9 +2061,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 			const task =
 				args.trim() ||
 				"Review the current working-tree changes. Report concrete correctness, security, test coverage, or maintainability issues.";
-			pi.sendUserMessage(
-				`Use subagent with agent: "review", name: "Review", fork: true, task: ${JSON.stringify(task)}`,
-			);
+			pi.sendUserMessage(`Use subagent with agent: "review", name: "Review", task: ${JSON.stringify(task)}`);
 		},
 	});
 
