@@ -195,6 +195,7 @@ interface RenderedDetails {
 	task?: string;
 	exitCode?: number;
 	errorMessage?: string;
+	cancelled?: boolean;
 	elapsed?: number;
 	sessionFile?: string;
 	surface?: string;
@@ -209,7 +210,13 @@ interface ListedAgentDefinition extends AgentDefinition {
 }
 
 /** Tools that are gated by `spawning: false` */
-const SPAWNING_TOOLS = new Set(["subagent", "subagent_interrupt", "subagents_list", "subagent_resume"]);
+const SPAWNING_TOOLS = new Set([
+	"subagent",
+	"subagent_interrupt",
+	"subagent_stop",
+	"subagents_list",
+	"subagent_resume",
+]);
 
 /**
  * Resolve the effective set of denied tool names from agent defaults.
@@ -443,12 +450,16 @@ function getArtifactDir(sessionDir: string, sessionId: string): string {
 const statusConfig = { enabled: true, lineLimit: DEFAULT_STATUS_LINE_LIMIT };
 
 function resolveResultPresentation(
-	result: Pick<SubagentResult, "exitCode" | "elapsed" | "summary" | "sessionFile" | "errorMessage">,
+	result: Pick<SubagentResult, "exitCode" | "elapsed" | "summary" | "sessionFile" | "errorMessage" | "cancelled">,
 	name: string,
 ): string {
 	const sessionRef = result.sessionFile
 		? `\n\nSession: ${result.sessionFile}\nResume: pi --session ${result.sessionFile}`
 		: "";
+
+	if (result.cancelled) {
+		return `Sub-agent "${name}" cancelled after ${formatElapsed(result.elapsed)}.${sessionRef}`;
+	}
 
 	if (result.errorMessage) {
 		// Auto-retry exhausted or other agent-loop error. The subagent did not
@@ -482,6 +493,7 @@ interface SubagentResult {
 	error?: string;
 	/** Provider/agent error message when auto-retry exhausted (overload, rate limit, etc.). */
 	errorMessage?: string;
+	cancelled?: boolean;
 	ping?: { name: string; message: string };
 }
 
@@ -886,6 +898,51 @@ interface InterruptResult {
 	details: { error?: string; id?: string; name?: string; status?: string };
 }
 
+function requestSubagentStop(
+	running: Pick<RunningSubagent, "name" | "surface" | "sessionFile">,
+	interruptPaneKey: (surface: string) => void = interruptPane,
+): { ok: true } | { error: string } {
+	try {
+		interruptPaneKey(running.surface);
+		writeFileSync(`${running.sessionFile}.exit`, JSON.stringify({ type: "cancelled" }));
+		return { ok: true };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return { error: `Failed to stop subagent "${running.name}": ${message}` };
+	}
+}
+
+function handleSubagentStop(
+	params: { id?: string; name?: string },
+	interruptPaneKey: (surface: string) => void = interruptPane,
+): InterruptResult {
+	const resolved = resolveInterruptTarget(params);
+	if ("error" in resolved) {
+		return {
+			content: [{ type: "text" as const, text: resolved.error }],
+			details: { error: resolved.error },
+		};
+	}
+
+	const running = resolved.running;
+	const now = Date.now();
+	observeRunningSubagent(running, now);
+	const stopped = requestSubagentStop(running, interruptPaneKey);
+	if ("error" in stopped) {
+		return {
+			content: [{ type: "text" as const, text: stopped.error }],
+			details: { error: stopped.error, id: running.id, name: running.name },
+		};
+	}
+
+	running.lifecycle = markInterruptRequested(ensureLifecycle(running), now);
+	updateWidget();
+	return {
+		content: [{ type: "text" as const, text: `Stop requested for subagent "${running.name}".` }],
+		details: { id: running.id, name: running.name, status: "stop_requested" },
+	};
+}
+
 function handleSubagentInterrupt(
 	params: { id?: string; name?: string },
 	interruptPaneKey: (surface: string) => void = interruptPane,
@@ -1005,6 +1062,8 @@ export const __test__ = {
 	resolveInterruptTarget,
 	requestSubagentInterrupt,
 	handleSubagentInterrupt,
+	requestSubagentStop,
+	handleSubagentStop,
 	resolveResultPresentation,
 	resolveResumeLaunchBehavior,
 	runningSubagents,
@@ -1290,8 +1349,11 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 		const elapsed = Math.floor((detectedAt - startTime) / 1000);
 
 		// Pi subagent result extraction
+		const cancelled = result.reason === "cancelled";
 		let summary: string;
-		if (existsSync(sessionFile)) {
+		if (cancelled) {
+			summary = "Subagent cancelled by user.";
+		} else if (existsSync(sessionFile)) {
 			const allEntries = getNewEntries(sessionFile, 0);
 			const observed = findObservedSessionRuntime(allEntries);
 			if (running.runtimePlan && observed.provider && observed.modelId) {
@@ -1335,7 +1397,11 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 					: "Sub-agent exited without output";
 		}
 
-		closePane(surface);
+		try {
+			closePane(surface);
+		} catch {
+			// Pane cleanup is idempotent: it may already have been closed by the user.
+		}
 		running.lifecycle =
 			result.exitCode === 0
 				? markCompleted(running.lifecycle, Date.now())
@@ -1350,6 +1416,7 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 			elapsed,
 			ping: result.ping,
 			...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+			...(cancelled ? { cancelled: true } : {}),
 		};
 	} catch (err) {
 		try {
@@ -1371,6 +1438,7 @@ async function watchSubagent(running: RunningSubagent, signal: AbortSignal): Pro
 				exitCode: 1,
 				elapsed: Math.floor((Date.now() - startTime) / 1000),
 				error: "cancelled",
+				cancelled: true,
 				sessionFile,
 			};
 		}
@@ -1559,6 +1627,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 									elapsed: result.elapsed,
 									sessionFile: result.sessionFile,
 									...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+									...(result.cancelled ? { cancelled: true } : {}),
 									...(running.runtimePlan ? { runtimePlan: running.runtimePlan } : {}),
 								},
 							},
@@ -1706,6 +1775,57 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 							" " +
 							theme.fg("toolTitle", theme.bold(details.name ?? details.id ?? "subagent")) +
 							theme.fg("dim", " — interrupt requested"),
+						0,
+						0,
+					);
+				}
+
+				const firstPart = result.content[0];
+				const text = firstPart?.type === "text" ? firstPart.text : "";
+				return new Text(theme.fg("dim", text), 0, 0);
+			},
+		});
+
+	// ── subagent_stop tool ──
+	if (shouldRegister("subagent_stop"))
+		pi.registerTool({
+			name: "subagent_stop",
+			label: "Stop Subagent",
+			description:
+				"Stop a currently running Pi-backed subagent. Sends Escape, records cancellation, closes the child pane, " +
+				"removes its running entry, stops its timer, and reports the cancellation to the parent.",
+			promptSnippet:
+				"Stop a currently running Pi-backed subagent and settle its watcher as cancelled. Use this instead of " +
+				"subagent_interrupt when the child should terminate rather than remain available for inspection or follow-up.",
+			parameters: Type.Object({
+				id: Type.Optional(Type.String({ description: "Exact running subagent id" })),
+				name: Type.Optional(Type.String({ description: "Exact running subagent display name" })),
+			}),
+
+			async execute(_toolCallId, params) {
+				return handleSubagentStop(params);
+			},
+
+			renderCall(args, theme) {
+				const target = args.id ? `${args.id}` : (args.name ?? "(unknown)");
+				return new Text(
+					theme.fg("warning", "■") +
+						" " +
+						theme.fg("toolTitle", theme.bold(target)) +
+						theme.fg("dim", " — stop subagent"),
+					0,
+					0,
+				);
+			},
+
+			renderResult(result, _opts, theme) {
+				const details = result.details as RenderedDetails | undefined;
+				if (details?.status === "stop_requested") {
+					return new Text(
+						theme.fg("warning", "■") +
+							" " +
+							theme.fg("toolTitle", theme.bold(details.name ?? details.id ?? "subagent")) +
+							theme.fg("dim", " — stop requested"),
 						0,
 						0,
 					);
@@ -1977,15 +2097,17 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 						}
 
 						const allEntries = getNewEntries(params.sessionPath, entryCountBefore);
-						const summary =
-							findLastAssistantMessage(allEntries) ??
-							(result.errorMessage
-								? `Subagent error: ${result.errorMessage}`
-								: result.exitCode !== 0
-									? `Resumed session exited with code ${result.exitCode}`
-									: "Resumed session exited without new output");
+						const cancelled = result.cancelled === true;
+						const summary = cancelled
+							? "Subagent cancelled by user."
+							: (findLastAssistantMessage(allEntries) ??
+								(result.errorMessage
+									? `Subagent error: ${result.errorMessage}`
+									: result.exitCode !== 0
+										? `Resumed session exited with code ${result.exitCode}`
+										: "Resumed session exited without new output"));
 						const basePresentation = resolveResultPresentation(
-							{ ...result, summary, sessionFile: params.sessionPath },
+							{ ...result, summary, sessionFile: params.sessionPath, cancelled },
 							name,
 						);
 						const presentation = running.runtimePlan?.runtimeMismatch
@@ -2004,6 +2126,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 									elapsed: result.elapsed,
 									sessionFile: params.sessionPath,
 									...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+									...(cancelled ? { cancelled: true } : {}),
 									...(running.runtimePlan ? { runtimePlan: running.runtimePlan } : {}),
 								},
 							},
@@ -2123,17 +2246,22 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				const name = details.name ?? "subagent";
 				const exitCode = details.exitCode ?? 0;
 				const errorMessage = typeof details.errorMessage === "string" ? details.errorMessage : "";
-				const failed = exitCode !== 0 || !!errorMessage;
+				const cancelled = details.cancelled === true;
+				const failed = !cancelled && (exitCode !== 0 || !!errorMessage);
 				const elapsed = details.elapsed != null ? formatElapsed(details.elapsed) : "?";
 				const bgFn = failed
 					? (text: string) => theme.bg("toolErrorBg", text)
-					: (text: string) => theme.bg("toolSuccessBg", text);
-				const icon = failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
-				const status = errorMessage
-					? "failed (provider/agent error)"
-					: failed
-						? `failed (exit ${exitCode})`
-						: "completed";
+					: cancelled
+						? (text: string) => theme.bg("customMessageBg", text)
+						: (text: string) => theme.bg("toolSuccessBg", text);
+				const icon = cancelled ? theme.fg("muted", "■") : failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+				const status = cancelled
+					? "cancelled"
+					: errorMessage
+						? "failed (provider/agent error)"
+						: failed
+							? `failed (exit ${exitCode})`
+							: "completed";
 				const agentTag = details.agent ? theme.fg("dim", ` (${details.agent})`) : "";
 
 				const header = `${icon} ${theme.fg("toolTitle", theme.bold(name))}${agentTag} ${theme.fg("dim", "—")} ${status} ${theme.fg("dim", `(${elapsed})`)}`;
@@ -2143,6 +2271,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				const summary = rawContent
 					.replace(/\n\nSession: .+\nResume: .+$/, "")
 					.replace(`Sub-agent "${name}" completed (${elapsed}).\n\n`, "")
+					.replace(`Sub-agent "${name}" cancelled after ${elapsed}.`, "")
 					.replace(`Sub-agent "${name}" failed (exit code ${exitCode}).\n\n`, "")
 					.replace(
 						new RegExp(

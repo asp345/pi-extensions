@@ -7,8 +7,8 @@ export const COMMAND = "bg";
 export const SHORTCUT = "ctrl+shift+b";
 const MESSAGE = "pi-background-tasks:event";
 const WIDGET = "pi-background-tasks";
-const TASK_ROWS = 12;
-const OUTPUT_ROWS = 14;
+const TASK_ROWS = 8;
+const OUTPUT_ROWS = 10;
 
 type Pane = "tasks" | "output";
 
@@ -45,6 +45,19 @@ export function taskLine(task: TaskSnapshot): string {
 function pad(text: string, width: number): string {
 	const value = truncateToWidth(text, width);
 	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
+}
+
+function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
+	if (width < 5) return lines.map((line) => truncateToWidth(line, width));
+	const innerWidth = width - 2;
+	const contentWidth = Math.max(1, innerWidth - 2);
+	const label = truncateToWidth(` ${title} `, innerWidth);
+	const topFill = "─".repeat(Math.max(0, innerWidth - visibleWidth(label)));
+	return [
+		`${theme.fg("border", "╭")}${theme.fg("accent", theme.bold(label))}${theme.fg("border", `${topFill}╮`)}`,
+		...lines.map((line) => `${theme.fg("border", "│")} ${pad(line, contentWidth)} ${theme.fg("border", "│")}`),
+		`${theme.fg("border", `╰${"─".repeat(innerWidth)}╯`)}`,
+	];
 }
 
 function eventLines(event: TaskEvent, theme: Theme, expanded: boolean): string[] {
@@ -290,17 +303,21 @@ export class BackgroundUI {
 						syncOutput();
 						const running = tasks.filter((item) => item.status === "running").length;
 						const result = [
-							`${theme.fg("accent", theme.bold("Background tasks"))} ${theme.fg("muted", `${running} running · ${tasks.length - running} finished`)}`,
+							theme.fg("muted", `${running} running · ${tasks.length - running} finished`),
 							theme.fg(
 								"dim",
 								"[tab] pane · [↑↓] move · [shift+↑/↓] page · [f] follow · [s] stop · [c] clear · [q] close",
 							),
 							"",
 						];
-						if (!tasks.length)
-							return [...result, theme.fg("dim", "No background tasks yet. Use /bg run <command> or background_task.")];
-						const leftWidth = Math.max(30, Math.min(42, Math.floor(width * 0.34)));
-						const rightWidth = Math.max(24, width - leftWidth - 3);
+						if (!tasks.length) {
+							result.push(theme.fg("dim", "No background tasks yet. Use /bg run <command> or background_task."));
+							return frame(result, width, theme, "Background tasks");
+						}
+
+						const contentWidth = Math.max(1, width - 4);
+						const leftWidth = Math.max(30, Math.min(42, Math.floor(contentWidth * 0.34)));
+						const rightWidth = Math.max(24, contentWidth - leftWidth - 3);
 						const left = [theme.fg(focus === "tasks" ? "accent" : "muted", theme.bold(`Tasks (${tasks.length})`)), ""];
 						for (const item of tasks.slice(taskScroll, taskScroll + TASK_ROWS)) {
 							left.push(
@@ -325,15 +342,19 @@ export class BackgroundUI {
 							right.push(`${theme.fg("muted", "Log")}: ${task.logFile}`, "", theme.fg("accent", theme.bold("Output")));
 							right.push(...output.slice(outputScroll, outputScroll + OUTPUT_ROWS));
 						}
-						for (let row = 0; row < Math.max(left.length, right.length); row++)
+						for (let row = 0; row < Math.max(left.length, right.length); row++) {
 							result.push(
 								`${pad(left[row] ?? "", leftWidth)}${theme.fg("dim", " │ ")}${truncateToWidth(right[row] ?? "", rightWidth)}`,
 							);
-						return result.map((line) => truncateToWidth(line, width));
+						}
+						return frame(result, width, theme, "Background tasks");
 					},
 				};
 			},
-			{ overlay: true, overlayOptions: { anchor: "center", width: 96, maxHeight: "80%" } },
+			{
+				overlay: true,
+				overlayOptions: { anchor: "bottom-center", width: 96, maxHeight: "80%", margin: { bottom: 4 } },
+			},
 		);
 	}
 }

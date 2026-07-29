@@ -29,12 +29,12 @@
 	"pi": {
 		"extensions": [
 			"./extensions/github-copilot-auto/index.ts",
-			"./extensions/openrouter-metadata/index.ts",
 			"./extensions/question/index.ts",
 			"./extensions/pi-goal/index.ts",
 			"./extensions/pi-web-access/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",
 			"./extensions/pi-lsp/index.ts",
+			"./extensions/pi-setup-custom-providers/index.ts",
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",

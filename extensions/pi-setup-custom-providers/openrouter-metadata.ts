@@ -302,10 +302,10 @@ function storedOpenRouterModel(value: unknown): OpenRouterModel | undefined {
 		(item): item is "text" | "image" => item === "text" || item === "image",
 	);
 	const rawCost = record(source?.cost);
-	const inputCost = nonnegativeNumber(rawCost?.input);
-	const outputCost = nonnegativeNumber(rawCost?.output);
-	const cacheRead = nonnegativeNumber(rawCost?.cacheRead);
-	const cacheWrite = nonnegativeNumber(rawCost?.cacheWrite);
+	const inputCost = storedRate(rawCost?.input);
+	const outputCost = storedRate(rawCost?.output);
+	const cacheRead = storedRate(rawCost?.cacheRead);
+	const cacheWrite = storedRate(rawCost?.cacheWrite);
 	const contextWindow = positiveInteger(source?.contextWindow);
 	const maxTokens = positiveInteger(source?.maxTokens);
 	if (
@@ -648,8 +648,13 @@ function positiveInteger(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
-function nonnegativeNumber(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+/**
+ * Rates already stored by pi, which are trusted catalog data rather than remote input.
+ * Negative values are pi's sentinel for variable pricing, as used by the Auto Router
+ * models, so they are preserved instead of dropping the model from the baseline.
+ */
+function storedRate(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function perMillionRate(value: unknown): number | undefined {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,7 +10,8 @@ import {
 	mergeOpenRouterModels,
 	type OpenRouterMetadataCache,
 	type OpenRouterMetadataCacheEntry,
-} from "./index.ts";
+	readPiOpenRouterModels,
+} from "./openrouter-metadata.ts";
 
 const bundled: Model<"openai-completions"> = {
 	id: "moonshotai/kimi-k3",
@@ -316,4 +317,39 @@ test("unknown remote models are not added and invalid catalogs fail closed", () 
 	assert.equal(models[0]?.id, bundled.id);
 	assert.throws(() => mergeOpenRouterModels([bundled], { data: [] }), /empty catalog/u);
 	assert.throws(() => mergeOpenRouterModels([bundled], {}), /invalid catalog/u);
+});
+
+test("variable-pricing sentinels are preserved so the override keeps auto-router models", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "pi-openrouter-store-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = directory;
+	try {
+		await writeFile(
+			join(directory, "models-store.json"),
+			JSON.stringify({
+				openrouter: {
+					models: [
+						{
+							...bundled,
+							id: "openrouter/auto",
+							cost: { input: -1000000, output: -1000000, cacheRead: 0, cacheWrite: 0 },
+						},
+						{ ...bundled, id: "vendor/priced" },
+						{ ...bundled, id: "vendor/broken", cost: { input: Number.NaN, output: 1, cacheRead: 0, cacheWrite: 0 } },
+					],
+				},
+			}),
+		);
+
+		const models = readPiOpenRouterModels();
+		assert.deepEqual(
+			models.map((model) => model.id),
+			["openrouter/auto", "vendor/priced"],
+		);
+		assert.equal(models[0]?.cost.input, -1000000);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		await rm(directory, { recursive: true, force: true });
+	}
 });
