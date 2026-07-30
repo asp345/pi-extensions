@@ -11,7 +11,8 @@ import {
 	type OpenRouterMetadataCache,
 	type OpenRouterMetadataCacheEntry,
 	readPiOpenRouterModels,
-} from "./openrouter-metadata.ts";
+	reportOpenRouterRefreshFailure,
+} from "./index.ts";
 
 const bundled: Model<"openai-completions"> = {
 	id: "moonshotai/kimi-k3",
@@ -61,6 +62,23 @@ async function testProvider(fetcher: typeof fetch, cache = memoryCache(), initia
 	const { openrouterProvider } = await import("@earendil-works/pi-ai/providers/openrouter");
 	return createOpenRouterMetadataProvider(openrouterProvider(), fetcher, cache, initialCache);
 }
+
+test("refresh failure reporting tolerates stale extension contexts", () => {
+	const messages: string[] = [];
+	reportOpenRouterRefreshFailure(new Error("network failed"), (message) => messages.push(message));
+	assert.deepEqual(messages, ["OpenRouter metadata refresh failed: network failed"]);
+
+	reportOpenRouterRefreshFailure(
+		new Error("This extension ctx is stale after session replacement or reload."),
+		(message) => messages.push(message),
+	);
+	assert.equal(messages.length, 1);
+	assert.doesNotThrow(() =>
+		reportOpenRouterRefreshFailure(new Error("network failed"), () => {
+			throw new Error("This extension ctx is stale after session replacement or reload.");
+		}),
+	);
+});
 
 test("live metadata overlays runtime fields while preserving bundled compatibility", () => {
 	const [model] = mergeOpenRouterModels([bundled], {

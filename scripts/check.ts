@@ -26,10 +26,11 @@ const expectedDirs = [
 	"pi-background-tasks",
 	"pi-direnv",
 	"pi-goal",
-	"pi-herdr-subagents",
 	"pi-lsp",
+	"pi-openrouter-metadata",
 	"pi-sensitive-guard",
 	"pi-setup-custom-providers",
+	"pi-subagents",
 	"pi-web-access",
 	"question",
 ];

@@ -49,6 +49,18 @@ export interface OpenRouterMetadataCache {
 	write(entry: OpenRouterMetadataCacheEntry): Promise<void>;
 }
 
+export function reportOpenRouterRefreshFailure(error: unknown, notify: (message: string) => void): void {
+	if (
+		error instanceof Error &&
+		error.message.includes("This extension ctx is stale after session replacement or reload")
+	)
+		return;
+	const message = error instanceof Error ? error.message : String(error);
+	try {
+		notify(`OpenRouter metadata refresh failed: ${message}`);
+	} catch {}
+}
+
 export function mergeOpenRouterModels(baseline: readonly OpenRouterModel[], payload: unknown): OpenRouterModel[] {
 	return applyMetadataOverrides(baseline, buildMetadataOverrides(baseline, payload));
 }
@@ -175,8 +187,7 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 			})
 			.catch((error: unknown) => {
 				if (generation !== activeGeneration) return;
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`OpenRouter metadata refresh failed: ${message}`, "warning");
+				reportOpenRouterRefreshFailure(error, (message) => ctx.ui.notify(message, "warning"));
 			});
 	});
 	pi.on("model_select", async (event, ctx) => {

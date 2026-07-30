@@ -40,8 +40,6 @@ Providers pi ships itself are left untouched, and the extension never writes `se
 
 Thinking level maps come from the provider's listing (`reasoning.supported_efforts`) or from the values set by hand under **Thinking**. Without a map, pi offers `off` through `high`; `xhigh` and `max` require an explicit entry.
 
-For pi's built-in `openrouter` provider, `openrouter-metadata.ts` overlays validated catalog metadata onto the bundled model list and caches it in `~/.config/pi/openrouter-metadata-store.json`.
-
 ## Files
 
 | File | Purpose |
@@ -53,4 +51,3 @@ For pi's built-in `openrouter` provider, `openrouter-metadata.ts` overlays valid
 | `config.ts` | Atomic `models.json` reads and writes |
 | `*.test.ts` | Unit tests for parsing, merging, persistence, and refresh |
 | `types.ts` | Configuration types and defaults |
-| `openrouter-metadata.ts` | Metadata overlay for pi's built-in OpenRouter provider |
