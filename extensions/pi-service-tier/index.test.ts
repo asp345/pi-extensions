@@ -42,10 +42,10 @@ test("openai requests get service_tier when a non-default tier is selected", asy
 		service_tier: "flex",
 	});
 	assert.equal(
-		await handler!(
-			{ type: "before_provider_request", payload },
-			{ ...ctx, model: { provider: "anthropic" } } as unknown as ExtensionContext,
-		),
+		await handler!({ type: "before_provider_request", payload }, {
+			...ctx,
+			model: { provider: "anthropic" },
+		} as unknown as ExtensionContext),
 		undefined,
 	);
 });

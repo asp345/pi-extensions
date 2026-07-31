@@ -43,6 +43,7 @@ export default function subagents(pi: ExtensionAPI): void {
 	let registry: DefinitionRegistry = { definitions: new Map(), errors: [] };
 	let currentContext: ExtensionContext | undefined;
 	const pendingNotifications = new Map<string, number>();
+	const sentNotifications = new Set<string>();
 	let notificationFlight: Promise<void> | undefined;
 	let retryTimer: ReturnType<typeof setTimeout> | undefined;
 	let shuttingDown = false;
@@ -126,23 +127,26 @@ export default function subagents(pi: ExtensionAPI): void {
 			NOTIFICATION_BYTES,
 			60,
 		).text;
-		try {
-			await pi.sendMessage<CompletionBatchDetails>(
-				{
-					customType: "subagent-completion",
-					content,
-					display: true,
-					details: { records: records.map(completionDetails) },
-				},
-				{ deliverAs: "followUp", triggerTurn: true },
-			);
-			for (const { record, stamp } of batch) {
-				if (pendingNotifications.get(record.id) === stamp) pendingNotifications.delete(record.id);
-			}
-			return true;
-		} catch {
-			return false;
+		// pi.sendMessage is fire-and-forget: a failed turn trigger surfaces as a
+		// "<runtime>" extension error and cannot be caught here. Notifications sent
+		// while idle stay pending until agent_start confirms the triggered run, and
+		// agent_settled re-flushes whatever remains.
+		const idle = currentContext?.isIdle() === true;
+		pi.sendMessage<CompletionBatchDetails>(
+			{
+				customType: "subagent-completion",
+				content,
+				display: true,
+				details: { records: records.map(completionDetails) },
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+		for (const { record, stamp } of batch) {
+			if (pendingNotifications.get(record.id) !== stamp) continue;
+			if (idle) sentNotifications.add(record.id);
+			else pendingNotifications.delete(record.id);
 		}
+		return true;
 	}
 
 	function scheduleNotificationRetry(): void {
@@ -343,6 +347,10 @@ export default function subagents(pi: ExtensionAPI): void {
 			);
 	});
 	pi.on("agent_settled", async () => flushNotifications());
+	pi.on("agent_start", () => {
+		for (const id of sentNotifications) pendingNotifications.delete(id);
+		sentNotifications.clear();
+	});
 	pi.on("before_agent_start", (event) => {
 		const summary = definitionSummary(registry);
 		const warning = registry.errors.length ? "\nSome definitions have configuration errors; inspect /agents." : "";
@@ -353,6 +361,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		if (retryTimer) clearTimeout(retryTimer);
 		retryTimer = undefined;
 		pendingNotifications.clear();
+		sentNotifications.clear();
 		await manager.shutdown(ctx.cwd);
 		ui.detach(ctx);
 		currentContext = undefined;

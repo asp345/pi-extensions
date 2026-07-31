@@ -115,6 +115,7 @@ export class GoalRuntime {
 		const stamp = this.ownedPrompts.get(key);
 		this.ownedPrompts.delete(key);
 		if (stamp === undefined || Date.now() - stamp > OWNED_PROMPT_TTL_MS) return;
+		this.pendingContinuation = undefined;
 		this.currentRunAutomatic = marker[1] === "continue";
 	}
 
@@ -167,7 +168,6 @@ export class GoalRuntime {
 		}
 		if (this.pendingContinuation !== goal.id) return;
 		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.()) return;
-		this.pendingContinuation = undefined;
 		await this.sendOwnedPrompt(ctx, "continue", "Continue the active /goal. Keep working until it is complete.");
 	}
 
@@ -241,22 +241,21 @@ export class GoalRuntime {
 		this.ownedPrompts.set(marker, now);
 	}
 
-	private async sendOwnedPrompt(ctx: GoalContext, kind: "start" | "continue", text: string) {
+	private async sendOwnedPrompt(_ctx: GoalContext, kind: "start" | "continue", text: string) {
 		const goal = this.goal;
 		if (!goal || goal.status !== "active") return false;
 		const marker = randomUUID();
 		this.recordOwnedPrompt(marker);
-		try {
-			await this.pi.sendUserMessage(
-				`${text}\n\nGoal ID: ${goal.id}\nObjective: ${goal.objective}\n\n<!-- pi-goal:${kind}:${marker} -->`,
-				{ deliverAs: "followUp" },
-			);
-			return true;
-		} catch (error) {
-			this.ownedPrompts.delete(marker);
-			this.pause(ctx, `prompt delivery failed: ${formatError(error)}`);
-			return false;
-		}
+		// pi.sendUserMessage is fire-and-forget: a failed send surfaces as a
+		// "<runtime>" extension error and cannot be caught. Keep the continuation
+		// armed so the next agent_settled retries; beforeAgentStart disarms it once
+		// the owned prompt actually starts a run.
+		this.pi.sendUserMessage(
+			`${text}\n\nGoal ID: ${goal.id}\nObjective: ${goal.objective}\n\n<!-- pi-goal:${kind}:${marker} -->`,
+			{ deliverAs: "followUp" },
+		);
+		this.pendingContinuation = goal.id;
+		return true;
 	}
 }
 
@@ -328,8 +327,4 @@ function assistantText(messages: readonly unknown[]) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function formatError(error: unknown) {
-	return error instanceof Error ? error.message : String(error);
 }
