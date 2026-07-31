@@ -122,7 +122,7 @@ export class BackgroundUI {
 	handleEvent(event: TaskEvent): void {
 		this.pendingExits.set(event.task.id, event);
 		this.active?.ui.notify(exitText(event), "info");
-		if (this.active?.isIdle() && !this.active.hasPendingMessages()) void this.flushExits();
+		if (!this.active?.hasPendingMessages()) void this.flushExits();
 	}
 
 	async flushExits(): Promise<void> {
@@ -130,10 +130,12 @@ export class BackgroundUI {
 		this.pendingExits.clear();
 		if (!events.length) return;
 		const content = events.map(exitText).join("\n");
+		// While the agent is streaming the message is queued as a steer and
+		// injected at the next turn iteration; when idle it triggers a run.
 		try {
 			await this.pi.sendMessage(
 				{ customType: MESSAGE, content, details: events.length === 1 ? events[0] : undefined, display: true },
-				{ deliverAs: "followUp", triggerTurn: true },
+				{ deliverAs: "steer", triggerTurn: true },
 			);
 		} catch {
 			for (const event of events) if (this.runtime.get(event.task.id)) this.pendingExits.set(event.task.id, event);
