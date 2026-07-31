@@ -63,6 +63,7 @@ export class GoalRuntime {
 	private pendingContinuation?: string;
 	private currentRunAutomatic = false;
 	private currentRunUsedTool = false;
+	private runningBackgroundTasks = 0;
 	private settleFailure?: "aborted" | "error";
 	private readonly ownedPrompts = new Map<string, number>();
 
@@ -123,6 +124,10 @@ export class GoalRuntime {
 		this.currentRunUsedTool = true;
 	}
 
+	setRunningBackgroundTasks(count: number) {
+		this.runningBackgroundTasks = count;
+	}
+
 	finishAgent(messages: readonly unknown[]) {
 		const goal = this.goal;
 		if (!goal || goal.status !== "active") return;
@@ -167,7 +172,7 @@ export class GoalRuntime {
 			return;
 		}
 		if (this.pendingContinuation !== goal.id) return;
-		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.()) return;
+		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.() || this.runningBackgroundTasks > 0) return;
 		await this.sendOwnedPrompt(ctx, "continue", "Continue the active /goal. Keep working until it is complete.");
 	}
 

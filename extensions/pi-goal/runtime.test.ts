@@ -64,6 +64,18 @@ test("owned continue prompts are honored exactly once", async () => {
 	assert.equal(goal.automaticTurns, 1);
 });
 
+test("running background tasks defer automatic continuation", async () => {
+	const { runtime, ctx, sent } = harness();
+	runtime.setRunningBackgroundTasks(1);
+	runtime.finishAgent([assistant("waiting for background work")]);
+	await runtime.settled(ctx);
+	assert.equal(sent.length, 0);
+
+	runtime.setRunningBackgroundTasks(0);
+	await runtime.settled(ctx);
+	assert.equal(sent.length, 1);
+});
+
 test("foreign prompts with a forged marker are not treated as owned", () => {
 	const { runtime, ctx } = harness();
 	const goal = runtime.goal;

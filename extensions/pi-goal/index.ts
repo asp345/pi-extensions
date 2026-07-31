@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.js";
 import {
 	createGoal,
 	type GoalContext,
@@ -156,6 +157,11 @@ export default function goalExtension(pi: ExtensionAPI) {
 			await runtime.startPrompt(ctx);
 			ctx.ui.notify(`Goal started: ${safeText(input, 160)}`, "info");
 		},
+	});
+
+	pi.events.on(BACKGROUND_TASKS_STATE_EVENT, (data) => {
+		const state = parseBackgroundTasksState(data);
+		if (state) runtime.setRunningBackgroundTasks(state.running);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
