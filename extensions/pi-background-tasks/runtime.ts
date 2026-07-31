@@ -11,6 +11,7 @@ export interface TaskSnapshot {
 	id: string;
 	command: string;
 	title: string;
+	notify: boolean;
 	cwd: string;
 	pid: number;
 	logFile: string;
@@ -23,8 +24,13 @@ export interface TaskSnapshot {
 	outputBytes: number;
 }
 
+export interface WaitResult {
+	task: TaskSnapshot;
+	output: string;
+}
+
 export interface TaskEvent {
-	type: "output" | "exit";
+	type: "exit";
 	task: TaskSnapshot;
 	output: string;
 }
@@ -35,26 +41,17 @@ type ManagedTask = {
 	output: string;
 	closed: boolean;
 	stopRequested: boolean;
-	notifyTimer: ReturnType<typeof setTimeout> | null;
 	expiryTimer: ReturnType<typeof setTimeout> | null;
 	forceTimer: ReturnType<typeof setTimeout> | null;
 	logBytes: number;
-	pendingNotify: string;
-	notifyDeadline: number;
 	flushOutput: (() => void) | null;
+	waiters: Set<(result: WaitResult) => void>;
 };
-
-export interface RuntimeOptions {
-	notifyDebounceMs?: number;
-	notifyMaxWaitMs?: number;
-}
 
 const BUFFER_LIMIT = 120_000;
 const READ_LIMIT = 5_000;
 const ALERT_LIMIT = 3_000;
 const TIMEOUT_MS = 10 * 60_000;
-const NOTIFY_DEBOUNCE_MS = 1500;
-const NOTIFY_MAX_WAIT_MS = 5000;
 
 export function tail(text: string, limit = READ_LIMIT): string {
 	return text.length <= limit ? text : `[...truncated]\n${text.slice(-limit)}`;
@@ -68,16 +65,10 @@ export class BackgroundRuntime {
 	private readonly tasks = new Map<string, ManagedTask>();
 	private counter = 0;
 	private shuttingDown = false;
-	private readonly notifyDebounceMs: number;
-	private readonly notifyMaxWaitMs: number;
 	constructor(
 		private readonly emit: (event: TaskEvent) => void,
 		private readonly update: () => void,
-		options: RuntimeOptions = {},
-	) {
-		this.notifyDebounceMs = options.notifyDebounceMs ?? NOTIFY_DEBOUNCE_MS;
-		this.notifyMaxWaitMs = options.notifyMaxWaitMs ?? NOTIFY_MAX_WAIT_MS;
-	}
+	) {}
 
 	activate(): void {
 		this.shuttingDown = false;
@@ -98,7 +89,7 @@ export class BackgroundRuntime {
 		return task.output;
 	}
 
-	start(command: string, cwd: string): TaskSnapshot {
+	start(command: string, cwd: string, options: { notify?: boolean } = {}): TaskSnapshot {
 		const id = `bg-${++this.counter}`;
 		const now = Date.now();
 		const logFile = join(tmpdir(), `pi-bg-${id}-${now}.log`);
@@ -115,6 +106,7 @@ export class BackgroundRuntime {
 				id,
 				command,
 				title: command,
+				notify: options.notify ?? true,
 				cwd,
 				pid: child.pid ?? 0,
 				logFile,
@@ -130,13 +122,11 @@ export class BackgroundRuntime {
 			output: "",
 			closed: false,
 			stopRequested: false,
-			notifyTimer: null,
 			expiryTimer: null,
 			forceTimer: null,
 			logBytes: 0,
-			pendingNotify: "",
-			notifyDeadline: 0,
 			flushOutput: null,
+			waiters: new Set(),
 		};
 		this.tasks.set(id, task);
 
@@ -156,11 +146,7 @@ export class BackgroundRuntime {
 					task.logBytes = Buffer.byteLength(task.output);
 				}
 			} catch {}
-			task.pendingNotify = `${task.pendingNotify}${value}`.slice(-ALERT_LIMIT);
-			if (!this.shuttingDown) {
-				this.scheduleNotify(task);
-				this.update();
-			}
+			if (!this.shuttingDown) this.update();
 		};
 		task.flushOutput = (): void => {
 			append(stdoutDecoder.end());
@@ -234,20 +220,6 @@ export class BackgroundRuntime {
 		} catch {}
 	}
 
-	private scheduleNotify(task: ManagedTask): void {
-		const now = Date.now();
-		if (task.notifyTimer) clearTimeout(task.notifyTimer);
-		else task.notifyDeadline = now + this.notifyMaxWaitMs;
-		const wait = Math.min(this.notifyDebounceMs, Math.max(0, task.notifyDeadline - now));
-		task.notifyTimer = setTimeout(() => {
-			task.notifyTimer = null;
-			const output = task.pendingNotify;
-			task.pendingNotify = "";
-			if (task.info.status === "running" && output) this.emit({ type: "output", task: snapshot(task), output });
-		}, wait);
-		task.notifyTimer.unref?.();
-	}
-
 	private kill(task: ManagedTask, signal: NodeJS.Signals): void {
 		if (!task.info.pid) return this.finish(task, null);
 		try {
@@ -271,15 +243,61 @@ export class BackgroundRuntime {
 		task.info.exitCode = code;
 		task.info.status = task.stopRequested ? "stopped" : code === 0 ? "completed" : "failed";
 		task.info.updatedAt = Date.now();
-		task.pendingNotify = "";
-		if (task.notifyTimer) clearTimeout(task.notifyTimer);
 		if (task.expiryTimer) clearTimeout(task.expiryTimer);
 		if (task.forceTimer) clearTimeout(task.forceTimer);
-		task.notifyTimer = null;
 		task.expiryTimer = null;
 		task.forceTimer = null;
+		const result: WaitResult = { task: snapshot(task), output: task.output };
+		for (const waiter of task.waiters) waiter(result);
+		task.waiters.clear();
+		if (!task.info.notify) return;
 		if (this.shuttingDown) return;
 		this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
 		this.update();
+	}
+
+	promote(id: string | undefined): boolean {
+		const task = this.find(id);
+		if (!task || task.info.notify) return false;
+		task.info.notify = true;
+		if (task.closed && !this.shuttingDown)
+			this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
+		this.update();
+		return true;
+	}
+
+	discard(id: string | undefined): boolean {
+		const task = this.find(id);
+		if (!task || task.info.notify) return false;
+		if (!task.closed) {
+			task.stopRequested = true;
+			this.kill(task, "SIGTERM");
+		}
+		this.tasks.delete(task.info.id);
+		this.removeLog(task);
+		return true;
+	}
+
+	waitForExit(id: string | undefined, ms: number, signal?: AbortSignal): Promise<WaitResult | null> {
+		const task = this.find(id);
+		if (!task) return Promise.resolve(null);
+		if (task.closed) return Promise.resolve({ task: snapshot(task), output: task.output });
+		if (signal?.aborted) return Promise.resolve(null);
+		return new Promise((resolve) => {
+			let settled = false;
+			const settle = (value: WaitResult | null): void => {
+				if (settled) return;
+				settled = true;
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
+				task.waiters.delete(waiter);
+				resolve(value);
+			};
+			const waiter = (result: WaitResult): void => settle(result);
+			const onAbort = (): void => settle(null);
+			const timer = setTimeout(() => settle(null), ms);
+			signal?.addEventListener("abort", onAbort, { once: true });
+			task.waiters.add(waiter);
+		});
 	}
 }

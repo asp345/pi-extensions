@@ -1,5 +1,6 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { registerHybridBash } from "./bash.js";
 import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.js";
 import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.js";
 
@@ -24,6 +25,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		() => ui.refresh(),
 	);
 	ui = new BackgroundUI(pi, runtime);
+	registerHybridBash(pi, runtime);
 
 	const clearedText = (): string => `Removed ${runtime.clear()} finished background task(s).`;
 
@@ -69,7 +71,10 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				);
 			}
 			if (params.action === "list") {
-				const tasks = runtime.list().slice(0, 50);
+				const tasks = runtime
+					.list()
+					.filter((task) => task.notify)
+					.slice(0, 50);
 				return result(tasks.length ? tasks.map(taskLine).join("\n") : "No background tasks.");
 			}
 			if (params.action === "clear") return result(clearedText());

@@ -40,7 +40,8 @@
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
 			"./extensions/pi-direnv/index.ts",
-			"./extensions/pi-subagents/index.ts"
+			"./extensions/pi-subagents/index.ts",
+			"./extensions/pi-service-tier/index.ts"
 		],
 		"themes": [
 			"./themes/flatland.json"

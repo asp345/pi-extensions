@@ -29,6 +29,7 @@ const expectedDirs = [
 	"pi-lsp",
 	"pi-openrouter-metadata",
 	"pi-sensitive-guard",
+	"pi-service-tier",
 	"pi-setup-custom-providers",
 	"pi-subagents",
 	"pi-web-access",

@@ -39,7 +39,21 @@ function exitText(event: TaskEvent): string {
 }
 
 export function taskLine(task: TaskSnapshot): string {
-	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${task.title} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
+	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${oneLine(task.title)} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
+}
+
+function oneLine(text: string): string {
+	return text.replace(/\s*[\r\n]+\s*/g, " ⏎ ").trim();
+}
+
+function lastOutputLine(output: string | undefined): string {
+	if (!output) return "";
+	return (
+		output
+			.split(/[\r\n]+/)
+			.filter((line) => line.trim())
+			.pop() ?? ""
+	);
 }
 
 function pad(text: string, width: number): string {
@@ -60,14 +74,17 @@ function frame(lines: string[], width: number, theme: Theme, title: string): str
 	];
 }
 
+function visibleTasks(runtime: BackgroundRuntime): TaskSnapshot[] {
+	return runtime.list().filter((task) => task.notify);
+}
+
 function eventLines(event: TaskEvent, theme: Theme, expanded: boolean): string[] {
-	const title = event.type === "exit" ? "Background task finished" : "Background task output";
 	const lines = [
-		theme.fg(event.type === "exit" ? "success" : "accent", theme.bold(title)),
-		`${theme.fg("muted", "Task")}: ${event.task.id} · ${event.task.title}`,
+		theme.fg("success", theme.bold("Background task finished")),
+		`${theme.fg("muted", "Task")}: ${event.task.id} · ${oneLine(event.task.title)}`,
 		`${theme.fg("muted", "Status")}: ${taskStatus(event.task)} · pid ${event.task.pid}`,
 		`${theme.fg("muted", "Started")}: ${relative(event.task.startedAt)} · ${duration(Date.now() - event.task.startedAt)} elapsed`,
-		`${theme.fg("muted", "Command")}: ${event.task.command}`,
+		`${theme.fg("muted", "Command")}: ${oneLine(event.task.command)}`,
 		`${theme.fg("muted", "Log")}: ${event.task.logFile}`,
 		"",
 		theme.fg("accent", theme.bold("Recent output")),
@@ -92,7 +109,7 @@ export class BackgroundUI {
 			const details = message.details as TaskEvent | undefined;
 			const body = details?.task
 				? eventLines(details, theme, expanded).join("\n")
-				: String(message.content ?? "Background task update");
+				: String(message.content ?? "Background task finished");
 			return new Text(body, 1, 0, (value) => theme.bg("customMessageBg", value));
 		});
 	}
@@ -103,18 +120,6 @@ export class BackgroundUI {
 	}
 
 	handleEvent(event: TaskEvent): void {
-		if (event.type === "output") {
-			this.pi.sendMessage(
-				{
-					customType: MESSAGE,
-					content: `Background task ${event.task.id} emitted output.`,
-					details: event,
-					display: true,
-				},
-				{ triggerTurn: false },
-			);
-			return;
-		}
 		this.pendingExits.set(event.task.id, event);
 		this.active?.ui.notify(exitText(event), "info");
 		if (this.active?.isIdle() && !this.active.hasPendingMessages()) void this.flushExits();
@@ -138,8 +143,8 @@ export class BackgroundUI {
 	refresh(): void {
 		const ctx = this.active;
 		if (!ctx) return;
-		const tasks = this.runtime.list();
-		if (!tasks.length) {
+		const tasks = visibleTasks(this.runtime);
+		if (!tasks.some((task) => task.status === "running")) {
 			if (this.widgetMounted) ctx.ui.setWidget(WIDGET, undefined);
 			this.widgetMounted = false;
 			this.requestRender = null;
@@ -164,7 +169,7 @@ export class BackgroundUI {
 					},
 					invalidate() {},
 					render: (width: number) => {
-						const current = this.runtime.list();
+						const current = visibleTasks(this.runtime);
 						const hasRunning = current.some((task) => task.status === "running");
 						if (hasRunning && !timer) {
 							timer = setInterval(() => tui.requestRender(), 1000);
@@ -175,11 +180,14 @@ export class BackgroundUI {
 						}
 						const running = current.filter((task) => task.status === "running").length;
 						const latest = current[0];
+						const runningTask = current.find((task) => task.status === "running");
+						const preview = lastOutputLine(runningTask ? this.runtime.output(runningTask.id) : undefined);
 						return [
 							`${theme.fg("accent", theme.bold("Background tasks"))} ${theme.fg("muted", `${running} running · ${current.length - running} finished`)}`,
 							latest
-								? `${theme.fg("dim", `${latest.id} · ${latest.title} · ${relative(latest.lastOutputAt ?? latest.updatedAt)}`)} · ${theme.fg("muted", `${SHORTCUT} dashboard`)}`
+								? `${theme.fg("dim", `${latest.id} · ${oneLine(latest.title)} · ${relative(latest.lastOutputAt ?? latest.updatedAt)}`)} · ${theme.fg("muted", `${SHORTCUT} dashboard`)}`
 								: "",
+							preview ? theme.fg("dim", `› ${preview}`) : "",
 						]
 							.filter(Boolean)
 							.map((line) => truncateToWidth(line, width));
@@ -200,7 +208,7 @@ export class BackgroundUI {
 	}
 
 	listText(): string {
-		const tasks = this.runtime.list();
+		const tasks = visibleTasks(this.runtime);
 		return tasks.length ? tasks.map(taskLine).join("\n\n") : "No background tasks.";
 	}
 
@@ -211,7 +219,7 @@ export class BackgroundUI {
 		}
 		await ctx.ui.custom(
 			(tui, theme, _keys, done) => {
-				let selectedId = initialId ?? this.runtime.list()[0]?.id;
+				let selectedId = initialId ?? visibleTasks(this.runtime)[0]?.id;
 				let focus = pane;
 				let taskScroll = 0;
 				let outputScroll = 0;
@@ -220,7 +228,7 @@ export class BackgroundUI {
 				timer.unref?.();
 
 				const selected = (): TaskSnapshot | undefined => {
-					const tasks = this.runtime.list();
+					const tasks = visibleTasks(this.runtime);
 					const task = tasks.find((item) => item.id === selectedId) ?? tasks[0];
 					selectedId = task?.id;
 					return task;
@@ -236,7 +244,7 @@ export class BackgroundUI {
 					else outputScroll = Math.max(0, Math.min(max, outputScroll));
 				};
 				const moveTask = (delta: number): void => {
-					const tasks = this.runtime.list();
+					const tasks = visibleTasks(this.runtime);
 					if (!tasks.length) return;
 					const current = Math.max(
 						0,
@@ -298,7 +306,7 @@ export class BackgroundUI {
 						if (matchesKey(data, "down") || data === "j") return focus === "tasks" ? moveTask(1) : moveOutput(1);
 					},
 					render: (width: number) => {
-						const tasks = this.runtime.list();
+						const tasks = visibleTasks(this.runtime);
 						const task = selected();
 						syncOutput();
 						const running = tasks.filter((item) => item.status === "running").length;
@@ -323,7 +331,7 @@ export class BackgroundUI {
 							left.push(
 								`${item.id === task?.id ? theme.fg("accent", "→") : "·"} ${item.id} ${theme.fg("dim", taskStatus(item))}`,
 							);
-							left.push(`  ${item.title}`);
+							left.push(`  ${oneLine(item.title)}`);
 						}
 						const right: string[] = [];
 						if (task) {
@@ -337,7 +345,7 @@ export class BackgroundUI {
 								`${theme.fg("muted", "Started")}: ${relative(task.startedAt)} · ${duration(Date.now() - task.startedAt)} elapsed`,
 							);
 							right.push(`${theme.fg("muted", "Expiry")}: in ${duration(task.expiresAt - Date.now())}`);
-							right.push(`${theme.fg("muted", "Command")}: ${task.command}`);
+							right.push(`${theme.fg("muted", "Command")}: ${oneLine(task.command)}`);
 							right.push(`${theme.fg("muted", "Cwd")}: ${task.cwd}`);
 							right.push(`${theme.fg("muted", "Log")}: ${task.logFile}`, "", theme.fg("accent", theme.bold("Output")));
 							right.push(...output.slice(outputScroll, outputScroll + OUTPUT_ROWS));

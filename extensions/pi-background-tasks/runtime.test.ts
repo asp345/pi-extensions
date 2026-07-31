@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { BackgroundRuntime, type RuntimeOptions, type TaskEvent } from "./runtime.ts";
+import { BackgroundRuntime, type TaskEvent } from "./runtime.ts";
 
 interface Harness {
 	runtime: BackgroundRuntime;
@@ -10,7 +10,7 @@ interface Harness {
 	updates: () => number;
 }
 
-function createHarness(options?: RuntimeOptions): Harness {
+function createHarness(): Harness {
 	const events: TaskEvent[] = [];
 	let updateCount = 0;
 	const runtime = new BackgroundRuntime(
@@ -18,7 +18,6 @@ function createHarness(options?: RuntimeOptions): Harness {
 		() => {
 			updateCount++;
 		},
-		options,
 	);
 	return { runtime, events, updates: () => updateCount };
 }
@@ -52,24 +51,6 @@ test("emits exit event with final status and exit code", async () => {
 		assert.equal(exit?.task.status, "failed");
 		assert.equal(exit?.task.exitCode, 3);
 		assert.equal(events.filter((event) => event.type === "exit").length, 1);
-	} finally {
-		runtime.shutdown();
-	}
-});
-
-test("throttled output notifications are not starved by steady output", async () => {
-	const { runtime, events } = createHarness({ notifyDebounceMs: 100, notifyMaxWaitMs: 300 });
-	try {
-		const loop = Array.from({ length: 30 }, () => "printf x; sleep 0.05").join("; ");
-		const task = runtime.start(loop, process.cwd());
-		await waitFor(() => events.some((event) => event.type === "exit"));
-		const outputs = events.filter((event) => event.type === "output");
-		assert.ok(outputs.length >= 2, `expected at least 2 output events, got ${outputs.length}`);
-		for (const event of outputs) {
-			assert.equal(event.task.id, task.id);
-			assert.equal(event.task.status, "running");
-			assert.ok(event.output.length > 0);
-		}
 	} finally {
 		runtime.shutdown();
 	}
@@ -114,4 +95,66 @@ test("a new session can reactivate the runtime after shutdown", async () => {
 	await waitFor(() => events.some((event) => event.type === "exit" && event.task.id === task.id));
 	assert.equal(runtime.output(task.id), "resumed");
 	runtime.shutdown();
+});
+
+test("quiet tasks emit no events and waitForExit delivers the result", async () => {
+	const { runtime, events } = createHarness();
+	try {
+		const task = runtime.start("printf hi", process.cwd(), { notify: false });
+		const result = await runtime.waitForExit(task.id, 5_000);
+		assert.equal(result?.task.id, task.id);
+		assert.equal(result?.task.status, "completed");
+		assert.equal(result?.output, "hi");
+		await delay(100);
+		assert.equal(events.length, 0);
+		assert.equal(runtime.get(task.id)?.notify, false);
+		assert.ok(runtime.discard(task.id));
+		assert.equal(runtime.get(task.id), undefined);
+		assert.ok(!existsSync(task.logFile));
+	} finally {
+		runtime.shutdown();
+	}
+});
+
+test("waitForExit times out, then promotion restores normal notifications", async () => {
+	const { runtime, events } = createHarness();
+	try {
+		const task = runtime.start("sleep 0.3; printf done", process.cwd(), { notify: false });
+		assert.equal(await runtime.waitForExit(task.id, 50), null);
+		assert.equal(runtime.get(task.id)?.status, "running");
+		assert.ok(runtime.promote(task.id));
+		assert.equal(runtime.get(task.id)?.notify, true);
+		assert.ok(!runtime.discard(task.id));
+		await waitFor(() => events.some((event) => event.type === "exit" && event.task.id === task.id));
+	} finally {
+		runtime.shutdown();
+	}
+});
+
+test("promoting an already finished quiet task emits the exit event late", async () => {
+	const { runtime, events } = createHarness();
+	try {
+		const task = runtime.start("exit 0", process.cwd(), { notify: false });
+		await waitFor(() => runtime.get(task.id)?.status === "completed");
+		assert.equal(events.length, 0);
+		assert.ok(runtime.promote(task.id));
+		assert.equal(events.filter((event) => event.type === "exit").length, 1);
+	} finally {
+		runtime.shutdown();
+	}
+});
+
+test("waitForExit resolves null when the abort signal fires", async () => {
+	const { runtime } = createHarness();
+	try {
+		const task = runtime.start("sleep 5", process.cwd(), { notify: false });
+		const controller = new AbortController();
+		const wait = runtime.waitForExit(task.id, 10_000, controller.signal);
+		setTimeout(() => controller.abort(), 50).unref();
+		assert.equal(await wait, null);
+		runtime.discard(task.id);
+		assert.equal(runtime.get(task.id), undefined);
+	} finally {
+		runtime.shutdown();
+	}
 });
