@@ -16,7 +16,12 @@ import {
 	sliceText,
 } from "./storage.ts";
 
-const Provider = Type.Union([Type.Literal("auto"), Type.Literal("openai"), Type.Literal("gemini")]);
+const Provider = Type.Union([
+	Type.Literal("auto"),
+	Type.Literal("openai"),
+	Type.Literal("gemini"),
+	Type.Literal("antigravity"),
+]);
 const RecencySchema = Type.Union([
 	Type.Literal("day"),
 	Type.Literal("week"),
@@ -32,7 +37,7 @@ export default function webAccess(pi: ExtensionAPI): void {
 		name: "web_search",
 		label: "Web Search",
 		description:
-			"Search up to four queries with OpenAI or Gemini and return a bounded cited answer stored for later retrieval.",
+			"Search up to four queries with OpenAI, Gemini, or Antigravity and return a bounded cited answer stored for later retrieval.",
 		parameters: Type.Object({
 			queries: Type.Array(Type.String({ minLength: 1, maxLength: 1000 }), {
 				minItems: 1,
@@ -123,12 +128,17 @@ export default function webAccess(pi: ExtensionAPI): void {
 			timestamp: Type.Optional(Type.String({ maxLength: 64, description: "Video time or start-end range." })),
 			frames: Type.Optional(Type.Integer({ minimum: 1, maximum: 12, description: "Video frames to extract." })),
 		}),
-		async execute(_id, params, signal, onUpdate): Promise<AgentToolResult<Record<string, unknown>>> {
+		async execute(_id, params, signal, onUpdate, context): Promise<AgentToolResult<Record<string, unknown>>> {
 			const urls = params.urls.map((url) => url.trim()).filter(Boolean);
 			onUpdate?.({ content: [{ type: "text", text: `Fetching ${urls.length} item(s)` }], details: { progress: 0 } });
 			const extracted = await extractAll(
 				urls,
-				{ question: params.question, timestamp: params.timestamp, frames: params.frames },
+				{
+					question: params.question,
+					timestamp: params.timestamp,
+					frames: params.frames,
+					context,
+				},
 				signal,
 			);
 			const id = newId();

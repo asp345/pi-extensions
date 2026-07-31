@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
-import { geminiAvailable, geminiGenerate, geminiUploadVideo } from "./search.ts";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { geminiApiKeyAvailable, geminiAvailable, geminiGenerate, geminiUploadVideo } from "./search.ts";
 import { fetchRemote, validateTarget } from "./security.ts";
 import { combinedSignal, errorMessage, type FetchedContent, readBytes } from "./storage.ts";
 
@@ -37,6 +38,7 @@ export interface ExtractOptions {
 	question?: string;
 	timestamp?: string;
 	frames?: number;
+	context?: ExtensionContext;
 }
 
 export async function extractAll(
@@ -250,11 +252,11 @@ async function extractYouTube(
 		options.question?.trim() ||
 		"Provide the video title, summary, and a detailed timestamped transcript. Describe important visuals. Format as markdown.";
 	let apiError = "";
-	if (geminiAvailable()) {
+	if (await geminiAvailable(options.context)) {
 		try {
 			const content = await geminiGenerate(
 				[{ fileData: { fileUri: `https://www.youtube.com/watch?v=${videoId}` } }, { text: question }],
-				{ signal, timeoutMs: 120_000 },
+				{ signal, timeoutMs: 120_000, context: options.context },
 			);
 			return bounded({ url, title: heading(content) || "YouTube video", content });
 		} catch (error) {
@@ -364,22 +366,23 @@ async function extractLocalVideo(
 		const duration = Number(durationText.trim());
 		return framesResult(path, path, () => `${basename(path)} frames`, options, duration, signal);
 	}
-	if (!geminiAvailable())
+	if (!(await geminiApiKeyAvailable(options.context)))
 		return failure(
 			path,
-			"GEMINI_API_KEY is required to analyze a local video; use timestamp or frames for frame extraction",
+			"A Gemini API key is required to analyze a local video; use timestamp or frames for frame extraction, or /login for Google",
 		);
 	const size = (await stat(path)).size;
 	if (size > VIDEO_BYTES) return failure(path, "Local video exceeds the 50 MiB upload limit");
 	let uploaded: Awaited<ReturnType<typeof geminiUploadVideo>> | undefined;
 	try {
-		uploaded = await geminiUploadVideo(path, mimeType, signal);
+		uploaded = await geminiUploadVideo(path, mimeType, signal, options.context);
 		const prompt =
 			options.question?.trim() ||
 			"Provide a title, summary, detailed timestamped transcript, and descriptions of important visuals. Format as markdown.";
 		const content = await geminiGenerate([{ fileData: { fileUri: uploaded.uri, mimeType } }, { text: prompt }], {
 			signal,
 			timeoutMs: 120_000,
+			context: options.context,
 		});
 		return bounded({ url: path, title: heading(content) || basename(path), content });
 	} catch (error) {

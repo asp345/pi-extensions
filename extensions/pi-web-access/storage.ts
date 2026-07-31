@@ -14,7 +14,7 @@ export interface SearchResult {
 }
 export interface QueryResult {
 	query: string;
-	provider?: "openai" | "gemini";
+	provider?: "openai" | "gemini" | "antigravity";
 	answer: string;
 	results: SearchResult[];
 	error?: string;
