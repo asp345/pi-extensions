@@ -99,7 +99,11 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 		};
 		if (!context.allowNetwork || context.signal?.aborted) return offline();
 		if (!context.force && Date.now() - checkedAt < REFRESH_TTL_MS) return offline();
-		if (!context.force && inflight) return (await inflight).map(asProviderModel);
+		const stored = await context.store.read().catch(() => undefined);
+		if (!context.force && stored?.checkedAt !== undefined && Date.now() - stored.checkedAt < REFRESH_TTL_MS) {
+			return offline();
+		}
+		if (!context.force && inflight) return offline();
 
 		const auth =
 			context.credential?.type === "api_key"
@@ -127,11 +131,19 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 		})();
 
 		inflight = request;
-		try {
-			return (await request).map(asProviderModel);
-		} finally {
-			if (inflight === request) inflight = undefined;
+		if (context.force) {
+			try {
+				return (await request).map(asProviderModel);
+			} finally {
+				if (inflight === request) inflight = undefined;
+			}
 		}
+		void request
+			.catch(() => undefined)
+			.finally(() => {
+				if (inflight === request) inflight = undefined;
+			});
+		return offline();
 	};
 }
 
