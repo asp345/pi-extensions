@@ -223,10 +223,7 @@ function createExtensionCatalog(
 		entry ??= await cache.read();
 		if (!context.allowNetwork || context.signal?.aborted) return models();
 		if (!context.force && entry && Date.now() - entry.checkedAt < CACHE_TTL_MS) return models();
-		if (!context.force && networkRefresh) {
-			await networkRefresh;
-			return models();
-		}
+		if (!context.force && networkRefresh) return models();
 
 		const execute = async () => {
 			if (context.signal?.aborted) return;
@@ -263,10 +260,18 @@ function createExtensionCatalog(
 		const predecessor = networkRefresh;
 		const pending = (predecessor ? predecessor.catch(() => undefined) : Promise.resolve()).then(execute);
 		networkRefresh = pending;
-		try {
-			await pending;
-		} finally {
-			if (networkRefresh === pending) networkRefresh = undefined;
+		if (context.force) {
+			try {
+				await pending;
+			} finally {
+				if (networkRefresh === pending) networkRefresh = undefined;
+			}
+		} else {
+			pending
+				.catch(() => undefined)
+				.finally(() => {
+					if (networkRefresh === pending) networkRefresh = undefined;
+				});
 		}
 		return models();
 	};
