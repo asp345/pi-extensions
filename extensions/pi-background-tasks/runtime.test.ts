@@ -7,19 +7,22 @@ import { BackgroundRuntime, type TaskEvent } from "./runtime.ts";
 interface Harness {
 	runtime: BackgroundRuntime;
 	events: TaskEvent[];
+	states: string[][];
 	updates: () => number;
 }
 
 function createHarness(): Harness {
 	const events: TaskEvent[] = [];
+	const states: string[][] = [];
 	let updateCount = 0;
 	const runtime = new BackgroundRuntime(
 		(event) => events.push(event),
 		() => {
 			updateCount++;
 		},
+		(runningTaskIds) => states.push([...runningTaskIds]),
 	);
-	return { runtime, events, updates: () => updateCount };
+	return { runtime, events, states, updates: () => updateCount };
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -95,6 +98,20 @@ test("a new session can reactivate the runtime after shutdown", async () => {
 	await waitFor(() => events.some((event) => event.type === "exit" && event.task.id === task.id));
 	assert.equal(runtime.output(task.id), "resumed");
 	runtime.shutdown();
+});
+
+test("publishes notified task state only at lifecycle transitions", async () => {
+	const { runtime, states } = createHarness();
+	try {
+		const task = runtime.start("sleep 0.2", process.cwd(), { notify: false });
+		assert.deepEqual(states, []);
+		assert.ok(runtime.promote(task.id));
+		assert.deepEqual(states, [[task.id]]);
+		await waitFor(() => runtime.get(task.id)?.status !== "running");
+		assert.deepEqual(states, [[task.id], []]);
+	} finally {
+		runtime.shutdown();
+	}
 });
 
 test("quiet tasks emit no events and waitForExit delivers the result", async () => {

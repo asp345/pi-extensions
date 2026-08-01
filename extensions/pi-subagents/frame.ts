@@ -45,12 +45,12 @@ export function frame(lines: readonly string[], width: number, theme: FrameTheme
 	const side = theme.fg("border", "│");
 	return [
 		`${theme.fg("border", "╭")}${theme.fg("accent", theme.bold(label))}${theme.fg("border", `${topFill}╮`)}`,
-		...lines.map((line) => `${side} ${pad(line, content)} ${side}`),
+		...lines.map((line) => `${side} ${fitFrameContent(line, content)} ${side}`),
 		theme.fg("border", `╰${"─".repeat(inner)}╯`),
 	];
 }
 
-function pad(text: string, width: number): string {
+export function fitFrameContent(text: string, width: number): string {
 	// A terminal advances a tab to its own stop, which would push the right border
 	// out of the box, so tabs are expanded to the width Pi measures them at.
 	return truncateToWidth(`${text.replaceAll("\t", "   ")}${RESET}`, width, "", true);

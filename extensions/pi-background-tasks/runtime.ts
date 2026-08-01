@@ -68,6 +68,7 @@ export class BackgroundRuntime {
 	constructor(
 		private readonly emit: (event: TaskEvent) => void,
 		private readonly update: () => void,
+		private readonly stateChanged: (runningTaskIds: readonly string[]) => void,
 	) {}
 
 	activate(): void {
@@ -76,6 +77,12 @@ export class BackgroundRuntime {
 
 	list(): TaskSnapshot[] {
 		return [...this.tasks.values()].sort((a, b) => b.info.startedAt - a.info.startedAt).map(snapshot);
+	}
+
+	runningNotifiedTaskIds(): string[] {
+		return [...this.tasks.values()]
+			.filter((task) => task.info.notify && task.info.status === "running")
+			.map((task) => task.info.id);
 	}
 
 	get(id: string | undefined): TaskSnapshot | undefined {
@@ -161,6 +168,7 @@ export class BackgroundRuntime {
 		child.on("close", (code) => this.finish(task, typeof code === "number" ? code : null));
 		task.expiryTimer = setTimeout(() => this.stop(id), TIMEOUT_MS);
 		task.expiryTimer.unref?.();
+		if (task.info.notify) this.reportState();
 		this.update();
 		return snapshot(task);
 	}
@@ -209,6 +217,10 @@ export class BackgroundRuntime {
 		this.tasks.clear();
 	}
 
+	private reportState(): void {
+		this.stateChanged(this.runningNotifiedTaskIds());
+	}
+
 	private find(id: string | undefined): ManagedTask | undefined {
 		if (!id) return undefined;
 		return this.tasks.get(id) ?? [...this.tasks.values()].find((item) => String(item.info.pid) === id);
@@ -250,10 +262,11 @@ export class BackgroundRuntime {
 		const result: WaitResult = { task: snapshot(task), output: task.output };
 		for (const waiter of task.waiters) waiter(result);
 		task.waiters.clear();
-		if (!task.info.notify) return;
-		if (this.shuttingDown) return;
-		this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
-		this.update();
+		if (task.info.notify && !this.shuttingDown) {
+			this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
+			this.reportState();
+		}
+		if (!this.shuttingDown) this.update();
 	}
 
 	promote(id: string | undefined): boolean {
@@ -262,6 +275,7 @@ export class BackgroundRuntime {
 		task.info.notify = true;
 		if (task.closed && !this.shuttingDown)
 			this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
+		if (!this.shuttingDown) this.reportState();
 		this.update();
 		return true;
 	}

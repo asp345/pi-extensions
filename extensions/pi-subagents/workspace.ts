@@ -1,15 +1,16 @@
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	CustomEditor,
-	type ExtensionContext,
-	FooterComponent,
-	getSelectListTheme,
-	SettingsManager,
-} from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, type OverlayOptions, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { ConversationView } from "./conversation.js";
-import { BORDER_ROWS, frame, innerWidth, viewport } from "./frame.js";
+	Input,
+	Key,
+	matchesKey,
+	type OverlayOptions,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
+import { fitFrameContent } from "./frame.js";
 import type { AgentManager } from "./manager.js";
-import { resolveThinking } from "./runner.js";
+import { contentText, resolveThinking } from "./runner.js";
 import {
 	agentOptions,
 	cycleOption,
@@ -23,24 +24,16 @@ import {
 import type { AgentRecord, DefinitionRegistry } from "./types.js";
 import { message } from "./util.js";
 
-/** Rows left to the session footer, which reports the selected agent. */
-const FOOTER_ROWS = 2;
-const OVERLAY_HEIGHT_PERCENT = 85;
+const VIEWPORT_HEIGHT_PERCENT = 70;
+const CHROME_ROWS = 6;
 
-/** The box floats over the parent session while leaving its context visible around the edges. */
+type ViewerColor = "accent" | "border" | "dim" | "error" | "muted" | "success" | "warning";
+
 const OVERLAY: OverlayOptions = {
 	anchor: "center",
-	margin: { bottom: FOOTER_ROWS },
 	width: "90%",
-	maxHeight: `${OVERLAY_HEIGHT_PERCENT}%`,
+	maxHeight: `${VIEWPORT_HEIGHT_PERCENT}%`,
 };
-
-/** Height the TUI grants the overlay for {@link OVERLAY}, in rows. */
-const boxRows = (terminalRows: number): number =>
-	Math.max(
-		1,
-		Math.min(Math.floor((terminalRows * OVERLAY_HEIGHT_PERCENT) / 100), Math.max(1, terminalRows - FOOTER_ROWS)),
-	);
 
 export type WorkspaceAction = "close" | "definitions" | "create";
 export interface WorkspaceResult {
@@ -48,12 +41,6 @@ export interface WorkspaceResult {
 	selectedId?: string;
 }
 
-// The workspace is a bordered overlay that owns its own viewport
-// instead of the terminal's native scrollback: the conversation is fetched
-// from the tail, and PgUp/PgDn move a scroll offset counted in lines from the
-// bottom. Keeping the box no taller than the screen matters, because content
-// that changes above the live viewport would force the renderer into full
-// redraws that clear native scrollback.
 export async function showAgentWorkspace(
 	ctx: ExtensionContext,
 	manager: AgentManager,
@@ -61,31 +48,17 @@ export async function showAgentWorkspace(
 	initial: string | undefined,
 	onRefresh: (refresh: (() => void) | undefined) => void,
 ): Promise<WorkspaceResult> {
-	const settings = SettingsManager.create(ctx.cwd);
-	let footer: FooterComponent | undefined;
-	let footerMounted = false;
-	let workspaceOpen = true;
 	try {
 		return await ctx.ui.custom<WorkspaceResult>(
-			(tui, theme, keys, done) => {
+			(tui, theme, _keys, done) => {
 				let selectedId = initial;
 				let focused = true;
-				let scroll = 0;
-				let viewportRows = 1;
+				let scrollOffset = 0;
+				let autoScroll = true;
+				let lastInnerWidth = 1;
+				let composer: Input | undefined;
+				let cachedContent: { record: AgentRecord | undefined; width: number; lines: string[] } | undefined;
 				const selector: SelectorState = { active: false, index: 0 };
-				const conversation = new ConversationView(tui, ctx.cwd);
-				const editor = new CustomEditor(
-					tui,
-					{
-						borderColor: theme.getThinkingBorderColor(ctx.thinkingLevel ?? "off"),
-						selectList: getSelectListTheme(),
-					},
-					keys,
-					{
-						paddingX: settings.getEditorPaddingX(),
-						autocompleteMaxVisible: settings.getAutocompleteMaxVisible(),
-					},
-				);
 				const selectorOptions = () => [mainOption(), ...agentOptions(manager.running())];
 				const selected = (): AgentRecord | undefined => {
 					const records = manager.list();
@@ -100,81 +73,184 @@ export async function showAgentWorkspace(
 					selectedId = record?.id;
 					return record;
 				};
-				let footerRecordId: string | undefined;
-				const syncFooter = () => {
-					if (!workspaceOpen) return;
-					const record = selected();
-					const session = record?.session;
-					if (!session) {
-						if (footerMounted) ctx.ui.setFooter(undefined);
-						footer = undefined;
-						footerMounted = false;
-						footerRecordId = undefined;
-						return;
-					}
-					if (!footerMounted) {
-						ctx.ui.setFooter((_tui, _theme, footerData) => {
-							footer = new FooterComponent(session, footerData);
-							return footer;
-						});
-						footerMounted = true;
-					} else if (footerRecordId !== record.id) footer?.setSession(session);
-					footerRecordId = record.id;
+				const refresh = () => tui.requestRender();
+				const invalidateContent = () => {
+					cachedContent = undefined;
 				};
-				const refresh = () => {
-					syncFooter();
-					tui.requestRender();
-				};
-				onRefresh(refresh);
+				onRefresh(() => {
+					invalidateContent();
+					refresh();
+				});
 				queueMicrotask(refresh);
 				const leave = (action: WorkspaceAction) => done({ action, selectedId });
-				const send = (value: string) => {
-					const record = selected();
-					const prompt = value.trim();
-					if (!record || !prompt) return;
-					editor.addToHistory(prompt);
-					editor.setText("");
-					scroll = 0;
-					if (record.status === "running") manager.steer(record.id, prompt);
-					else {
-						const definition = [...registry().definitions.values()].find(
-							(item) => item.name.toLowerCase() === record.type.toLowerCase(),
-						);
-						void manager
-							.resume(ctx, record.id, prompt, {
-								background: true,
-								models: definition?.models ?? record.models,
-								definition,
-								thinking: resolveThinking(definition?.thinking, ctx),
-								maxTurns: definition?.maxTurns,
-							})
-							.catch((error) => ctx.ui.notify(message(error), "warning"));
-					}
+				const openComposer = (record: AgentRecord) => {
+					const input = new Input();
+					input.focused = focused;
+					input.onSubmit = (value) => {
+						composer = undefined;
+						const prompt = value.trim();
+						if (!prompt) return refresh();
+						scrollOffset = 0;
+						autoScroll = true;
+						if (record.status === "running") manager.steer(record.id, prompt);
+						else {
+							const definition = [...registry().definitions.values()].find(
+								(item) => item.name.toLowerCase() === record.type.toLowerCase(),
+							);
+							void manager
+								.resume(ctx, record.id, prompt, {
+									background: true,
+									models: definition?.models ?? record.models,
+									definition,
+									thinking: resolveThinking(definition?.thinking, ctx),
+									maxTurns: definition?.maxTurns,
+								})
+								.catch((error) => ctx.ui.notify(message(error), "warning"));
+						}
+						refresh();
+					};
+					input.onEscape = () => {
+						composer = undefined;
+						refresh();
+					};
+					composer = input;
 					refresh();
 				};
-				editor.focused = true;
-				editor.onSubmit = send;
-				editor.onEscape = () => leave("close");
-				const bodyLines = (record: AgentRecord | undefined, inner: number, rows: number): string[] =>
-					record?.session
-						? conversation.tail(record, inner, rows)
-						: (record ? record.result || record.error || "(session starting)" : "No agent sessions.")
-								.split("\n")
-								.flatMap((line) => wrapTextWithAnsi(line || " ", inner));
-				const hintLine = (record: AgentRecord | undefined, inner: number): string =>
-					truncateToWidth(
-						theme.fg(
-							"dim",
-							record
-								? "Alt+X cancel · Alt+C clear · Alt+D definitions · Alt+N new · Shift+↑↓ switch · PgUp/PgDn scroll · Esc parent"
-								: "Alt+N definitions · Shift+↑↓ switch · Esc parent",
-						),
-						inner,
-					);
-				const title = (record: AgentRecord | undefined): string => {
-					if (!record) return "Agents";
-					const suffix = scroll > 0 ? ` · scrolled ${scroll}` : "";
-					return `${record.type} · ${record.status}${suffix}`;
+				const layout = () => {
+					const maxRows = Math.max(1, Math.floor((tui.terminal.rows * VIEWPORT_HEIGHT_PERCENT) / 100));
+					const showComposerHint = Boolean(composer && maxRows > CHROME_ROWS);
+					const chromeRows = CHROME_ROWS + (showComposerHint ? 1 : 0);
+					return {
+						maxRows,
+						contentRows: Math.max(0, maxRows - chromeRows),
+						showComposerHint,
+						compact: maxRows < CHROME_ROWS,
+					};
+				};
+				const conversationLines = (record: AgentRecord | undefined, width: number): string[] => {
+					const cache = cachedContent;
+					if (cache && cache.record === record && cache.width === width) return cache.lines;
+					let lines: string[];
+					if (!record?.session) {
+						const text = record ? record.result || record.error || "(session starting)" : "No agent sessions.";
+						lines = text
+							.split("\n")
+							.flatMap((line) => wrapTextWithAnsi(line || " ", width))
+							.map((line) => truncateToWidth(line, width));
+					} else if (record.session.messages.length === 0) {
+						lines = [theme.fg("dim", "(waiting for first message...)")];
+					} else {
+						lines = [];
+						let needsSeparator = false;
+						for (const entry of record.session.messages) {
+							const add = (label: string, text: string, color: ViewerColor) => {
+								if (!text.trim()) return;
+								if (needsSeparator) lines.push(theme.fg("dim", "───"));
+								lines.push(theme.fg(color, label));
+								for (const line of wrapTextWithAnsi(text.trim(), width)) lines.push(theme.fg(color, line));
+								needsSeparator = true;
+							};
+							if (entry.role === "user") {
+								add("[User]", contentText(entry.content), "accent");
+								continue;
+							}
+							if (entry.role === "assistant") {
+								const text = contentText(entry.content);
+								const tools = Array.isArray(entry.content)
+									? entry.content.filter((part) => part.type === "toolCall")
+									: [];
+								if (!text.trim() && tools.length === 0) continue;
+								if (needsSeparator) lines.push(theme.fg("dim", "───"));
+								lines.push(theme.bold("[Assistant]"));
+								for (const line of wrapTextWithAnsi(text.trim(), width)) {
+									if (line) lines.push(line);
+								}
+								for (const tool of tools)
+									lines.push(truncateToWidth(theme.fg("muted", `  [Tool: ${tool.name}]`), width));
+								needsSeparator = true;
+								continue;
+							}
+							if (entry.role === "toolResult") {
+								const text = contentText(entry.content);
+								add("[Result]", text.length > 500 ? `${text.slice(0, 500)}... (truncated)` : text, "dim");
+							}
+						}
+						lines = lines.map((line) => truncateToWidth(line, width));
+					}
+					cachedContent = { record, width, lines };
+					return lines;
+				};
+				const contentLines = (record: AgentRecord | undefined, width: number): string[] =>
+					selector.active
+						? renderSelectorLines(
+								theme,
+								width,
+								"Agents",
+								"↑↓ choose · enter switch · esc back",
+								selectorOptions(),
+								selector,
+							)
+						: conversationLines(record, width);
+				const render = (width: number): string[] => {
+					if (width < 6) return [];
+					const record = selected();
+					const currentLayout = layout();
+					const innerWidth = width - 4;
+					lastInnerWidth = innerWidth;
+					const pad = (text: string) => fitFrameContent(text, innerWidth);
+					const row = (text: string) => theme.fg("border", "│") + " " + pad(text) + " " + theme.fg("border", "│");
+					const status = record
+						? record.status === "running"
+							? theme.fg("accent", "●")
+							: record.status === "completed"
+								? theme.fg("success", "✓")
+								: theme.fg(record.status === "error" ? "error" : "warning", "○")
+						: theme.fg("dim", "○");
+					const elapsed = record
+						? Math.max(0, Math.round(((record.completedAt ?? Date.now()) - record.startedAt) / 1000))
+						: 0;
+					const heading = record
+						? `${status} ${theme.bold(record.type)} ${theme.fg("muted", record.status)} ${theme.fg("dim", `· ${record.toolUses} tools · ${elapsed}s`)}`
+						: theme.fg("dim", "No agent sessions.");
+					if (currentLayout.compact) {
+						return [row(heading), ...new Array<string>(currentLayout.maxRows - 1).fill("").map(row)];
+					}
+					const top = theme.fg("border", `╭${"─".repeat(width - 2)}╮`);
+					const bottom = theme.fg("border", `╰${"─".repeat(width - 2)}╯`);
+					const divider = row(theme.fg("dim", "─".repeat(innerWidth)));
+					const lines = [top, row(heading), divider];
+					const content = contentLines(record, innerWidth);
+					const rows = currentLayout.contentRows;
+					const maxScroll = Math.max(0, content.length - rows);
+					let visibleOffset = 0;
+					if (!selector.active) {
+						if (autoScroll) scrollOffset = maxScroll;
+						scrollOffset = Math.min(scrollOffset, maxScroll);
+						visibleOffset = scrollOffset;
+					}
+					for (const line of content.slice(visibleOffset, visibleOffset + rows)) lines.push(row(line));
+					while (lines.length < 3 + rows) lines.push(row(""));
+					lines.push(divider);
+					if (composer) {
+						lines.push(row(composer.render(innerWidth)[0] ?? ""));
+						if (currentLayout.showComposerHint) lines.push(row(theme.fg("dim", "Enter send · Esc cancel")));
+					} else {
+						const scrollPercent = selector.active
+							? "100%"
+							: content.length <= rows
+								? "100%"
+								: `${Math.round(((scrollOffset + rows) / content.length) * 100)}%`;
+						const left = selector.active
+							? "↑↓ choose · Enter switch · Esc cancel"
+							: record
+								? "Enter steer · Alt+X stop · Alt+C clear · Alt+D definitions · Alt+N new"
+								: "Alt+N new";
+						const right = selector.active ? "" : `↑↓ switch · PgUp/PgDn scroll · ${scrollPercent} · Esc parent`;
+						const gap = right ? Math.max(1, innerWidth - visibleWidth(left) - visibleWidth(right)) : 0;
+						lines.push(row(theme.fg("dim", `${left}${" ".repeat(gap)}${right}`)));
+					}
+					lines.push(bottom);
+					return lines;
 				};
 
 				return {
@@ -183,94 +259,96 @@ export async function showAgentWorkspace(
 					},
 					set focused(value: boolean) {
 						focused = value;
-						editor.focused = value;
+						if (composer) composer.focused = value;
 					},
-					render(width: number) {
-						const record = selected();
-						editor.borderColor = theme.getThinkingBorderColor(
-							record?.session?.thinkingLevel ?? record?.thinking ?? ctx.thinkingLevel ?? "off",
-						);
-						const inner = innerWidth(width);
-						const selectorLines = selector.active
-							? renderSelectorLines(
-									theme,
-									inner,
-									"Agents",
-									"↑↓ choose · enter switch · esc back",
-									selectorOptions(),
-									selector,
-								)
-							: [];
-						// The editor comes first so it survives when a short terminal cannot
-						// fit the selector and the key hint below it.
-						const available = Math.max(0, boxRows(tui.terminal.rows) - BORDER_ROWS);
-						const chrome = [...editor.render(inner), ...selectorLines, hintLine(record, inner)].slice(0, available);
-						viewportRows = available - chrome.length;
-						// Fetching only what the viewport and the scroll offset need keeps a
-						// long session from being re-rendered in full on every frame.
-						const view = viewport(bodyLines(record, inner, viewportRows + scroll), viewportRows, scroll);
-						scroll = view.scroll;
-						return frame([...view.lines, ...chrome], width, theme, title(record));
-					},
+					render,
 					handleInput(data: string) {
-						const record = selected();
-						const pageUp = matchesKey(data, Key.pageUp);
-						if (pageUp || matchesKey(data, Key.pageDown)) {
-							const step = Math.max(1, viewportRows - 1);
-							scroll = Math.max(0, scroll + (pageUp ? step : -step));
+						if (composer) {
+							composer.handleInput(data);
 							refresh();
 							return;
 						}
+						const record = selected();
 						const key = selectorKey(data);
+						if (selector.active) {
+							const outcome = handleSelectorKey(selector, key, selectorOptions(), true);
+							if (outcome.commit) {
+								if (outcome.commit.id === MAIN_OPTION_ID) return leave("close");
+								selectedId = outcome.commit.id;
+								scrollOffset = 0;
+								autoScroll = true;
+							}
+							refresh();
+							return;
+						}
+						if (matchesKey(data, "escape") || data === "q") return leave("close");
+						if (matchesKey(data, "enter") && record) return openComposer(record);
+
+						if (lastInnerWidth <= 1) return refresh();
+						const content = contentLines(record, lastInnerWidth);
+						const rows = layout().contentRows;
+						const step = Math.max(1, rows);
+						const maxScroll = Math.max(0, content.length - rows);
+						if (matchesKey(data, Key.pageUp)) {
+							scrollOffset = Math.max(0, scrollOffset - step);
+							autoScroll = false;
+							return refresh();
+						}
+						if (matchesKey(data, Key.pageDown)) {
+							scrollOffset = Math.min(maxScroll, scrollOffset + step);
+							autoScroll = scrollOffset >= maxScroll;
+							return refresh();
+						}
+						if (matchesKey(data, "home")) {
+							scrollOffset = 0;
+							autoScroll = false;
+							return refresh();
+						}
+						if (matchesKey(data, "end")) {
+							scrollOffset = maxScroll;
+							autoScroll = true;
+							return refresh();
+						}
+
 						if (key === "shift+down" || key === "shift+up") {
 							const option = cycleOption(selectorOptions(), record?.id, key === "shift+down" ? "next" : "previous");
 							selector.active = false;
 							if (!option) return;
-							if (option.id === MAIN_OPTION_ID) leave("close");
-							else {
-								selectedId = option.id;
-								scroll = 0;
-								refresh();
-							}
-							return;
+							if (option.id === MAIN_OPTION_ID) return leave("close");
+							selectedId = option.id;
+							scrollOffset = 0;
+							autoScroll = true;
+							return refresh();
 						}
 						const wasActive = selector.active;
-						const outcome = handleSelectorKey(selector, key, selectorOptions(), editor.getText().length === 0);
+						const outcome = handleSelectorKey(selector, key, selectorOptions(), true);
 						if (outcome.commit) {
-							if (outcome.commit.id === MAIN_OPTION_ID) {
-								leave("close");
-								return;
-							}
+							if (outcome.commit.id === MAIN_OPTION_ID) return leave("close");
 							selectedId = outcome.commit.id;
-							scroll = 0;
+							scrollOffset = 0;
+							autoScroll = true;
 						}
 						if (outcome.consume || wasActive !== selector.active) {
 							refresh();
 							if (outcome.consume) return;
 						}
 						if (matchesKey(data, "alt+x") && record?.status === "running") manager.cancel(record.id);
-						else if (matchesKey(data, "alt+d")) {
-							leave("definitions");
-							return;
-						} else if (matchesKey(data, "alt+n")) {
-							leave("create");
-							return;
-						} else if (matchesKey(data, "alt+c"))
+						else if (matchesKey(data, "alt+d")) return leave("definitions");
+						else if (matchesKey(data, "alt+n")) return leave("create");
+						else if (matchesKey(data, "alt+c"))
 							ctx.ui.notify(`Cleared ${manager.clearFinished(ctx.cwd)} finished agent(s).`, "info");
-						else editor.handleInput(data);
 						refresh();
 					},
 					invalidate() {
-						editor.invalidate();
-						conversation.invalidate();
+						lastInnerWidth = 1;
+						invalidateContent();
+						composer?.invalidate();
 					},
 				};
 			},
 			{ overlay: true, overlayOptions: OVERLAY },
 		);
 	} finally {
-		workspaceOpen = false;
 		onRefresh(undefined);
-		if (footerMounted) ctx.ui.setFooter(undefined);
 	}
 }

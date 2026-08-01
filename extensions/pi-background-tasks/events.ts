@@ -1,12 +1,13 @@
 export const BACKGROUND_TASKS_STATE_EVENT = "pi-background-tasks:state";
 
 export interface BackgroundTasksState {
-	running: number;
+	runningTaskIds: string[];
 }
 
 export function parseBackgroundTasksState(value: unknown): BackgroundTasksState | undefined {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-	const running = Reflect.get(value, "running");
-	if (typeof running !== "number" || !Number.isSafeInteger(running) || running < 0) return undefined;
-	return { running };
+	const taskIds = Reflect.get(value, "runningTaskIds");
+	if (!Array.isArray(taskIds) || taskIds.some((id) => typeof id !== "string" || !id)) return undefined;
+	const runningTaskIds = [...new Set(taskIds)];
+	return { runningTaskIds };
 }

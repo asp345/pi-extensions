@@ -62,8 +62,10 @@ export class GoalRuntime {
 	goal?: GoalState;
 	private pendingContinuation?: string;
 	private currentRunAutomatic = false;
+	private currentRunOwnsGoal = false;
 	private currentRunUsedTool = false;
-	private runningBackgroundTasks = 0;
+	private readonly runningBackgroundTaskIds = new Set<string>();
+	private readonly goalBackgroundTaskIds = new Set<string>();
 	private settleFailure?: "aborted" | "error";
 	private readonly ownedPrompts = new Map<string, number>();
 
@@ -76,6 +78,8 @@ export class GoalRuntime {
 	setGoal(goal: GoalState | undefined, ctx: GoalContext) {
 		this.goal = goal;
 		this.pendingContinuation = undefined;
+		this.currentRunOwnsGoal = false;
+		this.goalBackgroundTaskIds.clear();
 		this.settleFailure = undefined;
 		this.persist();
 		this.updateStatus(ctx);
@@ -109,6 +113,7 @@ export class GoalRuntime {
 
 	beforeAgentStart(prompt: string) {
 		this.currentRunAutomatic = false;
+		this.currentRunOwnsGoal = false;
 		this.currentRunUsedTool = false;
 		const marker = MARKER.exec(prompt);
 		if (!marker) return;
@@ -117,6 +122,7 @@ export class GoalRuntime {
 		this.ownedPrompts.delete(key);
 		if (stamp === undefined || Date.now() - stamp > OWNED_PROMPT_TTL_MS) return;
 		this.pendingContinuation = undefined;
+		this.currentRunOwnsGoal = true;
 		this.currentRunAutomatic = marker[1] === "continue";
 	}
 
@@ -124,11 +130,24 @@ export class GoalRuntime {
 		this.currentRunUsedTool = true;
 	}
 
-	setRunningBackgroundTasks(count: number) {
-		this.runningBackgroundTasks = count;
+	async setRunningBackgroundTasks(taskIds: readonly string[], ctx?: GoalContext) {
+		const next = new Set(taskIds);
+		if (this.currentRunOwnsGoal && this.goal?.status === "active") {
+			for (const id of next) {
+				if (!this.runningBackgroundTaskIds.has(id)) this.goalBackgroundTaskIds.add(id);
+			}
+		}
+		const wasWaiting = this.goalBackgroundTaskIds.size > 0;
+		for (const id of this.goalBackgroundTaskIds) {
+			if (!next.has(id)) this.goalBackgroundTaskIds.delete(id);
+		}
+		this.runningBackgroundTaskIds.clear();
+		for (const id of next) this.runningBackgroundTaskIds.add(id);
+		if (wasWaiting && this.goalBackgroundTaskIds.size === 0 && ctx) await this.settled(ctx);
 	}
 
 	finishAgent(messages: readonly unknown[]) {
+		this.currentRunOwnsGoal = false;
 		const goal = this.goal;
 		if (!goal || goal.status !== "active") return;
 		const assistant = finalAssistant(messages);
@@ -172,7 +191,7 @@ export class GoalRuntime {
 			return;
 		}
 		if (this.pendingContinuation !== goal.id) return;
-		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.() || this.runningBackgroundTasks > 0) return;
+		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.() || this.goalBackgroundTaskIds.size > 0) return;
 		await this.sendOwnedPrompt(ctx, "continue", "Continue the active /goal. Keep working until it is complete.");
 	}
 

@@ -1,7 +1,7 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerHybridBash } from "./bash.js";
-import { BACKGROUND_TASKS_STATE_EVENT, type BackgroundTasksState } from "./events.js";
+import { BACKGROUND_TASKS_STATE_EVENT } from "./events.js";
 import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.js";
 import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.js";
 
@@ -21,25 +21,13 @@ function stoppingText(id: string): string {
 
 export default function backgroundTasks(pi: ExtensionAPI): void {
 	let ui: BackgroundUI;
-	let runtime: BackgroundRuntime;
-	let lastRunning = -1;
-	const publishState = (): void => {
-		const state: BackgroundTasksState = {
-			running: runtime.list().filter((task) => task.notify && task.status === "running").length,
-		};
-		if (state.running === lastRunning) return;
-		lastRunning = state.running;
-		pi.events.emit(BACKGROUND_TASKS_STATE_EVENT, state);
+	const publishState = (runningTaskIds: readonly string[]): void => {
+		pi.events.emit(BACKGROUND_TASKS_STATE_EVENT, { runningTaskIds });
 	};
-	runtime = new BackgroundRuntime(
-		(event) => {
-			ui.handleEvent(event);
-			publishState();
-		},
-		() => {
-			ui.refresh();
-			publishState();
-		},
+	const runtime = new BackgroundRuntime(
+		(event) => ui.handleEvent(event),
+		() => ui.refresh(),
+		publishState,
 	);
 	ui = new BackgroundUI(pi, runtime);
 	registerHybridBash(pi, runtime);
@@ -49,13 +37,12 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	const attach = (_event: unknown, ctx: ExtensionContext): void => {
 		runtime.activate();
 		ui.attach(ctx);
-		publishState();
+		publishState(runtime.runningNotifiedTaskIds());
 	};
 	pi.on("session_start", attach);
 	pi.on("agent_settled", async () => ui.flushExits());
 	pi.on("session_shutdown", () => {
 		runtime.shutdown();
-		publishState();
 		ui.clearWidget();
 	});
 

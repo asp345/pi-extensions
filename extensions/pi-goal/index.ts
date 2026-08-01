@@ -19,6 +19,7 @@ const SUBCOMMANDS = ["status", "pause", "resume", "clear"];
 
 export default function goalExtension(pi: ExtensionAPI) {
 	const runtime = new GoalRuntime(pi);
+	let activeContext: GoalContext | undefined;
 
 	pi.registerTool({
 		name: "goal_complete",
@@ -159,12 +160,14 @@ export default function goalExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	pi.events.on(BACKGROUND_TASKS_STATE_EVENT, (data) => {
+	const unsubscribeBackgroundTasks = pi.events.on(BACKGROUND_TASKS_STATE_EVENT, (data) => {
 		const state = parseBackgroundTasksState(data);
-		if (state) runtime.setRunningBackgroundTasks(state.running);
+		if (!state) return;
+		void runtime.setRunningBackgroundTasks(state.runningTaskIds, activeContext);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		activeContext = ctx;
 		runtime.goal = loadGoal(ctx);
 		runtime.updateStatus(ctx);
 		await runtime.resumeRestored(ctx);
@@ -172,6 +175,8 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", (_event, ctx) => {
 		if (runtime.goal) runtime.persist();
 		runtime.cancelContinuation();
+		if (activeContext === ctx) activeContext = undefined;
+		unsubscribeBackgroundTasks();
 		ctx.ui.setStatus("goal", undefined);
 	});
 	pi.on("input", (event) => {

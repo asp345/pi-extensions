@@ -64,14 +64,23 @@ test("owned continue prompts are honored exactly once", async () => {
 	assert.equal(goal.automaticTurns, 1);
 });
 
-test("running background tasks defer automatic continuation", async () => {
+test("goal-owned background task completion re-drives automatic continuation", async () => {
 	const { runtime, ctx, sent } = harness();
-	runtime.setRunningBackgroundTasks(1);
+	await runtime.startPrompt(ctx);
+	runtime.beforeAgentStart(sent[0] ?? "");
+	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
 	runtime.finishAgent([assistant("waiting for background work")]);
 	await runtime.settled(ctx);
-	assert.equal(sent.length, 0);
+	assert.equal(sent.length, 1);
 
-	runtime.setRunningBackgroundTasks(0);
+	await runtime.setRunningBackgroundTasks([], ctx);
+	assert.equal(sent.length, 2);
+});
+
+test("unowned background tasks do not defer automatic continuation", async () => {
+	const { runtime, ctx, sent } = harness();
+	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
+	runtime.finishAgent([assistant("progress")]);
 	await runtime.settled(ctx);
 	assert.equal(sent.length, 1);
 });
