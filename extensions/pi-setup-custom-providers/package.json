@@ -1,0 +1,29 @@
+{
+	"name": "@asp345/pi-setup-custom-providers",
+	"version": "0.0.0",
+	"description": "Custom provider setup wizard for pi",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"LICENSE",
+		"README.md",
+		"agents"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	}
+}

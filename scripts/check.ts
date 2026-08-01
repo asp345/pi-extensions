@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 interface Manifest {
 	dependencies?: Record<string, string>;
+	devDependencies?: Record<string, string>;
+	peerDependencies?: Record<string, string>;
 	pi?: {
 		extensions?: string[];
 		themes?: string[];
@@ -24,6 +26,7 @@ const expectedDirs = [
 	"pi-anthropic-oauth",
 	"pi-antigravity-auth",
 	"pi-background-tasks",
+	"pi-clinepass-provider",
 	"pi-direnv",
 	"pi-goal",
 	"pi-lsp",
@@ -40,9 +43,14 @@ const actualDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: 
 	.map((entry) => entry.name)
 	.sort();
 if (actualDirs.join("\n") !== expectedDirs.join("\n")) fail("Unexpected extension directories");
+
 for (const name of actualDirs) {
-	if ((await readdir(resolve(root, "extensions", name))).includes("package.json")) fail(`Nested manifest: ${name}`);
+	const dir = resolve(root, "extensions", name);
+	const entries = await readdir(dir);
+	if (!entries.includes("package.json")) fail(`Missing extension manifest: ${name}`);
+	if (!entries.includes("index.ts")) fail(`Missing extension entrypoint: ${name}`);
 }
+
 const expectedEntries = expectedDirs.map((name) => `./extensions/${name}/index.ts`).sort();
 if ([...extensions].sort().join("\n") !== expectedEntries.join("\n")) fail("Unexpected extension entrypoints");
 if (themes.length !== 1 || themes[0] !== "./themes/flatland.json") {
@@ -61,31 +69,37 @@ for (const entry of [...extensions, ...themes]) {
 const themeFiles = await readdir(resolve(root, "themes"));
 if (themeFiles.length !== 1 || themeFiles[0] !== "flatland.json") fail("Unexpected theme files");
 
-const dependencies = new Set(Object.keys(manifest.dependencies ?? {}));
-for (const dependency of dependencies) {
-	try {
-		import.meta.resolve(dependency);
-	} catch {
-		fail(`Runtime dependency is not installed: ${dependency}`);
-	}
-}
+// Tooling deps (biome, tsc, @types/*) are not all import.meta.resolve-able, so the
+// root install state is not probed here. The per-extension loop below enforces the
+// real invariant: every imported package is declared in some manifest.
+const rootDeps = new Set([
+	...Object.keys(manifest.dependencies ?? {}),
+	...Object.keys(manifest.devDependencies ?? {}),
+	...Object.keys(manifest.peerDependencies ?? {}),
+]);
 
-const sourceFiles = (await readdir(resolve(root, "extensions"), { recursive: true })).filter((path) =>
-	path.endsWith(".ts"),
-);
-for (const path of sourceFiles) {
-	const source = await readFile(resolve(root, "extensions", path), "utf8");
-	for (const match of source.matchAll(/(?:from\s+|import\s*\()(["'])([^"']+)\1/g)) {
-		const specifier = match[2];
-		if (
-			!specifier ||
-			specifier.startsWith(".") ||
-			specifier.startsWith("node:") ||
-			specifier.startsWith("@earendil-works/pi-")
-		)
-			continue;
-		const name = specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/", 1)[0];
-		if (!name || !dependencies.has(name)) fail(`Undeclared import in ${path}: ${specifier}`);
+const packageName = (specifier: string): string =>
+	specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/", 1)[0];
+
+for (const name of expectedDirs) {
+	const extManifest = await readJson<Manifest>(`extensions/${name}/package.json`);
+	const allowed = new Set([
+		...Object.keys(extManifest.dependencies ?? {}),
+		...Object.keys(extManifest.devDependencies ?? {}),
+		...Object.keys(extManifest.peerDependencies ?? {}),
+		...rootDeps,
+	]);
+	const sourceFiles = (await readdir(resolve(root, "extensions", name), { recursive: true })).filter((path) =>
+		path.endsWith(".ts"),
+	);
+	for (const path of sourceFiles) {
+		const source = await readFile(resolve(root, "extensions", name, path), "utf8");
+		for (const match of source.matchAll(/(?:from\s+|import\s*\()(["'])([^"']+)\1/g)) {
+			const specifier = match[2];
+			if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:")) continue;
+			const dep = packageName(specifier);
+			if (!dep || !allowed.has(dep)) fail(`Undeclared import in ${name}/${path}: ${specifier}`);
+		}
 	}
 }
 

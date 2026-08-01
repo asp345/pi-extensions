@@ -1,0 +1,38 @@
+{
+	"name": "@asp345/pi-web-access",
+	"version": "0.0.0",
+	"description": "Web search, fetch, and extraction tools for pi",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"LICENSE",
+		"README.md",
+		"agents"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"dependencies": {
+		"@cortexkit/antigravity-auth-core": "2.0.0",
+		"@mozilla/readability": "0.6.0",
+		"linkedom": "0.18.13",
+		"turndown": "7.2.4",
+		"unpdf": "1.8.0"
+	},
+	"devDependencies": {
+		"@types/turndown": "5.0.6"
+	}
+}

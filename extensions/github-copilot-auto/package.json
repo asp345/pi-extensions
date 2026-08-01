@@ -1,0 +1,28 @@
+{
+	"name": "@asp345/github-copilot-auto",
+	"version": "0.0.0",
+	"description": "Auto-approve GitHub Copilot OAuth for pi",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"LICENSE",
+		"README.md",
+		"agents"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}

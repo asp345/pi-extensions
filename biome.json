@@ -3,6 +3,7 @@
 	"files": {
 		"includes": [
 			"extensions/**/*.ts",
+			"extensions/**/package.json",
 			"scripts/**/*.ts",
 			"themes/**/*.json",
 			"package.json",

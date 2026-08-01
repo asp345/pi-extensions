@@ -1,0 +1,28 @@
+{
+	"name": "@asp345/pi-anthropic-oauth",
+	"version": "0.0.0",
+	"description": "Anthropic OAuth provider for pi",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"LICENSE",
+		"README.md",
+		"agents"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}

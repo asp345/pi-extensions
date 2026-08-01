@@ -10,6 +10,7 @@ My personal Pi monorepo.
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
+- `extensions/pi-clinepass-provider/`
 - `extensions/pi-direnv/`
 - `extensions/pi-goal/`
 - `extensions/pi-lsp/`
