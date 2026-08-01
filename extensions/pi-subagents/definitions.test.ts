@@ -26,15 +26,20 @@ const { promptWithFallbacks, resolveModel, resolveThinking, resumeSession, turnL
 test("agent Markdown accepts ordered models", () => {
 	const path = fileURLToPath(new URL("./agents/General.md", import.meta.url));
 	const definition = parseDefinition(path, "default");
-	assert.deepEqual(definition.models, ["parent", "anthropic/claude-fable-5", "openrouter/minimax/minimax-m3"]);
+	assert.deepEqual(definition.models, ["parent", "anthropic/claude-opus-5", "openai/gpt-5.6-terra"]);
 	assert.equal(definition.thinking, "parent");
 
 	const explore = parseDefinition(fileURLToPath(new URL("./agents/Explore.md", import.meta.url)), "default");
-	assert.deepEqual(explore.models, ["openai-codex/gpt-5.4-mini", "openrouter/minimax/minimax-m3"]);
+	assert.deepEqual(explore.models, ["openai-codex/gpt-5.6-luna", "openrouter/deepseek/deepseek-v4-flash-0731"]);
 
 	const plan = parseDefinition(fileURLToPath(new URL("./agents/Plan.md", import.meta.url)), "default");
 	assert.ok(plan.tools.includes("web_search"));
 	assert.ok(plan.tools.includes("fetch_content"));
+
+	const review = parseDefinition(fileURLToPath(new URL("./agents/Review.md", import.meta.url)), "default");
+	assert.ok(!review.tools.includes("edit"));
+	assert.ok(!review.tools.includes("write"));
+	assert.equal(review.thinking, "xhigh");
 });
 
 test("the parent model can be selected explicitly", () => {
