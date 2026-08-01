@@ -14,6 +14,10 @@ const PROVIDER_ID = "github-copilot";
 const AUTO_MODEL_ID = "auto";
 const AUTO_PREFIX = "auto-";
 
+// Minimum interval before re-fetching the built-in Copilot catalog during model refresh.
+// Startup refresh must stay off the network or the TUI freezes until it completes.
+const REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
+
 function realModelId(id: string): string {
 	return id.startsWith(AUTO_PREFIX) ? id.slice(AUTO_PREFIX.length) : id;
 }
@@ -220,7 +224,7 @@ async function routePrompt(
 	state.reasoningBucket = bucket === "low" || bucket === "medium" || bucket === "high" ? bucket : undefined;
 }
 
-function wrapProvider(base: Provider, pool: string[]): Provider {
+function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => void): Provider {
 	const baseById = new Map(base.getModels().map((entry) => [entry.id, entry]));
 
 	const templateFor = (realId: string, displayId: string): Model<Api> => {
@@ -288,16 +292,18 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 			return base.streamSimple(routed.model, context, routed.options);
 		});
 
+	const listModels = (): Model<Api>[] => [
+		routerModel,
+		...poolModels,
+		...base.getModels().filter((entry) => !managedIds.has(entry.id)),
+	];
+
 	return {
 		...base,
-		getModels: () => {
-			const models = base.getModels().filter((entry) => !managedIds.has(entry.id));
-			return [routerModel, ...poolModels, ...models];
-		},
+		getModels: listModels,
 		filterModels: (models, credential) => {
 			const remaining = models.filter((entry) => !managedIds.has(entry.id));
 			const filtered = base.filterModels?.(remaining, credential) ?? remaining;
-			if (filtered.length === 0) return filtered;
 			return [routerModel, ...poolModels, ...filtered];
 		},
 		stream: (requestModel, context, options) =>
@@ -308,6 +314,27 @@ function wrapProvider(base: Provider, pool: string[]): Provider {
 			managedIds.has(requestModel.id)
 				? streamAuto(requestModel, context, options)
 				: base.streamSimple(requestModel, context, options),
+		refreshModels: async (context) => {
+			const stored = await context.store.read();
+			const checkedAt = stored?.checkedAt;
+			const fresh = checkedAt !== undefined && Date.now() - checkedAt < REFRESH_TTL_MS;
+			if (context.allowNetwork && (context.force || !fresh)) {
+				// Detached: pi awaits refreshModels during startup, so network work here
+				// must not block. Re-register once the refreshed catalog lands.
+				void (async () => {
+					try {
+						await base.refreshModels?.(context);
+						await context.store.write({ models: listModels(), checkedAt: Date.now() });
+					} catch {
+						return;
+					}
+					onBaseRefreshed?.();
+				})();
+			}
+			// pi-coding-agent publishes the returned list through the composed provider;
+			// pi-ai's Provider type declares Promise<void>.
+			return listModels() as unknown as void;
+		},
 	};
 }
 
@@ -316,7 +343,13 @@ export default function githubCopilotAuto(pi: ExtensionAPI) {
 		const base = ctx.modelRegistry.getProvider(PROVIDER_ID);
 		if (!base || base.getModels().some((entry) => entry.id === AUTO_MODEL_ID)) return;
 
-		pi.registerProvider(wrapProvider(base, []));
+		let pool: string[] = [];
+		const register = () => {
+			const latest = ctx.modelRegistry.getProvider(PROVIDER_ID);
+			const source = latest && !latest.getModels().some((model) => model.id === AUTO_MODEL_ID) ? latest : base;
+			pi.registerProvider(wrapProvider(source, pool, register));
+		};
+		register();
 
 		void (async () => {
 			try {
@@ -324,11 +357,10 @@ export default function githubCopilotAuto(pi: ExtensionAPI) {
 				const apiKey = resolved?.auth.apiKey;
 				const baseUrl = resolved?.auth.baseUrl ?? base.baseUrl ?? DEFAULT_BASE_URL;
 				if (!apiKey) return;
-				const { availableModels: pool } = await createAutoSession(baseUrl, apiKey);
-				if (pool.length > 0) {
-					const latest = ctx.modelRegistry.getProvider(PROVIDER_ID);
-					const source = latest && !latest.getModels().some((model) => model.id === AUTO_MODEL_ID) ? latest : base;
-					pi.registerProvider(wrapProvider(source, pool));
+				const { availableModels } = await createAutoSession(baseUrl, apiKey);
+				if (availableModels.length > 0) {
+					pool = availableModels;
+					register();
 				}
 			} catch {}
 		})();

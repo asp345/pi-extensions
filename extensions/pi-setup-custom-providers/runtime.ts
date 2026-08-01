@@ -7,7 +7,7 @@ import type { CustomModelConfig, CustomProviderConfig, ModelMetadata, ModelsFile
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from "./types.ts";
 
 const BUILTIN_PROVIDERS = new Set<string>(getBuiltinProviders());
-const REFRESH_TTL_MS = 5 * 60_000;
+const REFRESH_TTL_MS = 24 * 60 * 60_000;
 const CATALOG_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 
 /**
