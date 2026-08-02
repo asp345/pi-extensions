@@ -70,6 +70,11 @@ export function createOpenRouterMetadataProvider(
 	fetcher: Fetcher = globalThis.fetch,
 	cache: OpenRouterMetadataCache = fileMetadataCache(),
 	initialCache?: OpenRouterMetadataCacheEntry,
+	options: {
+		backgroundRefresh?: boolean;
+		onModelsChanged?: () => void;
+		onRefreshError?: (error: unknown) => void;
+	} = {},
 ): Provider<"openai-completions"> {
 	const base = (provider as WrappedProvider)[BASE_PROVIDER] ?? provider;
 	let overrides = initialCache
@@ -113,7 +118,7 @@ export function createOpenRouterMetadataProvider(
 		if (baseFailure) throw baseFailure.error;
 		if (!context.allowNetwork || context.signal?.aborted) return;
 		if (!context.force && Date.now() - checkedAt < CACHE_TTL_MS) return;
-		if (!context.force && networkRefresh) return networkRefresh;
+		if (!context.force && networkRefresh) return options.backgroundRefresh ? undefined : networkRefresh;
 
 		const execute = async () => {
 			if (context.signal?.aborted) return;
@@ -130,11 +135,15 @@ export function createOpenRouterMetadataProvider(
 			});
 			if (context.signal?.aborted) return;
 			if (response.status === 304) {
+				await response.body?.cancel();
 				checkedAt = Date.now();
 				await persist();
 				return;
 			}
-			if (!response.ok) throw new Error(`OpenRouter model refresh failed with HTTP ${response.status}.`);
+			if (!response.ok) {
+				await response.body?.cancel();
+				throw new Error(`OpenRouter model refresh failed with HTTP ${response.status}.`);
+			}
 			const payload = await readCatalog(response);
 			if (context.signal?.aborted) return;
 			const baseline = base.getModels();
@@ -148,6 +157,15 @@ export function createOpenRouterMetadataProvider(
 		const predecessor = networkRefresh;
 		const pending = (predecessor ? predecessor.catch(() => undefined) : Promise.resolve()).then(execute);
 		networkRefresh = pending;
+		if (!context.force && options.backgroundRefresh) {
+			void pending
+				.then(() => options.onModelsChanged?.())
+				.catch((error: unknown) => options.onRefreshError?.(error))
+				.finally(() => {
+					if (networkRefresh === pending) networkRefresh = undefined;
+				});
+			return;
+		}
 		try {
 			await pending;
 		} finally {
@@ -166,18 +184,32 @@ export function createOpenRouterMetadataProvider(
 
 export default function openrouterMetadata(pi: ExtensionAPI): void {
 	const cache = fileMetadataCache();
-	const initialCache = readInitialMetadataCache();
-	const baseline = readPiOpenRouterModels();
-	if (!baseline.length) return;
-	const catalog = createExtensionCatalog(baseline, initialCache, cache);
-	pi.registerProvider("openrouter", {
-		models: catalog.models(),
-		refreshModels: catalog.refresh,
-	});
-
 	let generation = 0;
+	let active = false;
+	let notify: ((message: string) => void) | undefined;
+
 	pi.on("session_start", (_event, ctx) => {
+		active = true;
+		notify = (message) => ctx.ui.notify(message, "warning");
 		const activeGeneration = ++generation;
+		const current = ctx.modelRegistry.getProvider("openrouter") as WrappedProvider | undefined;
+		const base = current?.[BASE_PROVIDER] ?? current;
+		if (!base) return;
+		const provider = createOpenRouterMetadataProvider(base, globalThis.fetch, cache, readInitialMetadataCache(), {
+			backgroundRefresh: true,
+			onModelsChanged: () => {
+				if (!active || generation !== activeGeneration) return;
+				try {
+					pi.registerProvider(provider);
+				} catch {}
+			},
+			onRefreshError: (error) => {
+				if (active && generation === activeGeneration && notify) {
+					reportOpenRouterRefreshFailure(error, notify);
+				}
+			},
+		});
+		pi.registerProvider(provider);
 		void ctx.modelRegistry
 			.refresh()
 			.then(async () => {
@@ -186,8 +218,8 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 				if (refreshed) await pi.setModel(refreshed);
 			})
 			.catch((error: unknown) => {
-				if (generation !== activeGeneration) return;
-				reportOpenRouterRefreshFailure(error, (message) => ctx.ui.notify(message, "warning"));
+				if (generation !== activeGeneration || !notify) return;
+				reportOpenRouterRefreshFailure(error, notify);
 			});
 	});
 	pi.on("model_select", async (event, ctx) => {
@@ -196,6 +228,8 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 		if (refreshed && refreshed !== event.model) await pi.setModel(refreshed);
 	});
 	pi.on("session_shutdown", () => {
+		active = false;
+		notify = undefined;
 		generation += 1;
 		pi.unregisterProvider("openrouter");
 	});
@@ -595,21 +629,26 @@ function parseCatalog(payload: unknown): RemoteModel[] {
 async function readCatalog(response: Response): Promise<unknown> {
 	const declared = Number(response.headers.get("content-length"));
 	if (Number.isFinite(declared) && declared > MAX_CATALOG_BYTES) {
+		await response.body?.cancel();
 		throw new Error("OpenRouter model catalog exceeds the response limit.");
 	}
 	if (!response.body) return JSON.parse(await response.text()) as unknown;
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let bytes = 0;
-	for (;;) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		bytes += value.byteLength;
-		if (bytes > MAX_CATALOG_BYTES) {
-			await reader.cancel();
-			throw new Error("OpenRouter model catalog exceeds the response limit.");
+	try {
+		for (;;) {
+			const { value, done } = await reader.read();
+			if (done) break;
+			bytes += value.byteLength;
+			if (bytes > MAX_CATALOG_BYTES) {
+				await reader.cancel();
+				throw new Error("OpenRouter model catalog exceeds the response limit.");
+			}
+			chunks.push(value);
 		}
-		chunks.push(value);
+	} finally {
+		reader.releaseLock();
 	}
 	const body = new Uint8Array(bytes);
 	let offset = 0;

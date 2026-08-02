@@ -15,12 +15,17 @@ const options = (count: number): SelectorOption[] =>
 		Array.from({ length: count }, (_value, index) => ({
 			id: `id-${index}-0000000000`,
 			type: `Agent${index}`,
+			model: `provider/model-${index}`,
 			turns: index,
 			toolUses: index,
 		})),
 	);
 
 const state = (): SelectorState => ({ active: false, index: 0 });
+
+test("agent options show the active model beside the agent name", () => {
+	assert.equal(options(1)[0]?.label, "Agent0 · provider/model-0");
+});
 
 test("no options: nothing is consumed and state deactivates", () => {
 	const s: SelectorState = { active: true, index: 3 };

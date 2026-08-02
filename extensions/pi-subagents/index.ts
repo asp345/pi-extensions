@@ -12,7 +12,17 @@ const RESULT_LINES = 200;
 const NOTIFICATION_BYTES = 2_000;
 
 const AgentParameters = Type.Object({
-	prompt: Type.String({ minLength: 1, maxLength: 40_000, description: "Self-contained task." }),
+	prompt: Type.String({
+		minLength: 1,
+		maxLength: 30_000,
+		description: "Concrete objective, constraints, and expected deliverable for the delegated task.",
+	}),
+	context: Type.String({
+		minLength: 1,
+		maxLength: 20_000,
+		description:
+			"Relevant project context the subagent needs, such as paths, symbols, observed behavior, prior findings, and validation requirements. The parent conversation is not inherited.",
+	}),
 	subagent_type: Type.String({ minLength: 1, maxLength: 64, description: "Markdown agent name." }),
 	run_in_background: Type.Optional(
 		Type.Boolean({
@@ -24,6 +34,26 @@ const AgentParameters = Type.Object({
 	resume: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
 	fork: Type.Optional(Type.Boolean({ description: "Copy the parent's active conversation; default false." })),
 });
+
+export function delegationPrompt(
+	definition: { description: string },
+	task: string,
+	context: string,
+	cwd: string,
+): string {
+	return [
+		"# Delegated assignment",
+		`Role: ${definition.description}`,
+		`Working directory: ${cwd}`,
+		"The parent conversation is not inherited. Work only from this explicit handoff and evidence you inspect yourself.",
+		"",
+		"## Task",
+		task.trim(),
+		"",
+		"## Context from parent",
+		context.trim(),
+	].join("\n");
+}
 
 interface CompletionDetails {
 	id: string;
@@ -61,7 +91,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		},
 	);
 	const reload = (ctx: ExtensionContext) => {
-		registry = discoverDefinitions(ctx.cwd);
+		registry = discoverDefinitions(ctx.cwd, ctx.isProjectTrusted());
 		ui.updateWidget();
 	};
 	ui = new AgentsUI(manager, () => registry, reload);
@@ -183,19 +213,22 @@ export default function subagents(pi: ExtensionAPI): void {
 			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as a follow-up that resumes the parent automatically.",
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
+			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
 			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
 			"After launching a background agent, continue independent work or end the turn; its settled result arrives as a follow-up that resumes you automatically. Do not sleep, poll, or launch duplicate work to wait.",
 			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
 		],
 		parameters: AgentParameters,
 		async execute(_callId, params, signal, onUpdate, ctx) {
-			const prompt = params.prompt.trim();
 			const definition = resolveDefinition(registry, params.subagent_type.trim());
 			if (!definition) {
 				throw new Error(
 					`Agent configuration error: unknown or disabled subagent ${params.subagent_type}. Available: ${definitionSummary(registry) || "none"}`,
 				);
 			}
+			if (!params.prompt.trim()) throw new Error("Agent configuration error: task must not be blank.");
+			if (!params.context.trim()) throw new Error("Agent configuration error: context must not be blank.");
+			const prompt = delegationPrompt(definition, params.prompt, params.context, ctx.cwd);
 			if (params.resume && params.fork)
 				throw new Error("Agent configuration error: resume cannot be combined with fork.");
 			if (params.resume) {
@@ -214,7 +247,7 @@ export default function subagents(pi: ExtensionAPI): void {
 					definition,
 					thinking: resolveThinking(definition.thinking, ctx),
 					maxTurns: params.max_turns ?? definition.maxTurns,
-					signal,
+					signal: background ? undefined : signal,
 				});
 				if (background) {
 					return result(
@@ -233,7 +266,7 @@ export default function subagents(pi: ExtensionAPI): void {
 				model: params.model,
 				maxTurns: params.max_turns,
 				fork: params.fork ?? definition.fork,
-				signal,
+				signal: background ? undefined : signal,
 			});
 			if (background) {
 				return result(
@@ -322,7 +355,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			message: Type.String({ minLength: 1, maxLength: 4_000 }),
 		}),
 		async execute(_callId, params) {
-			const ok = manager.steer(params.id, params.message.trim());
+			const ok = await manager.steer(params.id, params.message.trim());
 			return result(ok ? `Steering message sent to ${params.id}.` : `Subagent ${params.id} is not running.`, {
 				id: params.id,
 				accepted: ok,
@@ -338,7 +371,7 @@ export default function subagents(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		shuttingDown = false;
 		currentContext = ctx;
-		registry = discoverDefinitions(ctx.cwd);
+		registry = discoverDefinitions(ctx.cwd, ctx.isProjectTrusted());
 		ui.attach(ctx);
 		if (registry.errors.length)
 			ctx.ui.notify(

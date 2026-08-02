@@ -82,22 +82,29 @@ export function boundedText(
 
 export async function readBytes(response: Response, max: number): Promise<Uint8Array> {
 	const declared = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > max) throw new Error("Response is too large");
+	if (Number.isFinite(declared) && declared > max) {
+		await response.body?.cancel();
+		throw new Error("Response is too large");
+	}
 	if (!response.body) return new Uint8Array();
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let size = 0;
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		size += value.length;
-		if (size > max) {
-			await reader.cancel();
-			throw new Error("Response is too large");
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			size += value.length;
+			if (size > max) {
+				await reader.cancel();
+				throw new Error("Response is too large");
+			}
+			chunks.push(value);
 		}
-		chunks.push(value);
+		return Buffer.concat(chunks, size);
+	} finally {
+		reader.releaseLock();
 	}
-	return Buffer.concat(chunks, size);
 }
 
 export function errorMessage(error: unknown): string {

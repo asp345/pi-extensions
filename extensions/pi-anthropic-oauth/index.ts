@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
 	type Api,
 	type AssistantMessageEventStream,
@@ -138,9 +139,8 @@ async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) 
 		)
 			break;
 		const retryAfter = Number(response.headers.get("retry-after"));
-		await new Promise((resolve) =>
-			setTimeout(resolve, retryAfter > 0 ? Math.min(retryAfter * 1_000, 30_000) : 5_000 * 2 ** attempt),
-		);
+		const delay = retryAfter > 0 ? Math.min(retryAfter * 1_000, 30_000) : 5_000 * 2 ** attempt;
+		await sleep(delay, undefined, { signal });
 	}
 	throw new OAuthRequestError(status, `Anthropic OAuth request failed: ${error}`);
 }
@@ -155,10 +155,12 @@ async function requestCredentials(
 		refresh_token?: string;
 		expires_in: number;
 	};
+	const hardExpires = Date.now() + token.expires_in * 1_000;
 	return {
 		access: token.access_token,
 		refresh: token.refresh_token || fallbackRefresh,
-		expires: Date.now() + token.expires_in * 1_000 - 5 * 60_000,
+		expires: hardExpires - 5 * 60_000,
+		hardExpires,
 	};
 }
 
@@ -225,8 +227,9 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 		);
 	} catch (error) {
 		const transient = error instanceof OAuthRequestError && (error.status === 429 || error.status >= 500);
-		if (transient && credentials.expires > Date.now()) {
-			return { ...credentials, expires: Date.now() + 30_000 };
+		const hardExpires = typeof credentials.hardExpires === "number" ? credentials.hardExpires : credentials.expires;
+		if (transient && hardExpires > Date.now()) {
+			return { ...credentials, expires: Math.min(Date.now() + 30_000, hardExpires) };
 		}
 		throw error;
 	}

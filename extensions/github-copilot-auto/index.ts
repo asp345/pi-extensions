@@ -13,6 +13,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const PROVIDER_ID = "github-copilot";
 const AUTO_MODEL_ID = "auto";
 const AUTO_PREFIX = "auto-";
+const BASE_PROVIDER = "__piConfigCopilotAutoBase" as const;
+type WrappedProvider = Provider & { [BASE_PROVIDER]?: Provider };
 
 // Minimum interval before re-fetching the built-in Copilot catalog during model refresh.
 // Startup refresh must stay off the network or the TUI freezes until it completes.
@@ -224,7 +226,7 @@ async function routePrompt(
 	state.reasoningBucket = bucket === "low" || bucket === "medium" || bucket === "high" ? bucket : undefined;
 }
 
-function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => void): Provider {
+export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => void): Provider {
 	const baseById = new Map(base.getModels().map((entry) => [entry.id, entry]));
 
 	const templateFor = (realId: string, displayId: string): Model<Api> => {
@@ -298,8 +300,9 @@ function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => vo
 		...base.getModels().filter((entry) => !managedIds.has(entry.id)),
 	];
 
-	return {
+	const wrapped: WrappedProvider = {
 		...base,
+		[BASE_PROVIDER]: base,
 		getModels: listModels,
 		filterModels: (models, credential) => {
 			const remaining = models.filter((entry) => !managedIds.has(entry.id));
@@ -324,11 +327,14 @@ function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => vo
 				void (async () => {
 					try {
 						await base.refreshModels?.(context);
-						await context.store.write({ models: listModels(), checkedAt: Date.now() });
-					} catch {
-						return;
-					}
-					onBaseRefreshed?.();
+						const refreshed = await context.store.read();
+						await context.store.write({
+							...(refreshed ?? {}),
+							models: listModels(),
+							checkedAt: Date.now(),
+						});
+						onBaseRefreshed?.();
+					} catch {}
 				})();
 			}
 			// pi-coding-agent publishes the returned list through the composed provider;
@@ -336,18 +342,24 @@ function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => vo
 			return listModels() as unknown as void;
 		},
 	};
+	return wrapped;
 }
 
 export default function githubCopilotAuto(pi: ExtensionAPI) {
+	let generation = 0;
 	pi.on("session_start", (_event, ctx) => {
-		const base = ctx.modelRegistry.getProvider(PROVIDER_ID);
-		if (!base || base.getModels().some((entry) => entry.id === AUTO_MODEL_ID)) return;
+		const activeGeneration = ++generation;
+		const current = ctx.modelRegistry.getProvider(PROVIDER_ID) as WrappedProvider | undefined;
+		const base = current?.[BASE_PROVIDER] ?? current;
+		if (!base) return;
 
-		let pool: string[] = [];
+		let pool = base.getModels().flatMap((model) => (model.id.startsWith(AUTO_PREFIX) ? [realModelId(model.id)] : []));
 		const register = () => {
-			const latest = ctx.modelRegistry.getProvider(PROVIDER_ID);
-			const source = latest && !latest.getModels().some((model) => model.id === AUTO_MODEL_ID) ? latest : base;
-			pi.registerProvider(wrapProvider(source, pool, register));
+			if (generation !== activeGeneration) return;
+			// ModelRuntime composition intentionally copies only Provider fields, so
+			// re-reading the registered provider loses BASE_PROVIDER and would wrap
+			// the previous wrapper again. Always rebuild from this session's stable base.
+			pi.registerProvider(wrapProvider(base, pool, register));
 		};
 		register();
 
@@ -358,11 +370,15 @@ export default function githubCopilotAuto(pi: ExtensionAPI) {
 				const baseUrl = resolved?.auth.baseUrl ?? base.baseUrl ?? DEFAULT_BASE_URL;
 				if (!apiKey) return;
 				const { availableModels } = await createAutoSession(baseUrl, apiKey);
-				if (availableModels.length > 0) {
+				if (generation === activeGeneration && availableModels.length > 0) {
 					pool = availableModels;
 					register();
 				}
 			} catch {}
 		})();
+	});
+	pi.on("session_shutdown", () => {
+		generation += 1;
+		pi.unregisterProvider(PROVIDER_ID);
 	});
 }

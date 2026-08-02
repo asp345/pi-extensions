@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { lstat, mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +51,12 @@ export async function extractAll(
 	async function worker() {
 		while (next < urls.length) {
 			const index = next++;
-			output[index] = await extractOne(urls[index], options, signal).catch((error) => failure(urls[index], error));
+			try {
+				output[index] = await extractOne(urls[index], options, signal);
+			} catch (error) {
+				if (signal?.aborted) throw error;
+				output[index] = failure(urls[index], error);
+			}
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(3, urls.length) }, worker));
@@ -130,26 +135,30 @@ async function extractHttp(url: string, signal?: AbortSignal): Promise<Extracted
 async function extractPdf(bytes: Uint8Array, url: string): Promise<{ title: string; content: string }> {
 	const { getDocumentProxy } = await import("unpdf");
 	const pdf = await getDocumentProxy(bytes, { verbosity: 0 });
-	const metadata = await pdf.getMetadata();
-	const info = metadata.info && typeof metadata.info === "object" ? (metadata.info as Record<string, unknown>) : {};
-	const title =
-		typeof info.Title === "string" && info.Title.trim()
-			? info.Title.trim()
-			: basename(new URL(url).pathname, ".pdf") || "document";
-	const lines = [`# ${title}`, "", `Source: ${url}`, `Pages: ${pdf.numPages}`, ""];
-	const pages = Math.min(pdf.numPages, 100);
-	for (let pageNumber = 1; pageNumber <= pages; pageNumber++) {
-		const page = await pdf.getPage(pageNumber);
-		const content = await page.getTextContent();
-		const text = content.items
-			.map((item) => ("str" in item && typeof item.str === "string" ? item.str : ""))
-			.join(" ")
-			.replace(/\s+/g, " ")
-			.trim();
-		if (text) lines.push(`## Page ${pageNumber}`, "", text, "");
+	try {
+		const metadata = await pdf.getMetadata();
+		const info = metadata.info && typeof metadata.info === "object" ? (metadata.info as Record<string, unknown>) : {};
+		const title =
+			typeof info.Title === "string" && info.Title.trim()
+				? info.Title.trim()
+				: basename(new URL(url).pathname, ".pdf") || "document";
+		const lines = [`# ${title}`, "", `Source: ${url}`, `Pages: ${pdf.numPages}`, ""];
+		const pages = Math.min(pdf.numPages, 100);
+		for (let pageNumber = 1; pageNumber <= pages; pageNumber++) {
+			const page = await pdf.getPage(pageNumber);
+			const content = await page.getTextContent();
+			const text = content.items
+				.map((item) => ("str" in item && typeof item.str === "string" ? item.str : ""))
+				.join(" ")
+				.replace(/\s+/g, " ")
+				.trim();
+			if (text) lines.push(`## Page ${pageNumber}`, "", text, "");
+		}
+		if (pages < pdf.numPages) lines.push(`[Only the first ${pages} pages were extracted.]`);
+		return { title, content: lines.join("\n") };
+	} finally {
+		await (pdf as unknown as { loadingTask: { destroy(): Promise<void> } }).loadingTask.destroy();
 	}
-	if (pages < pdf.numPages) lines.push(`[Only the first ${pages} pages were extracted.]`);
-	return { title, content: lines.join("\n") };
 }
 
 interface GitHubInfo {
@@ -344,7 +353,8 @@ async function localVideo(input: string): Promise<{ path: string; mimeType: stri
 	const mime = VIDEO_MIME[extname(absolute).toLowerCase()];
 	if (!mime) return undefined;
 	try {
-		return (await stat(absolute)).isFile() ? { path: absolute, mimeType: mime } : undefined;
+		const info = await lstat(absolute);
+		return info.isFile() && !info.isSymbolicLink() ? { path: absolute, mimeType: mime } : undefined;
 	} catch {
 		return undefined;
 	}

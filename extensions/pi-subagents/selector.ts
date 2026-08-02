@@ -36,11 +36,11 @@ export function selectorKey(data: string): SelectorKeyName | undefined {
 }
 
 export function agentOptions(
-	records: readonly { id: string; type: string; turns: number; toolUses: number }[],
+	records: readonly { id: string; type: string; model?: string; turns: number; toolUses: number }[],
 ): SelectorOption[] {
 	return records.map((record) => ({
 		id: record.id,
-		label: record.type,
+		label: `${record.type} · ${record.model ?? "model pending"}`,
 		detail: `${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools`,
 	}));
 }

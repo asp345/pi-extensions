@@ -56,6 +56,7 @@ export default function webAccess(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, onUpdate, context) {
 			const queries = params.queries.map((query) => query.trim()).filter(Boolean);
+			if (!queries.length) throw new Error("At least one non-empty search query is required.");
 			const items: QueryResult[] = [];
 			for (const [index, query] of queries.entries()) {
 				onUpdate?.({
@@ -98,7 +99,9 @@ export default function webAccess(pi: ExtensionAPI): void {
 			fetch: Type.Optional(Type.Boolean({ description: "Fetch up to five pages for exact passages." })),
 		}),
 		async execute(_id, params, signal, _onUpdate, context) {
-			const artifact = await checkSource(params.claim.trim(), params.fetch === true, {
+			const claim = params.claim.trim();
+			if (!claim) throw new Error("A non-empty claim is required.");
+			const artifact = await checkSource(claim, params.fetch === true, {
 				provider: "auto",
 				signal,
 				context,
@@ -130,6 +133,7 @@ export default function webAccess(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal, onUpdate, context): Promise<AgentToolResult<Record<string, unknown>>> {
 			const urls = params.urls.map((url) => url.trim()).filter(Boolean);
+			if (!urls.length) throw new Error("At least one non-empty URL or video path is required.");
 			onUpdate?.({ content: [{ type: "text", text: `Fetching ${urls.length} item(s)` }], details: { progress: 0 } });
 			const extracted = await extractAll(
 				urls,

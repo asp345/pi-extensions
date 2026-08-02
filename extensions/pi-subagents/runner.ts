@@ -33,7 +33,8 @@ export async function runNew(
 	if (signal?.aborted) throw new Error("Subagent cancelled before session setup.");
 	const cwd = request.worktree?.cwd ?? request.cwd;
 	let systemPrompt = buildSystemPrompt(definition, ctx, cwd);
-	const loader = createLoader(definition, cwd, () => systemPrompt);
+	const settingsManager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
+	const loader = createLoader(definition, cwd, () => systemPrompt, settingsManager);
 	await loader.reload();
 	if (signal?.aborted) throw new Error("Subagent cancelled during resource setup.");
 	const skills = skillCatalog(loader);
@@ -50,7 +51,6 @@ export async function runNew(
 	} catch {
 		callbacks.onFallback(model, `Higher-priority model ${preferredName} is unavailable.`);
 	}
-	const settingsManager = SettingsManager.create(cwd, getAgentDir());
 	const sessionDir = resolveSessionDir(definition.sessionDir, cwd);
 	const sessionManager = definition.persistSession
 		? SessionManager.create(cwd, sessionDir ?? settingsManager.getSessionDir?.())
@@ -171,7 +171,12 @@ export function resolveThinking(input: AgentDefinition["thinking"], ctx: Extensi
 	return input === "parent" ? (ctx.thinkingLevel as ThinkingLevel | undefined) : input;
 }
 
-function createLoader(definition: AgentDefinition, cwd: string, systemPrompt: () => string): DefaultResourceLoader {
+function createLoader(
+	definition: AgentDefinition,
+	cwd: string,
+	systemPrompt: () => string,
+	settingsManager: SettingsManager,
+): DefaultResourceLoader {
 	const extensionSpec = Array.isArray(definition.extensions)
 		? extensionSelection(definition.extensions, cwd)
 		: undefined;
@@ -201,6 +206,7 @@ function createLoader(definition: AgentDefinition, cwd: string, systemPrompt: ()
 	return new DefaultResourceLoader({
 		cwd,
 		agentDir: getAgentDir(),
+		settingsManager,
 		noExtensions,
 		additionalExtensionPaths: extensionSpec?.paths,
 		extensionsOverride,

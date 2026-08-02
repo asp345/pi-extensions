@@ -194,6 +194,7 @@ async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> 
 			callback.close();
 		}
 	}
+	if (callbacks.signal?.aborted) throw new Error("Antigravity OAuth login aborted.");
 	result ??= parseAuthorization(
 		await callbacks.onPrompt({ message: "Paste the Antigravity OAuth callback URL or code:" }),
 		expectedState,
@@ -276,7 +277,7 @@ function resultResponse(message: ToolResultMessage): Record<string, unknown> {
 	return message.isError ? { error: text || "Error" } : { output: text };
 }
 
-function convertMessages(messages: Message[], target: Model<Api>): GeminiContent[] {
+export function convertMessages(messages: Message[], target: Model<Api>): GeminiContent[] {
 	const output: GeminiContent[] = [];
 	const targetCalls = new Map<string, boolean>();
 	const isTarget = (message: AssistantMessage) => message.provider === target.provider && message.model === target.id;
@@ -302,7 +303,7 @@ function convertMessages(messages: Message[], target: Model<Api>): GeminiContent
 			const parts = assistantParts(message, isTarget(message));
 			if (parts.length) output.push({ role: "model", parts });
 		} else if (message.role === "toolResult") {
-			const role = targetCalls.get(message.toolCallId) === true ? "model" : "user";
+			const role = targetCalls.get(message.toolCallId) === true ? "user" : "model";
 			const part: GeminiPart = {
 				functionResponse: {
 					name: message.toolName,
@@ -383,7 +384,7 @@ function createOutput(model: Model<Api>): AssistantMessage {
 			totalTokens: 0,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 		},
-		stopReason: "stop",
+		stopReason: "pending",
 		timestamp: Date.now(),
 	};
 }
@@ -531,27 +532,39 @@ async function sendRequest(
 		request.generationConfig = generationConfig;
 	}
 	const requestId = finalize(request, wireModel, requestSessions.beginRequest(sessionKey));
-	return fetchWithAgyCliTransport(
+	const payload = {
+		project: project.effectiveProjectId,
+		requestId,
+		request,
+		model: wireModel,
+		userAgent: "antigravity",
+		requestType: "agent",
+	};
+	const transformed = (await options?.onPayload?.(payload, model)) ?? payload;
+	const headers = new Headers({
+		Authorization: `Bearer ${accessToken}`,
+		"Content-Type": "application/json",
+		"User-Agent": buildAntigravityHarnessUserAgent(),
+		"Accept-Encoding": "gzip",
+	});
+	for (const [name, value] of Object.entries(options?.headers ?? {})) {
+		if (value === null) headers.delete(name);
+		else headers.set(name, value);
+	}
+	const response = await fetchWithAgyCliTransport(
 		`${ANTIGRAVITY_ENDPOINT}/v1internal:streamGenerateContent?alt=sse`,
 		{
 			method: "POST",
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				"Content-Type": "application/json",
-				"User-Agent": buildAntigravityHarnessUserAgent(),
-				"Accept-Encoding": "gzip",
-			},
-			body: JSON.stringify({
-				project: project.effectiveProjectId,
-				requestId,
-				request,
-				model: wireModel,
-				userAgent: "antigravity",
-				requestType: "agent",
-			}),
+			headers,
+			body: JSON.stringify(transformed),
 		},
 		{ signal },
 	);
+	await options?.onResponse?.(
+		{ status: response.status, headers: Object.fromEntries(response.headers.entries()) },
+		model,
+	);
+	return response;
 }
 
 async function nextChunk<T>(iterator: AsyncIterator<T>, onTimeout: () => void): Promise<IteratorResult<T> | undefined> {
@@ -595,6 +608,7 @@ function streamAntigravity(
 	const stream = createAssistantMessageEventStream();
 	void (async () => {
 		const output = createOutput(model);
+		let response: Response | undefined;
 		stream.push({ type: "start", partial: output });
 		try {
 			const accessToken = options?.apiKey;
@@ -606,7 +620,7 @@ function streamAntigravity(
 			const sessionKey = requestSessionKey(conversationKey, credential);
 			const trailingAbort = new AbortController();
 			const signal = options.signal ? AbortSignal.any([options.signal, trailingAbort.signal]) : trailingAbort.signal;
-			const response = await sendRequest(model, context, options, accessToken, sessionKey, signal);
+			response = await sendRequest(model, context, options, accessToken, sessionKey, signal);
 			if (!response.ok) {
 				throw new Error(`Antigravity request failed: HTTP ${response.status} ${await response.text()}`);
 			}
@@ -694,7 +708,10 @@ function streamAntigravity(
 					}
 				}
 			}
-			if (!terminal && content.length === 0) throw new Error("Antigravity stream ended without a model response");
+			if (!terminal) {
+				closeOpen();
+				throw new Error("Antigravity stream ended without a finish reason");
+			}
 			if (terminal) {
 				try {
 					await iterator.return?.(undefined);
@@ -714,6 +731,7 @@ function streamAntigravity(
 			}
 			stream.end();
 		} catch (error) {
+			await response?.body?.cancel().catch(() => {});
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? error.message : String(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });

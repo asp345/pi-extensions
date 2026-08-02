@@ -22,7 +22,7 @@ Credentials are resolved through pi. Configure them with `/login`, or store a `$
 
 Configured providers are registered when the extension loads, so their models appear in `/model` and `pi --list-models`. Each provider supplies a `refreshModels` callback, so pi refreshes metadata on session start, when `/model` opens, and on `pi update --models`.
 
-A refresh reads the provider's own model list and takes every field from it: context window, output limit, reasoning support, thinking levels, image input, and pricing. No shared catalog is consulted, because capabilities, effort names, and prices describe the serving endpoint rather than the model, and a listing for some other gateway would claim support this endpoint may not have. Requests are bounded by a timeout, repeats within five minutes reuse the previous result, and a failed discovery keeps the configured list.
+A refresh reads the provider's own model list and takes every field from it: context window, output limit, reasoning support, thinking levels, image input, and pricing. No shared catalog is consulted, because capabilities, effort names, and prices describe the serving endpoint rather than the model, and a listing for some other gateway would claim support this endpoint may not have. Requests are bounded by a timeout, repeats within 24 hours reuse the previous result, and a failed discovery keeps the configured list.
 
 Capability lists are read from `features`, `supported_features`, `tags`, `capabilities`, and `supported_parameters`, since providers spell the same field differently.
 

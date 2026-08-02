@@ -3,8 +3,8 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { Model, ModelsStoreEntry } from "@earendil-works/pi-ai";
-import {
+import type { Model, ModelsStoreEntry, Provider } from "@earendil-works/pi-ai";
+import openrouterMetadata, {
 	createOpenRouterMetadataProvider,
 	fileMetadataCache,
 	mergeOpenRouterModels,
@@ -62,6 +62,48 @@ async function testProvider(fetcher: typeof fetch, cache = memoryCache(), initia
 	const { openrouterProvider } = await import("@earendil-works/pi-ai/providers/openrouter");
 	return createOpenRouterMetadataProvider(openrouterProvider(), fetcher, cache, initialCache);
 }
+
+test("extension wraps the live native provider so runtime catalog and models.json composition survive", async () => {
+	const registrations: unknown[][] = [];
+	let sessionStart: ((event: unknown, context: unknown) => void) | undefined;
+	const runtimeOnly = { ...bundled, id: "runtime-only" };
+	const base = {
+		id: "openrouter",
+		name: "OpenRouter",
+		getModels: () => [bundled, runtimeOnly],
+		stream: () => {
+			throw new Error("unused");
+		},
+		streamSimple: () => {
+			throw new Error("unused");
+		},
+	} as unknown as Provider<"openai-completions">;
+	const pi = {
+		registerProvider: (...args: unknown[]) => registrations.push(args),
+		on: (event: string, handler: typeof sessionStart) => {
+			if (event === "session_start") sessionStart = handler;
+		},
+	} as unknown as Parameters<typeof openrouterMetadata>[0];
+	openrouterMetadata(pi);
+	assert.equal(registrations.length, 0);
+	sessionStart?.(
+		{},
+		{
+			modelRegistry: {
+				getProvider: () => base,
+				refresh: async () => undefined,
+				find: () => undefined,
+			},
+			ui: { notify: () => undefined },
+		},
+	);
+	assert.equal(registrations.length, 1);
+	assert.equal(registrations[0]?.length, 1);
+	const registered = registrations[0]?.[0] as Provider<"openai-completions">;
+	assert.equal(registered.id, "openrouter");
+	assert.ok(registered.getModels().some((model) => model.id === runtimeOnly.id));
+	await Promise.resolve();
+});
 
 test("refresh failure reporting tolerates stale extension contexts", () => {
 	const messages: string[] = [];

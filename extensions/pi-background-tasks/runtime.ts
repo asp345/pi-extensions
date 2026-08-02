@@ -180,12 +180,7 @@ export class BackgroundRuntime {
 		task.stopRequested = true;
 		task.info.updatedAt = Date.now();
 		this.kill(task, "SIGTERM");
-		if (task.forceTimer) clearTimeout(task.forceTimer);
-		task.forceTimer = setTimeout(() => {
-			task.forceTimer = null;
-			if (!task.closed) this.kill(task, "SIGKILL");
-		}, 2000);
-		task.forceTimer.unref?.();
+		this.armForceKill(task);
 		this.update();
 		return true;
 	}
@@ -245,6 +240,15 @@ export class BackgroundRuntime {
 		}
 	}
 
+	private armForceKill(task: ManagedTask): void {
+		if (task.forceTimer) clearTimeout(task.forceTimer);
+		task.forceTimer = setTimeout(() => {
+			task.forceTimer = null;
+			if (!task.closed) this.kill(task, "SIGKILL");
+		}, 2_000);
+		task.forceTimer.unref?.();
+	}
+
 	private finish(task: ManagedTask, code: number | null): void {
 		if (task.closed) return;
 		task.child.stdout?.removeAllListeners("data");
@@ -286,6 +290,7 @@ export class BackgroundRuntime {
 		if (!task.closed) {
 			task.stopRequested = true;
 			this.kill(task, "SIGTERM");
+			this.armForceKill(task);
 		}
 		this.tasks.delete(task.info.id);
 		this.removeLog(task);

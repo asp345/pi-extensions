@@ -27,7 +27,7 @@ The only included theme is `themes/flatland.json`.
 
 Use `/custom-model` to add, edit, remove, and discover providers such as OpenRouter, Novita, Modal, and other OpenAI-compatible services. Provider definitions are stored in Pi's `models.json`, and credentials stay in Pi's auth storage when configured through `/login`. The extension never writes `settings.json`, so the `/models` allow-list is unaffected.
 
-Every configured provider registers a `refreshModels` callback, so Pi refreshes model metadata on session start, when `/model` opens, and on `pi update --models`. Each refresh queries the provider's own listing endpoint for context windows, output limits, reasoning support, image input, and pricing. Offline refreshes reuse the persisted catalog instead of issuing requests, repeats within five minutes reuse the previous result, and a failed discovery keeps the configured list. Names, reasoning flags, and thinking maps set by hand are never overwritten, and models marked `manual` keep their limits.
+Every configured provider registers a `refreshModels` callback, so Pi refreshes model metadata on session start, when `/model` opens, and on `pi update --models`. Each refresh queries the provider's own listing endpoint for context windows, output limits, reasoning support, image input, and pricing. Offline refreshes reuse the persisted catalog instead of issuing requests, repeats within 24 hours reuse the previous result, and a failed discovery keeps the configured list. Names, reasoning flags, and thinking maps set by hand are never overwritten, and models marked `manual` keep their limits.
 
 Each reasoning model can carry a default thinking level and a map from Pi's levels to the values the provider expects, which is how `xhigh` and `max` become selectable for providers that support them.
 
@@ -44,6 +44,8 @@ thinking: parent
 ```
 
 `parent` inherits the parent session's current model or thinking level. Missing or unavailable models are skipped. If a model fails, the agent continues the existing session with the next available model without repeating completed tool actions. Later resumes retain the selected model unless the `Agent` call explicitly selects another model.
+
+Each delegation requires a concrete task and an explicit context handoff. The extension adds the selected agent's role and working directory to that handoff; it does not copy the parent conversation unless `fork` is explicitly requested.
 
 Bundled definitions live in `extensions/pi-subagents/agents/`; global overrides live in `~/.config/pi/agents/`.
 

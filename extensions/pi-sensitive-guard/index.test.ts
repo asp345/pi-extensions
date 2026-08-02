@@ -54,6 +54,14 @@ test("blocks unlisted interpreters that reference protected paths", () => {
 	assert.equal(inspect(`python -c 'open("/tmp/ordinary","w").write("x")'`).blocked, false);
 });
 
+test("protects git reads and writes that name sensitive paths", () => {
+	assert.equal(inspect("git show HEAD:.env").protectedRead, true);
+	assert.equal(inspect("git cat-file blob HEAD:.npmrc").protectedRead, true);
+	assert.equal(inspect("git checkout -- .env").blocked, true);
+	assert.equal(inspect("git restore .env").blocked, true);
+	assert.equal(inspect("git clean -fdx").blocked, true);
+});
+
 test("allows unrelated shell commands", () => {
 	assert.deepEqual(inspect("npm run build"), { blocked: false, protectedRead: false });
 	assert.deepEqual(inspect("node -e 'console.log(42)'"), { blocked: false, protectedRead: false });

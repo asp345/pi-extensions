@@ -8,15 +8,18 @@ import { compact, message } from "./util.js";
 const THINKING = new Set<ThinkingSetting>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "parent"]);
 const DEFAULT_DIR = fileURLToPath(new URL("./agents", import.meta.url));
 
-export function discoverDefinitions(cwd: string): DefinitionRegistry {
+export function discoverDefinitions(cwd: string, projectTrusted = true): DefinitionRegistry {
 	const definitions = new Map<string, AgentDefinition>();
 	const errors: string[] = [];
-	for (const [dir, source] of [
+	const directories: Array<readonly [string, AgentDefinition["source"]]> = [
 		[DEFAULT_DIR, "default"],
 		[join(getAgentDir(), "agents"), "global"],
-		[join(cwd, ".agents", "agents"), "workspace"],
-		[join(cwd, CONFIG_DIR_NAME, "agents"), "project"],
-	] as const) {
+	];
+	if (projectTrusted) {
+		directories.push([join(cwd, ".agents", "agents"), "workspace"]);
+		directories.push([join(cwd, CONFIG_DIR_NAME, "agents"), "project"]);
+	}
+	for (const [dir, source] of directories) {
 		if (!existsSync(dir)) continue;
 		let files: string[];
 		try {

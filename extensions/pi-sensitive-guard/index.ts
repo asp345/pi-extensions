@@ -144,12 +144,20 @@ export function inspectShell(
 		}
 		if (MUTATE_COMMANDS.has(part.command) && anyProtectedOperand(part.words, cwd, config))
 			return { blocked: true, protectedRead };
-		if (
-			part.command === "git" &&
-			["rm", "clean"].includes(commandName(part.words[0] ?? "")) &&
-			anyProtectedOperand(part.words.slice(1), cwd, config)
-		) {
-			return { blocked: true, protectedRead };
+		if (part.command === "git") {
+			const action = commandName(part.words[0] ?? "");
+			const operands = part.words.slice(1);
+			if (action === "clean") return { blocked: true, protectedRead };
+			if (["rm", "checkout", "restore", "reset"].includes(action) && anyProtectedOperand(operands, cwd, config)) {
+				return { blocked: true, protectedRead };
+			}
+			if (["show", "cat-file"].includes(action)) {
+				const objectPaths = operands.map((word) => {
+					const colon = word.indexOf(":");
+					return colon >= 0 ? word.slice(colon + 1) : word;
+				});
+				if (anyProtectedOperand(objectPaths, cwd, config)) protectedRead = true;
+			}
 		}
 		if (SHELL_COMMANDS.has(part.command)) {
 			const scriptIndex = part.words.findIndex((word) => /^-[A-Za-z]*c$/.test(word)) + 1;
@@ -308,7 +316,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 		try {
 			const input = inputRecord(event.input);
 			const path = text(input.path);
-			if (event.toolName === "read") {
+			if (event.toolName === "read" || event.toolName === "grep") {
 				const protectedPath = isProtectedPath(path, ctx.cwd, config);
 				if (config.readRedaction.enabled && (protectedPath || config.readRedaction.scope === "allOutput")) {
 					pending.add(event.toolCallId);
@@ -355,7 +363,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_result", (event) => {
-		if (!pending.delete(event.toolCallId) || event.isError) return {};
+		if (!pending.delete(event.toolCallId)) return {};
 		const content = event.content.map((part) => {
 			if (!part || typeof part !== "object" || (part as { type?: unknown }).type !== "text") return part;
 			const item = part as { type: "text"; text: string; [key: string]: unknown };

@@ -1,5 +1,13 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
+	AssistantMessageComponent,
+	type ExtensionContext,
+	getMarkdownTheme,
+	ToolExecutionComponent,
+	UserMessageComponent,
+} from "@earendil-works/pi-coding-agent";
+import {
+	Container,
 	Input,
 	Key,
 	matchesKey,
@@ -27,8 +35,6 @@ import { message } from "./util.js";
 const VIEWPORT_HEIGHT_PERCENT = 70;
 const CHROME_ROWS = 6;
 
-type ViewerColor = "accent" | "border" | "dim" | "error" | "muted" | "success" | "warning";
-
 const OVERLAY: OverlayOptions = {
 	anchor: "center",
 	width: "90%",
@@ -50,7 +56,7 @@ export async function showAgentWorkspace(
 ): Promise<WorkspaceResult> {
 	try {
 		return await ctx.ui.custom<WorkspaceResult>(
-			(tui, theme, _keys, done) => {
+			(tui, theme, keys, done) => {
 				let selectedId = initial;
 				let focused = true;
 				let scrollOffset = 0;
@@ -58,6 +64,7 @@ export async function showAgentWorkspace(
 				let lastInnerWidth = 1;
 				let composer: Input | undefined;
 				let cachedContent: { record: AgentRecord | undefined; width: number; lines: string[] } | undefined;
+				let toolsExpanded = ctx.ui.getToolsExpanded();
 				const selector: SelectorState = { active: false, index: 0 };
 				const selectorOptions = () => [mainOption(), ...agentOptions(manager.running())];
 				const selected = (): AgentRecord | undefined => {
@@ -92,8 +99,11 @@ export async function showAgentWorkspace(
 						if (!prompt) return refresh();
 						scrollOffset = 0;
 						autoScroll = true;
-						if (record.status === "running") manager.steer(record.id, prompt);
-						else {
+						if (record.status === "running") {
+							void manager.steer(record.id, prompt).then((accepted) => {
+								if (!accepted) ctx.ui.notify("The steering message was rejected.", "warning");
+							});
+						} else {
 							const definition = [...registry().definitions.values()].find(
 								(item) => item.name.toLowerCase() === record.type.toLowerCase(),
 							);
@@ -140,42 +150,50 @@ export async function showAgentWorkspace(
 					} else if (record.session.messages.length === 0) {
 						lines = [theme.fg("dim", "(waiting for first message...)")];
 					} else {
-						lines = [];
-						let needsSeparator = false;
+						const conversation = new Container();
+						const pendingTools = new Map<string, ToolExecutionComponent>();
+						const markdownTheme = getMarkdownTheme();
+						const cwd = record.worktree?.cwd ?? ctx.cwd;
 						for (const entry of record.session.messages) {
-							const add = (label: string, text: string, color: ViewerColor) => {
-								if (!text.trim()) return;
-								if (needsSeparator) lines.push(theme.fg("dim", "───"));
-								lines.push(theme.fg(color, label));
-								for (const line of wrapTextWithAnsi(text.trim(), width)) lines.push(theme.fg(color, line));
-								needsSeparator = true;
-							};
 							if (entry.role === "user") {
-								add("[User]", contentText(entry.content), "accent");
+								const text = contentText(entry.content).trim();
+								if (text) conversation.addChild(new UserMessageComponent(text, markdownTheme, 0));
 								continue;
 							}
 							if (entry.role === "assistant") {
-								const text = contentText(entry.content);
-								const tools = Array.isArray(entry.content)
-									? entry.content.filter((part) => part.type === "toolCall")
-									: [];
-								if (!text.trim() && tools.length === 0) continue;
-								if (needsSeparator) lines.push(theme.fg("dim", "───"));
-								lines.push(theme.bold("[Assistant]"));
-								for (const line of wrapTextWithAnsi(text.trim(), width)) {
-									if (line) lines.push(line);
+								const assistant = entry as AssistantMessage;
+								conversation.addChild(new AssistantMessageComponent(assistant, false, markdownTheme, "Thinking...", 0));
+								for (const part of assistant.content) {
+									if (part.type !== "toolCall") continue;
+									const component = new ToolExecutionComponent(
+										part.name,
+										part.id,
+										part.arguments,
+										{ showImages: false },
+										record.session.getToolDefinition(part.name),
+										tui,
+										cwd,
+									);
+									component.setExpanded(toolsExpanded);
+									conversation.addChild(component);
+									if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
+										component.updateResult({
+											content: [{ type: "text", text: assistant.errorMessage || "Agent request failed" }],
+											isError: true,
+										});
+									} else pendingTools.set(part.id, component);
 								}
-								for (const tool of tools)
-									lines.push(truncateToWidth(theme.fg("muted", `  [Tool: ${tool.name}]`), width));
-								needsSeparator = true;
 								continue;
 							}
 							if (entry.role === "toolResult") {
-								const text = contentText(entry.content);
-								add("[Result]", text.length > 500 ? `${text.slice(0, 500)}... (truncated)` : text, "dim");
+								const component = pendingTools.get(entry.toolCallId);
+								if (component) {
+									component.updateResult(entry);
+									pendingTools.delete(entry.toolCallId);
+								}
 							}
 						}
-						lines = lines.map((line) => truncateToWidth(line, width));
+						lines = conversation.render(width).map((line) => truncateToWidth(line, width));
 					}
 					cachedContent = { record, width, lines };
 					return lines;
@@ -210,7 +228,7 @@ export async function showAgentWorkspace(
 						? Math.max(0, Math.round(((record.completedAt ?? Date.now()) - record.startedAt) / 1000))
 						: 0;
 					const heading = record
-						? `${status} ${theme.bold(record.type)} ${theme.fg("muted", record.status)} ${theme.fg("dim", `· ${record.toolUses} tools · ${elapsed}s`)}`
+						? `${status} ${theme.bold(record.type)} ${theme.fg("muted", `· ${record.model ?? "model pending"} · ${record.status}`)} ${theme.fg("dim", `· ${record.toolUses} tools · ${elapsed}s`)}`
 						: theme.fg("dim", "No agent sessions.");
 					if (currentLayout.compact) {
 						return [row(heading), ...new Array<string>(currentLayout.maxRows - 1).fill("").map(row)];
@@ -269,6 +287,12 @@ export async function showAgentWorkspace(
 							return;
 						}
 						const record = selected();
+						if (keys.matches(data, "app.tools.expand")) {
+							toolsExpanded = !toolsExpanded;
+							invalidateContent();
+							refresh();
+							return;
+						}
 						const key = selectorKey(data);
 						if (selector.active) {
 							const outcome = handleSelectorKey(selector, key, selectorOptions(), true);

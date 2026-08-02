@@ -161,6 +161,23 @@ test("promoting an already finished quiet task emits the exit event late", async
 	}
 });
 
+test("discard force-kills a detached command that ignores SIGTERM", async () => {
+	const { runtime } = createHarness();
+	const task = runtime.start("trap '' TERM; while :; do sleep 1; done", process.cwd(), { notify: false });
+	await waitFor(() => task.pid > 0);
+	assert.ok(runtime.discard(task.id));
+	assert.equal(runtime.get(task.id), undefined);
+	await waitFor(() => {
+		try {
+			process.kill(task.pid, 0);
+			return false;
+		} catch {
+			return true;
+		}
+	}, 5_000);
+	runtime.shutdown();
+});
+
 test("waitForExit resolves null when the abort signal fires", async () => {
 	const { runtime } = createHarness();
 	try {

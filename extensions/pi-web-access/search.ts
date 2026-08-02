@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
 	ANTIGRAVITY_ENDPOINT,
 	buildAntigravityHarnessUserAgent,
@@ -386,6 +387,7 @@ export async function geminiUploadVideo(
 		body: JSON.stringify({ file: { display_name: basename(filePath) } }),
 		signal: combinedSignal(signal, 30_000),
 	});
+	await start.body?.cancel();
 	if (!start.ok) throw new Error(`Gemini upload initialization failed: ${start.status}`);
 	const uploadUrl = start.headers.get("x-goog-upload-url");
 	if (!uploadUrl || new URL(uploadUrl).origin !== origin) throw new Error("Gemini returned an invalid upload URL");
@@ -405,33 +407,36 @@ export async function geminiUploadVideo(
 	const file = JSON.parse(uploadText).file as { name: string; uri: string };
 	if (!file?.name || !file.uri) throw new Error("Gemini upload returned invalid file metadata");
 	const metadataUrl = new URL(`v1beta/${file.name}`, `${base}/`).toString();
-	const deadline = Date.now() + 120_000;
-	while (Date.now() < deadline) {
-		if (signal?.aborted) throw new Error("Aborted");
-		const response = await fetch(metadataUrl, {
-			headers: { "x-goog-api-key": key },
-			signal: combinedSignal(signal, 15_000),
-		});
-		const text = await readLimited(response, MAX_API_RESPONSE_BYTES);
-		if (!response.ok) throw new Error(`Gemini file state failed: ${response.status}`);
-		const state = JSON.parse(text).state;
-		if (state === "ACTIVE") break;
-		if (state === "FAILED") throw new Error("Gemini file processing failed");
-		await new Promise((resolve) => setTimeout(resolve, 2_000));
-	}
-	if (Date.now() >= deadline) throw new Error("Gemini file processing timed out");
-	return {
-		uri: file.uri,
-		cleanup: async () => {
-			try {
-				await fetch(metadataUrl, {
-					method: "DELETE",
-					headers: { "x-goog-api-key": key },
-					signal: AbortSignal.timeout(10_000),
-				});
-			} catch {}
-		},
+	const cleanup = async () => {
+		try {
+			const response = await fetch(metadataUrl, {
+				method: "DELETE",
+				headers: { "x-goog-api-key": key },
+				signal: AbortSignal.timeout(10_000),
+			});
+			await response.body?.cancel();
+		} catch {}
 	};
+	try {
+		const deadline = Date.now() + 120_000;
+		while (Date.now() < deadline) {
+			if (signal?.aborted) throw new Error("Aborted");
+			const response = await fetch(metadataUrl, {
+				headers: { "x-goog-api-key": key },
+				signal: combinedSignal(signal, 15_000),
+			});
+			const text = await readLimited(response, MAX_API_RESPONSE_BYTES);
+			if (!response.ok) throw new Error(`Gemini file state failed: ${response.status}`);
+			const state = JSON.parse(text).state;
+			if (state === "ACTIVE") return { uri: file.uri, cleanup };
+			if (state === "FAILED") throw new Error("Gemini file processing failed");
+			await sleep(2_000, undefined, { signal });
+		}
+		throw new Error("Gemini file processing timed out");
+	} catch (error) {
+		await cleanup();
+		throw error;
+	}
 }
 
 async function searchOpenAI(

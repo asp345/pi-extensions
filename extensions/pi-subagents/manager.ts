@@ -36,6 +36,7 @@ export class AgentManager {
 		private readonly completed: (record: AgentRecord) => void,
 		private readonly resumed: (record: AgentRecord) => void,
 		private readonly fallback: (record: AgentRecord, reason: string) => void,
+		private readonly startSession: typeof runNew = runNew,
 	) {}
 
 	spawn(ctx: ExtensionContext, definition: AgentDefinition, prompt: string, options: SpawnOptions): AgentRecord {
@@ -64,8 +65,13 @@ export class AgentManager {
 	async resume(ctx: ExtensionContext, id: string, prompt: string, options: ResumeOptions): Promise<AgentRecord> {
 		const record = this.records.get(id);
 		if (!record) throw new Error(`Unknown subagent ID: ${id}`);
-		if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
 		if (record.status === "running") throw new Error(`Subagent ${id} is already running.`);
+		const previousRun = record.promise;
+		if (previousRun) await previousRun;
+		if (record.promise !== previousRun) {
+			throw new Error(`Subagent ${id} is already running.`);
+		}
+		if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
 		record.prompt = prompt;
 		record.background = options.background;
 		record.status = "running";
@@ -122,12 +128,19 @@ export class AgentManager {
 			.sort((a, b) => a.startedAt - b.startedAt);
 	}
 
-	steer(id: string, text: string): boolean {
+	async steer(id: string, text: string): Promise<boolean> {
 		const record = this.records.get(id);
 		if (!record || record.status !== "running") return false;
-		if (record.session) void record.session.steer(text);
-		else record.pendingSteers.push(text);
-		return true;
+		if (!record.session) {
+			record.pendingSteers.push(text);
+			return true;
+		}
+		try {
+			await record.session.steer(text);
+			return true;
+		} catch {
+			return false;
+		}
 	}
 
 	cancel(id: string): boolean {
@@ -188,7 +201,7 @@ export class AgentManager {
 		try {
 			if (record.abortController.signal.aborted) throw new Error("Subagent cancelled before setup.");
 			if (definition.worktree) record.worktree = await createWorktree(ctx.cwd, record.id);
-			const result = await runNew(
+			const result = await this.startSession(
 				ctx,
 				{
 					id: record.id,
@@ -230,7 +243,9 @@ export class AgentManager {
 				record.session = session;
 				if (session?.model) record.model = `${session.model.provider}/${session.model.id}`;
 				record.thinking = session?.thinkingLevel ?? record.thinking;
-				for (const message of record.pendingSteers.splice(0)) void session?.steer(message);
+				if (session) {
+					for (const message of record.pendingSteers.splice(0)) void session.steer(message).catch(() => undefined);
+				}
 				this.changed();
 			},
 			onFallback: (model: Model<Api>, reason: string) => {

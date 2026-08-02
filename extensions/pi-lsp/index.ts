@@ -26,7 +26,7 @@ export default function lspExtension(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			const root = workspaceRoot(ctx.cwd);
-			const config = loadConfig(root);
+			const config = loadConfig(root, ctx.isProjectTrusted());
 			const routes = diagnosticRoutes(config, root, params.paths, params.server);
 			const sections: string[] = [];
 			const details: Array<{ server: string; files: number; diagnostics: number }> = [];
@@ -62,7 +62,7 @@ export default function lspExtension(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, signal, _update, ctx) {
 			const root = workspaceRoot(ctx.cwd);
-			const config = loadConfig(root);
+			const config = loadConfig(root, ctx.isProjectTrusted());
 			const route = fixRoute(config, root, params.path, params.server);
 			const action = params.action?.trim() || "source.fixAll";
 			ctx.ui.setStatus(STATUS, `${route.server.name} ${action}`);

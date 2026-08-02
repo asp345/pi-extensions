@@ -127,6 +127,10 @@ export class AgentsUI {
 	}
 
 	async open(ctx: ExtensionContext, initial?: string): Promise<void> {
+		if (ctx.mode !== "tui") {
+			ctx.ui.notify("The agent workspace is available only in TUI mode.", "warning");
+			return;
+		}
 		if (this.opening) {
 			ctx.ui.notify("The agent workspace is already open.", "info");
 			return;

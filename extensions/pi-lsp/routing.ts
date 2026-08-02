@@ -107,7 +107,7 @@ const DEFAULTS: Array<[string, string[], string[], string[]?]> = [
 	],
 ];
 
-export function loadConfig(root: string): LspConfig {
+export function loadConfig(root: string, projectTrusted = true): LspConfig {
 	const source = process.env.PI_LSP_CONFIG?.trim();
 	let raw: unknown;
 	if (source) {
@@ -115,7 +115,7 @@ export function loadConfig(root: string): LspConfig {
 	} else {
 		const project = path.join(root, CONFIG_DIR_NAME, "pi-lsp.json");
 		const user = path.join(getAgentDir(), "pi-lsp.json");
-		raw = existsSync(project) ? readJson(project) : existsSync(user) ? readJson(user) : undefined;
+		raw = projectTrusted && existsSync(project) ? readJson(project) : existsSync(user) ? readJson(user) : undefined;
 	}
 	if (raw === undefined) {
 		return {

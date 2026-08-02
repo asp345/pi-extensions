@@ -115,8 +115,13 @@ export async function refreshWorkosToken(
 
 	if (!response.ok) {
 		const text = await response.text().catch(() => "unknown error");
+		let detail = text;
+		for (const credential of [credentials.access, credentials.refresh]) {
+			if (credential) detail = detail.split(credential).join("[redacted]");
+		}
+		detail = detail.replace(/\s+/gu, " ").slice(0, 1_000);
 		throw new Error(
-			`ClinePass token refresh failed (${response.status}): ${text}` +
+			`ClinePass token refresh failed (${response.status}): ${detail}` +
 				" — try running `cline auth` to re-login, or use a static API key.",
 		);
 	}
