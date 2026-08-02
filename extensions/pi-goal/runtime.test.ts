@@ -47,6 +47,19 @@ const assistant = (text: string) => ({
 	stopReason: "stop",
 });
 
+test("automatic continuation has no default turn limit", async () => {
+	const { runtime, ctx, sent } = harness();
+	const goal = runtime.goal;
+	assert.ok(goal);
+	goal.automaticTurns = 10_000;
+
+	runtime.finishAgent([assistant("progress")]);
+	await runtime.settled(ctx);
+
+	assert.equal(goal.status, "active");
+	assert.equal(sent.length, 1);
+});
+
 test("owned continue prompts are honored exactly once", async () => {
 	const { runtime, ctx, sent } = harness();
 	runtime.finishAgent([assistant("progress")]);

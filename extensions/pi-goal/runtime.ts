@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import type { CustomEntry, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const GOAL_STATE_ENTRY = "goal-state";
-export const MAX_AUTOMATIC_TURNS = 25;
 export const MAX_OBJECTIVE = 4_000;
 const MAX_NO_PROGRESS_TURNS = 3;
 const MAX_OWNED_PROMPTS = 16;
@@ -182,10 +181,6 @@ export class GoalRuntime {
 			this.pause(ctx, `agent ${failure}`);
 			return;
 		}
-		if (goal.automaticTurns >= MAX_AUTOMATIC_TURNS) {
-			this.pause(ctx, `automatic continuation limit (${MAX_AUTOMATIC_TURNS})`);
-			return;
-		}
 		if (goal.noProgressTurns >= MAX_NO_PROGRESS_TURNS) {
 			this.pause(ctx, `no progress across ${MAX_NO_PROGRESS_TURNS} automatic runs`);
 			return;
@@ -218,9 +213,6 @@ export class GoalRuntime {
 			goal.automaticTurns += 1;
 			goal.updatedAt = Date.now();
 			this.persist();
-			if (goal.automaticTurns >= MAX_AUTOMATIC_TURNS) {
-				this.pause(ctx, `automatic continuation limit (${MAX_AUTOMATIC_TURNS})`);
-			}
 		}
 	}
 

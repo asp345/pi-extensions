@@ -1,44 +1,38 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { CONFIG_DIR_NAME, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { Editor, isKeyRelease } from "@earendil-works/pi-tui";
-import { definitionTemplate, parseDefinition, safeDefinitionName } from "./definitions.js";
-import type { AgentManager } from "./manager.js";
+import { DynamicBorder, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	agentOptions,
-	cycleOption,
-	handleSelectorKey,
-	renderSelectorLines,
-	type SelectorState,
-	selectorKey,
-} from "./selector.js";
-import type { AgentDefinition, DefinitionRegistry } from "./types.js";
-import { message } from "./util.js";
-import { showAgentWorkspace } from "./workspace.js";
+	Container,
+	Editor,
+	isKeyRelease,
+	Key,
+	matchesKey,
+	type SelectItem,
+	SelectList,
+	Text,
+} from "@earendil-works/pi-tui";
+import { CONTEXT_ROWS, renderAgentContext } from "./context.js";
+import type { AgentManager } from "./manager.js";
+import type { AgentRecord } from "./types.js";
 
 interface WidgetTui {
-	requestRender(): void;
+	requestRender(force?: boolean): void;
 }
 
 export class AgentsUI {
 	private context?: ExtensionContext;
-	private renderWorkspace?: () => void;
 	private widgetTui?: WidgetTui;
 	private inputUnsub?: () => void;
-	private readonly selector: SelectorState = { active: false, index: 0 };
+	private selectedId?: string;
+	private contextVisible = false;
+	private scrollOffset = 0;
 	private opening = false;
 
-	constructor(
-		private readonly manager: AgentManager,
-		private readonly registry: () => DefinitionRegistry,
-		private readonly reload: (ctx: ExtensionContext) => void,
-	) {}
+	constructor(private readonly manager: AgentManager) {}
 
 	attach(ctx: ExtensionContext): void {
 		if (this.context !== ctx) {
 			this.inputUnsub?.();
 			this.context = ctx;
-			this.inputUnsub = ctx.ui.onTerminalInput((data) => this.handleFleetInput(data));
+			this.inputUnsub = ctx.ui.onTerminalInput((data) => this.handleInput(data));
 		}
 		this.updateWidget();
 	}
@@ -48,195 +42,184 @@ export class AgentsUI {
 		this.inputUnsub?.();
 		this.inputUnsub = undefined;
 		this.context = undefined;
-		this.renderWorkspace = undefined;
 		this.widgetTui = undefined;
-		this.selector.active = false;
-		this.selector.index = 0;
+		this.selectedId = undefined;
+		this.contextVisible = false;
+		this.scrollOffset = 0;
 	}
 
-	private handleFleetInput(data: string): { consume?: boolean } | undefined {
-		const ctx = this.context;
-		if (!ctx || this.opening || isKeyRelease(data)) return undefined;
+	private selected(records: AgentRecord[]): AgentRecord | undefined {
+		return records.find((record) => record.id === this.selectedId);
+	}
+
+	private handleInput(data: string): { consume?: boolean } | undefined {
+		if (!this.context || this.opening || isKeyRelease(data)) return undefined;
 		const focused = (this.widgetTui as { focusedComponent?: unknown } | undefined)?.focusedComponent;
-		if (focused != null && !(focused instanceof Editor)) {
-			this.selector.active = false;
-			return undefined;
+		if (focused != null && !(focused instanceof Editor)) return undefined;
+		if (this.contextVisible && matchesKey(data, "enter")) {
+			const record = this.selected(this.manager.running());
+			const prompt = this.context.ui.getEditorText().trim();
+			if (record && prompt) {
+				this.context.ui.setEditorText("");
+				void this.manager
+					.steer(record.id, prompt)
+					.then((accepted) => {
+						if (!accepted) this.context?.ui.notify("The steering message was rejected.", "warning");
+					})
+					.catch(() => this.context?.ui.notify("The steering message failed.", "warning"));
+			}
+			return { consume: true };
 		}
-		const key = selectorKey(data);
-		const options = agentOptions(this.manager.running());
-		if (key === "shift+down" || key === "shift+up") {
-			const option = cycleOption(options, undefined, key === "shift+down" ? "next" : "previous");
-			this.selector.active = false;
-			if (option) void this.open(ctx, option.id);
-			this.updateWidget();
-			return option ? { consume: true } : undefined;
+		if (this.contextVisible && matchesKey(data, "escape") && this.context.ui.getEditorText() === "") {
+			this.contextVisible = false;
+			this.scrollOffset = 0;
+			this.updateWidget(true);
+			return { consume: true };
 		}
-		const wasActive = this.selector.active;
-		const outcome = handleSelectorKey(this.selector, key, options, ctx.ui.getEditorText() === "");
-		if (outcome.commit) void this.open(ctx, outcome.commit.id);
-		if (outcome.consume || wasActive !== this.selector.active) this.updateWidget();
-		return outcome.consume ? { consume: true } : undefined;
+		if (this.contextVisible && matchesKey(data, Key.pageUp)) {
+			this.scrollOffset += CONTEXT_ROWS;
+			this.updateWidget(true);
+			return { consume: true };
+		}
+		if (this.contextVisible && matchesKey(data, Key.pageDown)) {
+			this.scrollOffset = Math.max(0, this.scrollOffset - CONTEXT_ROWS);
+			this.updateWidget(true);
+			return { consume: true };
+		}
+		if (!matchesKey(data, "alt+a")) return undefined;
+		if (!this.manager.running().length) return undefined;
+		void this.open(this.context);
+		return { consume: true };
 	}
 
-	updateWidget(): void {
-		try {
-			this.renderWorkspace?.();
-		} catch {
-			this.renderWorkspace = undefined;
-		}
+	updateWidget(force = false): void {
 		const ctx = this.context;
 		if (!ctx) return;
-		const active = this.opening ? [] : this.manager.running();
+		const active = this.manager.running();
 		if (!active.length) {
-			if (this.widgetTui) ctx.ui.setWidget("pi-subagents", undefined);
+			const tui = this.widgetTui;
+			if (tui) ctx.ui.setWidget("pi-subagents", undefined);
 			this.widgetTui = undefined;
-			this.selector.active = false;
-			this.selector.index = 0;
+			this.selectedId = undefined;
+			this.contextVisible = false;
+			this.scrollOffset = 0;
+			tui?.requestRender(true);
 			return;
 		}
-		this.selector.index = Math.min(this.selector.index, active.length - 1);
+		if (this.contextVisible && !this.selected(active)) {
+			this.contextVisible = false;
+			this.selectedId = undefined;
+			this.scrollOffset = 0;
+			force = true;
+		}
 		if (this.widgetTui) {
-			this.widgetTui.requestRender();
+			this.widgetTui.requestRender(force);
 			return;
 		}
-		ctx.ui.setWidget(
-			"pi-subagents",
-			(tui, theme) => {
-				this.widgetTui = tui;
-				return {
-					render: (width: number) => {
-						const current = this.manager.running();
-						const hint = this.selector.active ? "↑↓ choose · enter open · esc back" : "↓ choose · shift+↑↓ open";
-						return renderSelectorLines(
-							theme,
-							width,
-							`Agents (${current.length} active)`,
-							hint,
-							agentOptions(current),
-							this.selector,
-						);
-					},
-					invalidate() {},
-					dispose: () => {
-						this.widgetTui = undefined;
-					},
-				};
-			},
-			{ placement: "belowEditor" },
-		);
+		ctx.ui.setWidget("pi-subagents", (tui, theme) => {
+			this.widgetTui = tui;
+			return {
+				render: (width: number) => {
+					const records = this.manager.running();
+					const separator = theme.fg("borderMuted", "─".repeat(width));
+					const record = this.contextVisible ? this.selected(records) : undefined;
+					return record
+						? [separator, ...renderAgentContext(record, width, theme, tui, ctx.cwd, CONTEXT_ROWS, this.scrollOffset)]
+						: [separator, theme.fg("dim", `Agents · ${records.length} running · Alt+A open`)];
+				},
+				invalidate() {},
+				dispose: () => {
+					this.widgetTui = undefined;
+				},
+			};
+		});
+	}
+
+	private chooseAgent(
+		ctx: ExtensionContext,
+		records: AgentRecord[],
+	): Promise<{ action: "open" | "stop"; id: string } | undefined> {
+		return ctx.ui.custom((tui, theme, _keys, done) => {
+			const items: SelectItem[] = records.map((record) => ({
+				value: record.id,
+				label: `${record.type} · ${record.model ?? "model pending"}`,
+				description: `${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools`,
+			}));
+			const list = new SelectList(items, Math.min(items.length, 10), {
+				selectedPrefix: (text) => theme.fg("accent", text),
+				selectedText: (text) => theme.fg("accent", text),
+				description: (text) => theme.fg("muted", text),
+				scrollInfo: (text) => theme.fg("dim", text),
+				noMatch: (text) => theme.fg("warning", text),
+			});
+			list.onSelect = (item) => done({ action: "open", id: item.value });
+			list.onCancel = () => done(undefined);
+			const container = new Container();
+			container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
+			container.addChild(new Text(theme.fg("accent", theme.bold("Agents")), 1, 0));
+			container.addChild(list);
+			container.addChild(new Text(theme.fg("dim", "↑↓ navigate · Enter open · Alt+X stop · Esc close"), 1, 0));
+			container.addChild(new DynamicBorder((text: string) => theme.fg("accent", text)));
+			return {
+				render: (width: number) => container.render(width),
+				invalidate: () => container.invalidate(),
+				handleInput: (data: string) => {
+					if (matchesKey(data, "alt+x")) {
+						const selected = list.getSelectedItem();
+						if (selected) done({ action: "stop", id: selected.value });
+						return;
+					}
+					list.handleInput(data);
+					tui.requestRender();
+				},
+			};
+		});
 	}
 
 	async open(ctx: ExtensionContext, initial?: string): Promise<void> {
 		if (ctx.mode !== "tui") {
-			ctx.ui.notify("The agent workspace is available only in TUI mode.", "warning");
+			ctx.ui.notify("Subagent context is available only in TUI mode.", "warning");
 			return;
 		}
-		if (this.opening) {
-			ctx.ui.notify("The agent workspace is already open.", "info");
-			return;
-		}
+		if (this.opening) return;
 		this.opening = true;
-		this.attach(ctx);
-		let selectedId = initial?.trim() || undefined;
 		try {
+			if (initial) {
+				const record = this.manager
+					.running()
+					.find(
+						(item) =>
+							item.id === initial || item.id.startsWith(initial) || item.type.toLowerCase() === initial.toLowerCase(),
+					);
+				if (record) {
+					this.selectedId = record.id;
+					this.contextVisible = true;
+					this.scrollOffset = 0;
+					this.updateWidget(true);
+				}
+				return;
+			}
 			for (;;) {
-				const result = await showAgentWorkspace(ctx, this.manager, this.registry, selectedId, (refresh) => {
-					this.renderWorkspace = refresh;
-				});
-				selectedId = result.selectedId;
-				if (result.action === "close") return;
-				if (result.action === "definitions") await this.definitions(ctx);
-				else await this.create(ctx);
+				const records = this.manager.running();
+				if (!records.length) {
+					ctx.ui.notify("No active subagents.", "info");
+					return;
+				}
+				const choice = await this.chooseAgent(ctx, records);
+				if (!choice) return;
+				if (choice.action === "stop") {
+					if (this.manager.cancel(choice.id)) ctx.ui.notify(`Stopped ${choice.id.slice(0, 8)}.`, "info");
+					this.updateWidget(true);
+					continue;
+				}
+				this.selectedId = choice.id;
+				this.contextVisible = true;
+				this.scrollOffset = 0;
+				this.updateWidget(true);
+				return;
 			}
 		} finally {
 			this.opening = false;
-			this.updateWidget();
-		}
-	}
-
-	private async definitions(ctx: ExtensionContext): Promise<void> {
-		const registry = this.registry();
-		const definitions = [...registry.definitions.values()].sort((a, b) => a.name.localeCompare(b.name));
-		const items = [
-			...definitions.map(
-				(definition) => `${definition.enabled ? "on " : "off"} · ${definition.name} · ${definition.source}`,
-			),
-			...(registry.errors.length ? ["Configuration errors"] : []),
-		];
-		const selected = await ctx.ui.select("Agent definitions", items);
-		if (!selected) return;
-		if (selected === "Configuration errors") {
-			ctx.ui.notify(registry.errors.join("\n"), "warning");
-			return;
-		}
-		const index = items.indexOf(selected);
-		const definition = definitions[index];
-		if (definition) await this.definitionActions(ctx, definition);
-	}
-
-	private async definitionActions(ctx: ExtensionContext, definition: AgentDefinition): Promise<void> {
-		const actions = ["View", "Edit"];
-		if (definition.source !== "default") actions.push("Delete");
-		const action = await ctx.ui.select(definition.name, actions);
-		if (action === "View") {
-			await ctx.ui.editor(`${definition.name} (${definition.path})`, readFileSync(definition.path, "utf8"));
-		} else if (action === "Edit") {
-			let target = definition.path;
-			if (definition.source === "default") {
-				const scope = await ctx.ui.select("Save override", ["Project", "Global"]);
-				if (!scope) return;
-				target =
-					scope === "Project"
-						? join(ctx.cwd, CONFIG_DIR_NAME, "agents", `${definition.name}.md`)
-						: join(getAgentDir(), "agents", `${definition.name}.md`);
-			}
-			await this.editFile(
-				ctx,
-				target,
-				readFileSync(definition.path, "utf8"),
-				definition.source === "default" ? (target.includes(ctx.cwd) ? "project" : "global") : definition.source,
-			);
-		} else if (action === "Delete") {
-			if (await ctx.ui.confirm("Delete definition?", definition.path)) {
-				unlinkSync(definition.path);
-				this.reload(ctx);
-			}
-		}
-	}
-
-	private async create(ctx: ExtensionContext): Promise<void> {
-		const name = (await ctx.ui.input("Agent name", "MyAgent"))?.trim();
-		if (!name) return;
-		if (!safeDefinitionName(name)) {
-			ctx.ui.notify("Use 1-64 letters, digits, dots, underscores, or hyphens.", "warning");
-			return;
-		}
-		const scope = await ctx.ui.select("Definition scope", ["Project", "Global"]);
-		if (!scope) return;
-		const path =
-			scope === "Project"
-				? join(ctx.cwd, CONFIG_DIR_NAME, "agents", `${name}.md`)
-				: join(getAgentDir(), "agents", `${name}.md`);
-		await this.editFile(ctx, path, definitionTemplate(name), scope === "Project" ? "project" : "global");
-	}
-
-	private async editFile(
-		ctx: ExtensionContext,
-		path: string,
-		initial: string,
-		source: AgentDefinition["source"],
-	): Promise<void> {
-		const content = await ctx.ui.editor(`Edit ${path}`, initial);
-		if (content === undefined) return;
-		mkdirSync(dirname(path), { recursive: true });
-		writeFileSync(path, content, { mode: 0o600 });
-		try {
-			parseDefinition(path, source);
-			this.reload(ctx);
-			ctx.ui.notify(`Saved ${path}`, "info");
-		} catch (error) {
-			this.reload(ctx);
-			ctx.ui.notify(message(error), "warning");
 		}
 	}
 }

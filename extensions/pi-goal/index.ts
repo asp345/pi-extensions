@@ -7,7 +7,6 @@ import {
 	GoalRuntime,
 	type GoalState,
 	loadGoal,
-	MAX_AUTOMATIC_TURNS,
 	MAX_OBJECTIVE,
 	rejection,
 	resumeGoal,
@@ -202,7 +201,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 function showGoal(goal: GoalState | undefined, ctx: GoalContext) {
 	ctx.ui.notify(
 		goal
-			? `Goal: ${safeText(goal.objective, MAX_OBJECTIVE)}\nStatus: ${goal.status}\nGoal ID: ${goal.id}\nAutomatic turns: ${goal.automaticTurns}/${MAX_AUTOMATIC_TURNS}`
+			? `Goal: ${safeText(goal.objective, MAX_OBJECTIVE)}\nStatus: ${goal.status}\nGoal ID: ${goal.id}\nAutomatic turns: ${goal.automaticTurns} (unlimited)`
 			: "Usage: /goal <objective>\nNo goal is currently set.",
 		"info",
 	);

@@ -3,6 +3,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.js";
 import { AgentManager } from "./manager.js";
+import { NotificationQueue } from "./notifications.js";
 import { compactTranscript, resolveModel, resolveThinking } from "./runner.js";
 import type { AgentRecord, DefinitionRegistry } from "./types.js";
 import { AgentsUI } from "./ui.js";
@@ -72,11 +73,8 @@ interface CompletionBatchDetails {
 export default function subagents(pi: ExtensionAPI): void {
 	let registry: DefinitionRegistry = { definitions: new Map(), errors: [] };
 	let currentContext: ExtensionContext | undefined;
-	const pendingNotifications = new Map<string, number>();
-	const sentNotifications = new Set<string>();
-	let notificationFlight: Promise<void> | undefined;
-	let retryTimer: ReturnType<typeof setTimeout> | undefined;
 	let shuttingDown = false;
+	const pendingNotifications = new NotificationQueue<number>((batch) => deliverNotifications(batch));
 	let ui: AgentsUI;
 	const manager = new AgentManager(
 		() => ui?.updateWidget(),
@@ -90,55 +88,25 @@ export default function subagents(pi: ExtensionAPI): void {
 			);
 		},
 	);
-	const reload = (ctx: ExtensionContext) => {
-		registry = discoverDefinitions(ctx.cwd, ctx.isProjectTrusted());
-		ui.updateWidget();
-	};
-	ui = new AgentsUI(manager, () => registry, reload);
+	ui = new AgentsUI(manager);
 
 	function notifyCompletion(record: AgentRecord): void {
 		ui.updateWidget();
 		if (shuttingDown || !record.background || record.resultConsumed) return;
-		pendingNotifications.set(record.id, record.completedAt ?? Date.now());
+		pendingNotifications.enqueue(record.id, record.completedAt ?? Date.now());
 		currentContext?.ui.notify(
 			`${record.type} ${record.status} (${record.id.slice(0, 8)}).`,
 			record.status === "completed" ? "info" : "warning",
 		);
-		if (currentContext?.isIdle() && !currentContext.hasPendingMessages()) void flushNotifications();
 	}
 
-	function flushNotifications(): Promise<void> {
-		if (notificationFlight) return notificationFlight;
-		notificationFlight = deliverNotifications()
-			.then((delivered) => {
-				if (!delivered) scheduleNotificationRetry();
-			})
-			.finally(() => {
-				notificationFlight = undefined;
-				if (
-					pendingNotifications.size &&
-					currentContext?.isIdle() &&
-					!currentContext.hasPendingMessages() &&
-					!retryTimer
-				) {
-					queueMicrotask(() => void flushNotifications());
-				}
-			});
-		return notificationFlight;
-	}
-
-	async function deliverNotifications(): Promise<boolean> {
-		if (shuttingDown) return true;
-		const batch = [...pendingNotifications.entries()].flatMap(([id, stamp]) => {
+	function deliverNotifications(pending: ReadonlyMap<string, number>): void {
+		if (shuttingDown) return;
+		const records = [...pending.keys()].flatMap((id) => {
 			const record = manager.get(id);
-			if (!record || record.resultConsumed || record.status === "running") {
-				pendingNotifications.delete(id);
-				return [];
-			}
-			return [{ record, stamp }];
+			return !record || record.resultConsumed || record.status === "running" ? [] : [record];
 		});
-		if (!batch.length) return true;
-		const records = batch.map(({ record }) => record);
+		if (!records.length) return;
 		const perResult = Math.max(200, Math.floor((NOTIFICATION_BYTES - 300) / records.length));
 		const content = bounded(
 			[
@@ -157,11 +125,6 @@ export default function subagents(pi: ExtensionAPI): void {
 			NOTIFICATION_BYTES,
 			60,
 		).text;
-		// pi.sendMessage is fire-and-forget: a failed turn trigger surfaces as a
-		// "<runtime>" extension error and cannot be caught here. Notifications sent
-		// while idle stay pending until agent_start confirms the triggered run, and
-		// agent_settled re-flushes whatever remains.
-		const idle = currentContext?.isIdle() === true;
 		pi.sendMessage<CompletionBatchDetails>(
 			{
 				customType: "subagent-completion",
@@ -169,23 +132,8 @@ export default function subagents(pi: ExtensionAPI): void {
 				display: true,
 				details: { records: records.map(completionDetails) },
 			},
-			{ deliverAs: "followUp", triggerTurn: true },
+			{ deliverAs: "steer", triggerTurn: true },
 		);
-		for (const { record, stamp } of batch) {
-			if (pendingNotifications.get(record.id) !== stamp) continue;
-			if (idle) sentNotifications.add(record.id);
-			else pendingNotifications.delete(record.id);
-		}
-		return true;
-	}
-
-	function scheduleNotificationRetry(): void {
-		if (retryTimer || shuttingDown) return;
-		retryTimer = setTimeout(() => {
-			retryTimer = undefined;
-			if (currentContext?.isIdle() && !currentContext.hasPendingMessages()) void flushNotifications();
-		}, 500);
-		retryTimer.unref?.();
 	}
 
 	pi.registerMessageRenderer<CompletionBatchDetails>("subagent-completion", (message, _options, theme) => {
@@ -210,12 +158,12 @@ export default function subagents(pi: ExtensionAPI): void {
 		name: "Agent",
 		label: "Agent",
 		description:
-			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as a follow-up that resumes the parent automatically.",
+			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as steering at the next turn boundary.",
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
 			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
 			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
-			"After launching a background agent, continue independent work or end the turn; its settled result arrives as a follow-up that resumes you automatically. Do not sleep, poll, or launch duplicate work to wait.",
+			"After launching a background agent, continue independent work or end the turn; its settled result arrives as steering at the next turn boundary. Do not sleep, poll, or launch duplicate work to wait.",
 			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
 		],
 		parameters: AgentParameters,
@@ -251,7 +199,7 @@ export default function subagents(pi: ExtensionAPI): void {
 				});
 				if (background) {
 					return result(
-						`Resumed ${record.id} (${record.type}) in the background. Its settled result arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
+						`Resumed ${record.id} (${record.type}) in the background. Its settled result arrives as steering at the next turn boundary; do not sleep or poll to wait.`,
 						metadata(record),
 					);
 				}
@@ -270,7 +218,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			});
 			if (background) {
 				return result(
-					`Started ${record.id} (${record.type}) in the background. Its settled result arrives as a follow-up and resumes you automatically; do not sleep, poll, or duplicate its work to wait.`,
+					`Started ${record.id} (${record.type}) in the background. Its settled result arrives as steering at the next turn boundary; do not sleep, poll, or duplicate its work to wait.`,
 					metadata(record),
 				);
 			}
@@ -364,7 +312,7 @@ export default function subagents(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("agents", {
-		description: "Replace the main view with the subagent workspace",
+		description: "Choose the active subagent context shown above the editor",
 		handler: async (args, ctx) => ui.open(ctx, args),
 	});
 
@@ -374,15 +322,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		registry = discoverDefinitions(ctx.cwd, ctx.isProjectTrusted());
 		ui.attach(ctx);
 		if (registry.errors.length)
-			ctx.ui.notify(
-				`${registry.errors.length} agent definition configuration error(s). Open /agents for details.`,
-				"warning",
-			);
-	});
-	pi.on("agent_settled", async () => flushNotifications());
-	pi.on("agent_start", () => {
-		for (const id of sentNotifications) pendingNotifications.delete(id);
-		sentNotifications.clear();
+			ctx.ui.notify(`${registry.errors.length} agent definition configuration error(s).`, "warning");
 	});
 	pi.on("before_agent_start", (event) => {
 		const summary = definitionSummary(registry);
@@ -391,10 +331,7 @@ export default function subagents(pi: ExtensionAPI): void {
 	});
 	pi.on("session_shutdown", async (_event, ctx) => {
 		shuttingDown = true;
-		if (retryTimer) clearTimeout(retryTimer);
-		retryTimer = undefined;
 		pendingNotifications.clear();
-		sentNotifications.clear();
 		await manager.shutdown(ctx.cwd);
 		ui.detach(ctx);
 		currentContext = undefined;
