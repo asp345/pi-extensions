@@ -1,5 +1,5 @@
 ---
-description: Capable read-only architecture and implementation planning agent
+description: Capable read-only architecture and implementation planning agent. Give enough context about what to solve.
 tools: read, bash, grep, find, ls, web_search, source_check, fetch_content, get_search_content
 extensions: true
 skills: true

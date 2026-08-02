@@ -1,10 +1,10 @@
 ---
-description: Lightweight agent for bounded file, symbol, reference, and excerpt discovery only
+description: Lightweight agent for bounded file, symbol, reference, and excerpt discovery only. Do not defer deep analysis to this agent.
 tools: read, bash, grep, find, ls
 extensions: true
 skills: true
 models: openai-codex/gpt-5.6-luna, openrouter/deepseek/deepseek-v4-flash-0731
-thinking: high
+thinking: max
 max_turns: 12
 prompt_mode: replace
 fork: false
