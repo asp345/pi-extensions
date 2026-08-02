@@ -24,10 +24,10 @@ export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime)
 	pi.registerTool({
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 120 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion arrives as a follow-up message that resumes you. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`,
+		description: `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 120 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`,
 		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
 		promptGuidelines: [
-			"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion arrives as a follow-up that resumes you automatically. Do not sleep or poll to wait.",
+			"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Do not sleep or poll to wait.",
 		],
 		parameters: Type.Object({
 			command: Type.String({ description: "Bash command to execute" }),
@@ -59,7 +59,7 @@ export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime)
 					content: [
 						{
 							type: "text",
-							text: `Command still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion arrives as a follow-up that resumes you automatically; do not sleep or poll to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
+							text: `Command still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; do not sleep or poll to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
 						},
 					],
 					details: undefined,

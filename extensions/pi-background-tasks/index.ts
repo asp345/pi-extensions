@@ -50,10 +50,10 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		name: "background_task",
 		label: "Background Task",
 		description:
-			"Start, list, read, stop, or clear background shell tasks. Completion arrives as a follow-up that resumes the parent automatically.",
+			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle.",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
-			"After starting a background_task, continue independent work or end the turn; completion arrives as a follow-up that resumes you automatically. Do not sleep or poll to wait.",
+			"After starting a background_task, continue independent work or end the turn; completion is delivered as steering at the next turn boundary. Do not sleep or poll to wait.",
 			"Use list or read only when you need status or output before completion arrives.",
 		],
 		parameters: Type.Object({
@@ -73,7 +73,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				if (!command) return result("command is required for action=start.", true);
 				const task = runtime.start(command, ctx.cwd);
 				return result(
-					`${startedText(task)} Completion arrives as a follow-up and resumes you automatically; do not sleep or poll to wait.`,
+					`${startedText(task)} Completion is delivered as steering at the next turn boundary; do not sleep or poll to wait.`,
 				);
 			}
 			if (params.action === "list") {

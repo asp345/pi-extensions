@@ -122,7 +122,7 @@ export class BackgroundUI {
 	handleEvent(event: TaskEvent): void {
 		this.pendingExits.set(event.task.id, event);
 		this.active?.ui.notify(exitText(event), "info");
-		if (!this.active?.hasPendingMessages()) void this.flushExits();
+		void this.flushExits();
 	}
 
 	async flushExits(): Promise<void> {

@@ -33,11 +33,12 @@ import type { AgentRecord, DefinitionRegistry } from "./types.js";
 import { message } from "./util.js";
 
 const VIEWPORT_HEIGHT_PERCENT = 70;
+const FRAME_WIDTH_PERCENT = 90;
 const CHROME_ROWS = 6;
 
 const OVERLAY: OverlayOptions = {
 	anchor: "center",
-	width: "90%",
+	width: "100%",
 	maxHeight: `${VIEWPORT_HEIGHT_PERCENT}%`,
 };
 
@@ -210,10 +211,14 @@ export async function showAgentWorkspace(
 							)
 						: conversationLines(record, width);
 				const render = (width: number): string[] => {
-					if (width < 6) return [];
-					const record = selected();
 					const currentLayout = layout();
-					const innerWidth = width - 4;
+					if (width < 6) return new Array<string>(currentLayout.maxRows).fill(" ".repeat(width));
+					const record = selected();
+					const frameWidth = Math.max(5, Math.floor((width * FRAME_WIDTH_PERCENT) / 100));
+					const leftMargin = Math.floor((width - frameWidth) / 2);
+					const rightMargin = width - frameWidth - leftMargin;
+					const canvas = (line: string) => `${" ".repeat(leftMargin)}${line}${" ".repeat(rightMargin)}`;
+					const innerWidth = frameWidth - 4;
 					lastInnerWidth = innerWidth;
 					const pad = (text: string) => fitFrameContent(text, innerWidth);
 					const row = (text: string) => theme.fg("border", "│") + " " + pad(text) + " " + theme.fg("border", "│");
@@ -231,10 +236,10 @@ export async function showAgentWorkspace(
 						? `${status} ${theme.bold(record.type)} ${theme.fg("muted", `· ${record.model ?? "model pending"} · ${record.status}`)} ${theme.fg("dim", `· ${record.toolUses} tools · ${elapsed}s`)}`
 						: theme.fg("dim", "No agent sessions.");
 					if (currentLayout.compact) {
-						return [row(heading), ...new Array<string>(currentLayout.maxRows - 1).fill("").map(row)];
+						return [row(heading), ...new Array<string>(currentLayout.maxRows - 1).fill("").map(row)].map(canvas);
 					}
-					const top = theme.fg("border", `╭${"─".repeat(width - 2)}╮`);
-					const bottom = theme.fg("border", `╰${"─".repeat(width - 2)}╯`);
+					const top = theme.fg("border", `╭${"─".repeat(frameWidth - 2)}╮`);
+					const bottom = theme.fg("border", `╰${"─".repeat(frameWidth - 2)}╯`);
 					const divider = row(theme.fg("dim", "─".repeat(innerWidth)));
 					const lines = [top, row(heading), divider];
 					const content = contentLines(record, innerWidth);
@@ -268,7 +273,9 @@ export async function showAgentWorkspace(
 						lines.push(row(theme.fg("dim", `${left}${" ".repeat(gap)}${right}`)));
 					}
 					lines.push(bottom);
-					return lines;
+					// Own the complete terminal rows so parent updates cannot be composited
+					// beside the frame and leave stale border fragments during paging.
+					return lines.map(canvas);
 				};
 
 				return {

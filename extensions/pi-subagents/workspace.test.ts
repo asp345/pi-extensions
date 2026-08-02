@@ -43,7 +43,7 @@ type WorkspaceComponent = {
 
 interface FakeTui {
 	terminal: { rows: number };
-	requestRender(): void;
+	requestRender(force?: boolean): void;
 }
 
 interface FakeTheme {
@@ -54,6 +54,7 @@ interface FakeTheme {
 interface WorkspaceFixture {
 	record: AgentRecord;
 	tui: FakeTui;
+	renderRequests: boolean[];
 	component: WorkspaceComponent;
 	update(): void;
 	close(): Promise<void>;
@@ -99,7 +100,11 @@ function workspaceFixture(
 	if (options.messages) {
 		record.session = { messages: options.messages, getToolDefinition: () => undefined } as never;
 	}
-	const tui: FakeTui = { terminal: { rows: options.rows ?? 40 }, requestRender: () => undefined };
+	const renderRequests: boolean[] = [];
+	const tui: FakeTui = {
+		terminal: { rows: options.rows ?? 40 },
+		requestRender: (force = false) => renderRequests.push(force),
+	};
 	const theme: FakeTheme = { fg: (_color, text) => text, bold: (text) => text };
 	let component: WorkspaceComponent | undefined;
 	let done: ((result: { action: "close" | "definitions" | "create"; selectedId?: string }) => void) | undefined;
@@ -140,6 +145,7 @@ function workspaceFixture(
 	return {
 		record,
 		tui,
+		renderRequests,
 		component,
 		update: () => update?.(),
 		close: async () => {
@@ -189,14 +195,37 @@ test("workspace uses the main transcript components for assistant markdown and t
 });
 
 test("workspace renderer keeps a fixed, width-safe viewport while paging", async () => {
-	const fixture = workspaceFixture();
-	for (const lines of [
-		fixture.component.render(80),
-		(fixture.component.handleInput("\x1b[5~"), fixture.component.render(80)),
-	]) {
+	const messages = Array.from({ length: 40 }, (_, index) => ({ role: "user", content: `message-${index}` }));
+	const fixture = workspaceFixture({ messages });
+	const before = fixture.component.render(80);
+	fixture.renderRequests.length = 0;
+	fixture.component.handleInput("\x1b[5~");
+	const after = fixture.component.render(80);
+	for (const lines of [before, after]) {
 		assert.equal(lines.length, 28);
 		for (const line of lines) assert.equal(visibleWidth(line), 80);
 	}
+	assert.match(before[0] ?? "", /^ {4}╭─+╮ {4}$/u);
+	for (const index of [0, 1, 2, 25, 27]) assert.equal(after[index], before[index]);
+	assert.notDeepEqual(after.slice(3, 25), before.slice(3, 25));
+	assert.deepEqual(fixture.renderRequests, [false]);
+
+	fixture.renderRequests.length = 0;
+	fixture.component.handleInput("\x1b[6~");
+	const restored = fixture.component.render(80);
+	for (const index of [0, 1, 2, 25, 27]) assert.equal(restored[index], before[index]);
+	assert.deepEqual(restored.slice(3, 25), before.slice(3, 25));
+	assert.deepEqual(fixture.renderRequests, [false]);
+
+	for (const key of ["\x1b[H", "\x1b[F"]) {
+		fixture.renderRequests.length = 0;
+		fixture.component.handleInput(key);
+		assert.deepEqual(fixture.renderRequests, [false]);
+	}
+
+	fixture.renderRequests.length = 0;
+	fixture.update();
+	assert.deepEqual(fixture.renderRequests, [false]);
 	await fixture.close();
 });
 
@@ -206,7 +235,7 @@ test("workspace framing expands tabs and closes ANSI styling before padding", as
 	assert.ok(coloured);
 	assert.ok(!coloured.includes("\t"));
 	assert.equal(visibleWidth(coloured), 20);
-	assert.match(coloured, /\x1b\[0m │$/u);
+	assert.match(coloured, /\x1b\[0m │ $/u);
 	await fixture.close();
 });
 
