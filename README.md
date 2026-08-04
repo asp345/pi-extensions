@@ -18,6 +18,7 @@ My personal Pi monorepo.
 - `extensions/pi-setup-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
+- `extensions/pi-usage/`
 - `extensions/pi-web-access/`
 - `extensions/question/`
 
@@ -50,6 +51,8 @@ Each delegation requires a concrete task and an explicit context handoff. The ex
 Bundled definitions live in `extensions/pi-subagents/agents/`; global overrides live in `~/.config/pi/agents/`.
 
 `/agents` opens the workspace, and while agents run a widget below the editor lists them: `shift+↑↓`, or `↓` then enter on an empty editor, opens the selected one. The workspace is a centered, bordered overlay that leaves the parent session visible around its edges. Its conversation is fetched from the tail, PgUp/PgDn scroll it, and the embedded editor steers the running agent or resumes a finished one.
+
+`pi-usage` adds a `/usage` command that fetches current provider usage limits on demand. It resolves the OAuth access token through `ctx.modelRegistry.getProviderAuth` (auto-refreshed) and reads account and project metadata from `auth.json`, then calls the provider usage endpoint: Anthropic `/api/oauth/usage`, OpenAI Codex `backend-api/wham/usage`, Google Antigravity `v1internal:fetchAvailableModels`, and xAI SuperGrok `cli-chat-proxy.grok.com/v1/billing`. No rate-limit headers are captured during normal model calls.
 
 ## Development
 

@@ -35,6 +35,7 @@ const expectedDirs = [
 	"pi-service-tier",
 	"pi-setup-custom-providers",
 	"pi-subagents",
+	"pi-usage",
 	"pi-web-access",
 	"question",
 ];

@@ -1,0 +1,26 @@
+{
+	"name": "@asp345/pi-usage",
+	"version": "0.0.0",
+	"description": "Provider usage limits command for pi",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"LICENSE",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}

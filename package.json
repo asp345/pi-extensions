@@ -36,7 +36,8 @@
 			"./extensions/pi-clinepass-provider/index.ts",
 			"./extensions/pi-direnv/index.ts",
 			"./extensions/pi-subagents/index.ts",
-			"./extensions/pi-service-tier/index.ts"
+			"./extensions/pi-service-tier/index.ts",
+			"./extensions/pi-usage/index.ts"
 		],
 		"themes": [
 			"./themes/flatland.json"
