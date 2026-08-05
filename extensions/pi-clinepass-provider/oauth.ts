@@ -21,10 +21,10 @@
 import type { OAuthCredentials, OAuthLoginCallbacks } from "@earendil-works/pi-ai";
 import { sanitizeApiKey } from "./env.js";
 import {
-	resolveClineAuthCredentials,
+	credentialsFromWorkos,
 	isWorkosToken,
 	refreshWorkosToken,
-	credentialsFromWorkos,
+	resolveClineAuthCredentials,
 	WORKOS_REFRESH_MARGIN_MS,
 } from "./workos.js";
 

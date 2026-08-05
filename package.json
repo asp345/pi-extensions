@@ -9,10 +9,9 @@
 		"extensions/*"
 	],
 	"scripts": {
-		"check": "npm run lint && npm run format:check && npm run typecheck && npm run test && npm run structure",
-		"lint": "biome lint extensions scripts themes package.json tsconfig.json biome.json",
-		"format": "biome format --write extensions scripts themes package.json tsconfig.json biome.json",
-		"format:check": "biome format extensions scripts themes package.json tsconfig.json biome.json",
+		"check": "npm run biome && npm run typecheck && npm run test && npm run structure",
+		"biome": "biome check extensions scripts themes package.json tsconfig.json biome.json",
+		"biome:fix": "biome check --write extensions scripts themes package.json tsconfig.json biome.json",
 		"typecheck": "tsc --noEmit",
 		"test": "node --disable-warning=ExperimentalWarning --experimental-transform-types --test extensions/**/*.test.ts",
 		"structure": "node scripts/check.ts"

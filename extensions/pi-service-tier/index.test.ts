@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-	createAssistantMessageEventStream,
 	type Api,
 	type AssistantMessage,
 	type Context,
+	createAssistantMessageEventStream,
 	type Model,
 	type Provider,
 	type SimpleStreamOptions,

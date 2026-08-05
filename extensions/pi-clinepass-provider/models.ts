@@ -1,28 +1,43 @@
 /**
- * ClinePass model definitions and dynamic model discovery.
+ * ClinePass / ClineFree model discovery and configuration.
+ *
+ * The model list comes from two public Cline endpoints:
+ *
+ * 1. `GET https://api.cline.bot/api/v1/ai/cline/recommended-models` — the
+ *    curated picker lists. The `free` array is the Cline Free tier and the
+ *    `clinePass` array is the Cline Pass subscription tier. The `recommended`
+ *    array (frontier BYOK models) is ignored here.
+ * 2. `GET https://models.dev/api.json` — the public models.dev catalog. The
+ *    `cline-pass` provider entry and other upstream entries supply context
+ *    window, max output tokens, pricing, reasoning support and input
+ *    modalities. models.dev is the source of truth for metadata; the
+ *    recommended-models list only supplies which ids belong to each tier.
+ *
+ * The two tier lists are combined by the provider layer. Free model ids get a
+ * `:free` suffix in the provider catalog.
  *
  * @module clinepass-models
  */
 
-import { isRecord, stringValue, numberValue, booleanValue } from "./utils.js";
 import { resolveApiBase } from "./env.js";
+import { booleanValue, isRecord, numberValue, stringValue } from "./utils.js";
 
-// ─── Model Definitions ─────────────────────────────────────────────────────
+// ─── Thinking levels ───────────────────────────────────────────────────────
 
-/** Pi thinking levels that models map to provider-specific reasoning_effort. */
+/** Pi thinking levels that map to provider-specific reasoning_effort. */
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 /**
- * Explicit capability matrix mapping every thinking level to a
- * provider-specific `reasoning_effort` string or `null` (unsupported).
- * Every model must declare all six levels — there are no implicit defaults.
+ * Capability matrix mapping every pi thinking level to a provider-specific
+ * `reasoning_effort` string or `null` (unsupported). Every model declares all
+ * six levels — there are no implicit defaults.
  */
 export type ThinkingLevelMap = Readonly<Record<ThinkingLevel, string | null>>;
 
 /**
- * Default thinking level map for remote models without a static fallback.
- * Assumes low/medium/high are supported and marks minimal/xhigh unsupported.
- * "off" maps to "none" for the ClinePass API.
+ * Uniform thinking level map for reasoning models. ClinePass/ClineFree accept
+ * `reasoning_effort` in {none, low, medium, high, xhigh}; pi's `off` maps to
+ * "none" and `minimal` is unsupported.
  */
 export const DEFAULT_THINKING_LEVEL_MAP: ThinkingLevelMap = {
 	off: "none",
@@ -30,13 +45,10 @@ export const DEFAULT_THINKING_LEVEL_MAP: ThinkingLevelMap = {
 	low: "low",
 	medium: "medium",
 	high: "high",
-	xhigh: null,
+	xhigh: "xhigh",
 };
 
-/**
- * All-null thinking level map used when a model reports reasoning: false.
- * Every level is unsupported — reasoning is simply not available.
- */
+/** All-null map for models that do not reason. */
 export const NO_THINKING_MAP: ThinkingLevelMap = {
 	off: null,
 	minimal: null,
@@ -46,10 +58,12 @@ export const NO_THINKING_MAP: ThinkingLevelMap = {
 	xhigh: null,
 };
 
+// ─── OpenAI-compat ─────────────────────────────────────────────────────────
+
 /**
- * OpenAI-compat flags for ClinePass chat completions.
+ * OpenAI-compat flags for Cline chat completions.
  *
- * ClinePass only accepts classic roles (`system`, `assistant`, `user`, `tool`,
+ * Cline only accepts classic roles (`system`, `assistant`, `user`, `tool`,
  * `function`). pi-ai defaults to `developer` for reasoning models unless
  * `supportsDeveloperRole` is false (see pi-ai README).
  */
@@ -62,374 +76,216 @@ export const CLINEPASS_OPENAI_COMPAT: ClinePassOpenAICompat = {
 	supportsDeveloperRole: false,
 };
 
+// ─── Model config ──────────────────────────────────────────────────────────
+
 /**
- * ClinePass curated open-weight coding models.
+ * A Cline model registered with pi.
  *
- * Model IDs use the full ClinePass slug (e.g. "cline-pass/glm-5.2") as
- * documented at https://docs.cline.bot/getting-started/clinepass — these are
- * the values Cline's API expects in the `model` field.
+ * `id` is the full Cline slug (e.g. "cline-pass/deepseek-v4-flash",
+ * "deepseek/deepseek-v4-flash") — the value Cline's API expects in the
+ * `model` field of `/api/v1/chat/completions`.
  *
- * `contextWindow` is in tokens; `maxTokens` is the max output tokens.
- * Reference pricing ($/M tokens) is from the ClinePass docs and is used for
- * usage tracking — ClinePass itself is a flat $9.99/mo subscription.
+ * `cost` is $/M tokens, used for usage tracking. Cline Free models are billed
+ * at 0 by the free tier, so their cost is zeroed regardless of the upstream
+ * model's models.dev pricing.
  */
+/** A request-wide pricing tier: applies above an input-token threshold. */
+export interface ModelCostTier {
+	inputTokensAbove: number;
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
 export interface ModelConfig {
 	id: string;
 	name: string;
 	reasoning: boolean;
-	input: readonly ["text"];
-	cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+	input: readonly ["text"] | readonly ["text", "image"];
+	cost: { input: number; output: number; cacheRead: number; cacheWrite: number; tiers?: ModelCostTier[] };
 	contextWindow: number;
 	maxTokens: number;
-	/**
-	 * Maps every pi thinking level to a provider-specific reasoning_effort
-	 * string, or `null` to mark a level as unsupported. Every model must
-	 * declare all six levels explicitly — there are no implicit defaults.
-	 */
+	/** Maps every pi thinking level to a provider-specific reasoning_effort. */
 	thinkingLevelMap: ThinkingLevelMap;
-	/** pi-ai openai-completions compat overrides for the ClinePass API. */
+	/** pi-ai openai-completions compat overrides. */
 	compat: ClinePassOpenAICompat;
 }
 
-/** Static catalog entries; per-model compat overrides merge with CLINEPASS_OPENAI_COMPAT. */
-interface ModelConfigBase extends Omit<ModelConfig, "compat"> {
-	compat?: Partial<ClinePassOpenAICompat>;
+/** Which Cline tier a model belongs to — selects the pi provider name. */
+export type ClineTier = "free" | "pass";
+
+/** Result of resolving models: one list per Cline tier. */
+export interface ResolvedModels {
+	free: readonly ModelConfig[];
+	pass: readonly ModelConfig[];
 }
 
-const MODELS_BASE: readonly ModelConfigBase[] = [
-	{
-		id: "cline-pass/glm-5.2",
-		name: "GLM-5.2 (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 1.4, output: 4.4, cacheRead: 0.26, cacheWrite: 0 },
-		contextWindow: 200_000,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: "xhigh",
-		},
-	},
-	{
-		id: "cline-pass/kimi-k2.7-code",
-		name: "Kimi K2.7 Code (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0.95, output: 4.0, cacheRead: 0.19, cacheWrite: 0 },
-		contextWindow: 262_144,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: null,
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/kimi-k2.6",
-		name: "Kimi K2.6 (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0.95, output: 4.0, cacheRead: 0.16, cacheWrite: 0 },
-		contextWindow: 262_144,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: null,
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/kimi-k3",
-		name: "Kimi K3 (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 3.0, output: 15.0, cacheRead: 0.3, cacheWrite: 0 },
-		contextWindow: 1_048_576,
-		maxTokens: 131_072,
-		// K3 always reasons and currently only supports reasoning_effort="max".
-		thinkingLevelMap: {
-			off: null,
-			minimal: null,
-			low: null,
-			medium: null,
-			high: "max",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/deepseek-v4-pro",
-		name: "DeepSeek V4 Pro (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 1.74, output: 3.48, cacheRead: 0.0145, cacheWrite: 0 },
-		contextWindow: 1_000_000,
-		maxTokens: 384_000,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: null,
-			medium: null,
-			high: "high",
-			xhigh: "high",
-		},
-	},
-	{
-		id: "cline-pass/deepseek-v4-flash",
-		name: "DeepSeek V4 Flash (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
-		contextWindow: 1_000_000,
-		maxTokens: 384_000,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: null,
-			medium: null,
-			high: "high",
-			xhigh: "high",
-		},
-	},
-	{
-		id: "cline-pass/mimo-v2.5",
-		name: "MiMo-V2.5 (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0.14, output: 0.28, cacheRead: 0.0028, cacheWrite: 0 },
-		contextWindow: 262_144,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/mimo-v2.5-pro",
-		name: "MiMo-V2.5-Pro (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 1.74, output: 3.48, cacheRead: 0.0145, cacheWrite: 0 },
-		contextWindow: 262_144,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/minimax-m3",
-		name: "MiniMax M3 (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0 },
-		contextWindow: 1_048_576,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/qwen3.7-max",
-		name: "Qwen3.7 Max (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		cost: { input: 2.5, output: 7.5, cacheRead: 0.5, cacheWrite: 3.125 },
-		contextWindow: 262_144,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-	{
-		id: "cline-pass/qwen3.7-plus",
-		name: "Qwen3.7 Plus (ClinePass)",
-		reasoning: true,
-		input: ["text"],
-		// Qwen3.7 Plus has tiered pricing; we use the ≤256K rate as the default.
-		cost: { input: 0.4, output: 1.6, cacheRead: 0.04, cacheWrite: 0.5 },
-		contextWindow: 1_048_576,
-		maxTokens: 131_072,
-		thinkingLevelMap: {
-			off: "none",
-			minimal: null,
-			low: "low",
-			medium: "medium",
-			high: "high",
-			xhigh: null,
-		},
-	},
-];
+// ─── Endpoints ─────────────────────────────────────────────────────────────
 
-export const MODELS: readonly ModelConfig[] = MODELS_BASE.map((model) => ({
-	...model,
-	compat: {
-		...CLINEPASS_OPENAI_COMPAT,
-		...model.compat,
-	},
-}));
+/** Curated tier lists (free / clinePass), relative to the API base. */
+export const RECOMMENDED_MODELS_ENDPOINT = "/api/v1/ai/cline/recommended-models";
 
-/**
- * Return the model IDs registered for the ClinePass provider.
- */
-export function modelIds(): string[] {
-	return MODELS.map((m) => m.id);
-}
+/** Public models.dev catalog — absolute URL, not relative to the API base. */
+export const MODELS_DEV_URL = "https://models.dev/api.json";
 
-// ─── Dynamic Model Discovery ───────────────────────────────────────────────
-
-/** Endpoint for listing models (OpenAI-compatible, relative to API base). */
-export const MODELS_ENDPOINT = "/api/v1/models";
-
-/** Timeout for the model-list fetch (ms). Keeps registration responsive. */
+/** Timeout for discovery fetches (ms). Keeps registration responsive. */
 export const MODELS_FETCH_TIMEOUT_MS = 5_000;
 
+// ─── models.dev lookup ─────────────────────────────────────────────────────
+
 /**
- * Raw model entry from the Cline API `/models` endpoint.
- * Follows the OpenAI-compatible format, with optional Cline extensions.
+ * models.dev entry for a single model. Only the fields we consume are typed.
  */
-interface RawModelEntry {
-	id?: unknown;
+interface ModelsDevEntry {
 	name?: unknown;
-	context_length?: unknown;
-	max_output_tokens?: unknown;
-	pricing?: unknown;
 	reasoning?: unknown;
+	limit?: unknown;
+	cost?: unknown;
+	modalities?: unknown;
 }
 
-/** Convert a per-token price from the API to our $/M tokens representation. */
-function toMicroPerToken(val: unknown, fallbackVal: number): number {
-	const n = numberValue(val);
-	return n != null ? n * 1_000_000 : fallbackVal;
+/** Parsed models.dev catalog: model id → entry (flattened across providers). */
+type ModelsDevIndex = Map<string, ModelsDevEntry>;
+
+/**
+ * Some Cline tier ids are not in models.dev under their own id. Map them to a
+ * models.dev entry that describes the same underlying model, used only for
+ * metadata (name, limits, reasoning, modalities). Pricing still comes from the
+ * tier: Cline Free is zeroed, Cline Pass uses the aliased entry's cost.
+ */
+const MODELS_DEV_ALIASES: Record<string, string> = {
+	// Cline Free reuses the GLM-5.2 weights; cline-pass/glm-5.2 is in models.dev.
+	"cline-free/glm-5.2": "cline-pass/glm-5.2",
+	// Cline Pass exposes Qwen 3.8 Max; qwen/qwen3.8-max is the upstream entry.
+	"cline-pass/qwen3.8-max": "qwen/qwen3.8-max",
+};
+
+/**
+ * Build a flat id → entry index from the models.dev catalog. The catalog is a
+ * top-level object keyed by provider id; each provider has a `models` object
+ * keyed by model id.
+ */
+function indexModelsDev(catalog: unknown): ModelsDevIndex {
+	const index: ModelsDevIndex = new Map();
+	if (!isRecord(catalog)) return index;
+	for (const provider of Object.values(catalog)) {
+		if (!isRecord(provider)) continue;
+		const models = provider.models;
+		if (!isRecord(models)) continue;
+		for (const [id, entry] of Object.entries(models)) {
+			if (isRecord(entry)) index.set(id, entry as ModelsDevEntry);
+		}
+	}
+	return index;
 }
 
 /**
- * Parse a single raw model entry into a `ModelConfig`.
- * Falls back to static-model values when the API doesn't provide a field.
+ * Resolve a Cline tier id to its models.dev entry, applying the catalog alias
+ * when the tier id is absent from models.dev.
  */
-function parseRemoteModel(raw: RawModelEntry, fallback?: ModelConfig): ModelConfig | undefined {
-	const id = stringValue(raw.id);
-	if (!id) return undefined;
+function lookupModelsDev(index: ModelsDevIndex, id: string): ModelsDevEntry | undefined {
+	return index.get(id) ?? index.get(MODELS_DEV_ALIASES[id] ?? id);
+}
 
-	const name = stringValue(raw.name) ?? fallback?.name ?? id;
-	const contextWindow = numberValue(raw.context_length) ?? fallback?.contextWindow ?? 128_000;
-	const maxTokens = numberValue(raw.max_output_tokens) ?? fallback?.maxTokens ?? 8_192;
-	const reasoning = booleanValue(raw.reasoning) ?? fallback?.reasoning ?? true;
+// ─── Parsing ───────────────────────────────────────────────────────────────
 
-	// Parse pricing — OpenAI format uses string $/token; we use $/M tokens
-	const pricing = isRecord(raw.pricing) ? raw.pricing : undefined;
-	const cost = {
-		input: toMicroPerToken(pricing?.prompt, fallback?.cost.input ?? 0),
-		output: toMicroPerToken(pricing?.completion, fallback?.cost.output ?? 0),
-		cacheRead: toMicroPerToken(pricing?.cached_input, fallback?.cost.cacheRead ?? 0),
-		cacheWrite: fallback?.cost.cacheWrite ?? 0,
+/** Read a number field, falling back to a default. */
+function numOr(value: unknown, fallback: number): number {
+	return numberValue(value) ?? fallback;
+}
+
+/**
+ * Coerce models.dev input modalities into pi's `("text" | "image")[]` shape.
+ * Image-capable models get `["text", "image"]`; everything else is text-only.
+ */
+function parseInput(modalities: unknown): readonly ["text"] | readonly ["text", "image"] {
+	const input = isRecord(modalities) && Array.isArray(modalities.input) ? modalities.input : [];
+	return input.some((m) => m === "image") ? ["text", "image"] : ["text"];
+}
+
+/**
+ * Parse a models.dev cost object into pi's $/M-token cost shape.
+ * models.dev already reports $/M tokens, so no unit conversion is needed.
+ * `tiers` (request-wide pricing tiers) are preserved when present.
+ */
+function parseCost(cost: unknown, zero: boolean): ModelConfig["cost"] {
+	const c = isRecord(cost) ? cost : {};
+	const base = {
+		input: zero ? 0 : numOr(c.input, 0),
+		output: zero ? 0 : numOr(c.output, 0),
+		cacheRead: zero ? 0 : numOr(c.cache_read, 0),
+		cacheWrite: zero ? 0 : numOr(c.cache_write, 0),
 	};
+	if (zero) return base;
+	const tiersRaw = Array.isArray(c.tiers) ? c.tiers : [];
+	const tiers = tiersRaw
+		.map((t): ModelCostTier | undefined => {
+			if (!isRecord(t) || !isRecord(t.tier)) return undefined;
+			const inputTokensAbove = numberValue(t.tier.size);
+			if (inputTokensAbove == null) return undefined;
+			return {
+				inputTokensAbove,
+				input: numOr(t.input, 0),
+				output: numOr(t.output, 0),
+				cacheRead: numOr(t.cache_read, 0),
+				cacheWrite: numOr(t.cache_write, 0),
+			};
+		})
+		.filter((t): t is ModelCostTier => t != null);
+	return tiers.length > 0 ? { ...base, tiers } : base;
+}
 
+/**
+ * Build a `ModelConfig` from a Cline tier id plus its models.dev metadata.
+ * Fields absent from models.dev fall back to conservative defaults.
+ */
+function parseModel(id: string, tier: ClineTier, entry: ModelsDevEntry | undefined): ModelConfig {
+	const reasoning = booleanValue(entry?.reasoning) ?? true;
+	const limit = isRecord(entry?.limit) ? entry?.limit : undefined;
+	const cost = parseCost(entry?.cost, tier === "free");
 	return {
 		id,
-		name,
+		name: stringValue(entry?.name) ?? id,
 		reasoning,
-		input: ["text"],
+		input: parseInput(entry?.modalities),
 		cost,
-		contextWindow,
-		maxTokens,
-		// Attach a reasoning-aware map: static fallback → sensible default → all-null.
-		thinkingLevelMap: reasoning ? (fallback?.thinkingLevelMap ?? DEFAULT_THINKING_LEVEL_MAP) : NO_THINKING_MAP,
-		compat: {
-			...CLINEPASS_OPENAI_COMPAT,
-			...fallback?.compat,
-		},
+		contextWindow: numOr(limit?.context, 128_000),
+		maxTokens: numOr(limit?.output, 8_192),
+		thinkingLevelMap: reasoning ? DEFAULT_THINKING_LEVEL_MAP : NO_THINKING_MAP,
+		compat: CLINEPASS_OPENAI_COMPAT,
 	};
 }
 
-/**
- * Options for fetching remote models. All I/O is injectable for testability.
- */
+// ─── Remote discovery ──────────────────────────────────────────────────────
+
+/** Raw entry from the recommended-models endpoint. */
+interface RawRecommendedEntry {
+	id?: unknown;
+}
+
+/** Raw shape of the recommended-models endpoint response. */
+interface RawRecommendedResponse {
+	free?: unknown;
+	clinePass?: unknown;
+	recommended?: unknown;
+}
+
+/** I/O options for discovery, injectable for testability. */
 export interface RemoteModelsOptions {
 	apiBase?: string;
-	apiKey?: string;
 	fetch?: typeof globalThis.fetch;
 	timeoutMs?: number;
 }
 
-/**
- * Fetch the model list from the Cline API `/models` endpoint.
- *
- * Returns parsed `ModelConfig[]` on success, or `undefined` on any error
- * (network failure, non-OK response, parse error, empty list). Callers
- * should fall back to the static `MODELS` array when this returns `undefined`.
- *
- * The endpoint follows the OpenAI-compatible format: `{ data: [{ id, ... }] }`
- * or a bare array `[{ id, ... }]`. Only models with `cline-pass/` prefixed IDs
- * are included.
- */
-export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Promise<ModelConfig[] | undefined> {
-	const apiBase = options.apiBase ?? resolveApiBase();
-	const apiKey = options.apiKey;
-	const fetchFn = options.fetch ?? globalThis.fetch;
-	const timeoutMs = options.timeoutMs ?? MODELS_FETCH_TIMEOUT_MS;
-
-	if (!apiKey || !fetchFn) return undefined;
-
+/** Fetch JSON with an AbortController timeout. Returns undefined on any error. */
+async function fetchJson(url: string, fetchFn: typeof globalThis.fetch, timeoutMs: number): Promise<unknown> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), timeoutMs);
-
 	try {
-		const response = await fetchFn(`${apiBase}${MODELS_ENDPOINT}`, {
-			headers: { Authorization: `Bearer ${apiKey}` },
-			signal: controller.signal,
-		});
-
+		const response = await fetchFn(url, { signal: controller.signal });
 		if (!response.ok) return undefined;
-
-		const json: unknown = await response.json();
-		const rawList: RawModelEntry[] = Array.isArray(json)
-			? json
-			: isRecord(json) && Array.isArray(json.data)
-				? (json.data as RawModelEntry[])
-				: [];
-
-		if (rawList.length === 0) return undefined;
-
-		// Build a lookup from the static MODELS for fallback values
-		const staticById = new Map(MODELS.map((m) => [m.id, m]));
-
-		const parsed = rawList.reduce<ModelConfig[]>((acc, raw) => {
-			const id = stringValue(raw?.id);
-			if (!id?.startsWith("cline-pass/")) return acc;
-			const model = parseRemoteModel(raw, staticById.get(id));
-			if (model) acc.push(model);
-			return acc;
-		}, []);
-
-		return parsed.length > 0 ? parsed : undefined;
+		return await response.json();
 	} catch {
 		return undefined;
 	} finally {
@@ -437,25 +293,49 @@ export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Prom
 	}
 }
 
+/** Extract a string id list from a raw recommended-models array field. */
+function idsFromField(field: unknown): string[] {
+	if (!Array.isArray(field)) return [];
+	return field
+		.map((entry): string | undefined => stringValue(isRecord(entry) ? entry.id : undefined))
+		.filter((id): id is string => id != null && id.length > 0);
+}
+
 /**
- * Resolve the model list for registration.
+ * Discover Cline Free and Cline Pass models from the two public endpoints.
  *
- * Tries the remote API first (if an API key is available), falling back to
- * the static `MODELS` array on any error. This keeps the extension functional
- * even when the Cline API doesn't expose a `/models` endpoint yet (currently
- * returns 404), and automatically benefits from dynamic discovery when the
- * endpoint becomes available.
- *
- * @param apiKey The API key to use for the fetch (optional)
- * @param options I/O options for testability
+ * Returns `{free, pass}` on success, or `undefined` when either endpoint is
+ * unavailable or no tier ids are recovered.
  */
-export async function resolveModels(
-	apiKey?: string,
-	options: RemoteModelsOptions = {},
-): Promise<readonly ModelConfig[]> {
-	if (apiKey) {
-		const remote = await fetchRemoteModels({ ...options, apiKey });
-		if (remote) return remote;
-	}
-	return MODELS;
+export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels | undefined> {
+	const apiBase = options.apiBase ?? resolveApiBase();
+	const fetchFn = options.fetch ?? globalThis.fetch;
+	const timeoutMs = options.timeoutMs ?? MODELS_FETCH_TIMEOUT_MS;
+	if (!fetchFn) return undefined;
+
+	const [recommendedRaw, catalogRaw] = await Promise.all([
+		fetchJson(`${apiBase}${RECOMMENDED_MODELS_ENDPOINT}`, fetchFn, timeoutMs),
+		fetchJson(MODELS_DEV_URL, fetchFn, timeoutMs),
+	]);
+
+	if (recommendedRaw === undefined || catalogRaw === undefined) return undefined;
+
+	const recommended = isRecord(recommendedRaw) ? (recommendedRaw as RawRecommendedResponse) : undefined;
+	const freeIds = idsFromField(recommended?.free);
+	const passIds = idsFromField(recommended?.clinePass);
+	if (freeIds.length === 0 && passIds.length === 0) return undefined;
+
+	const index = indexModelsDev(catalogRaw);
+	const free = freeIds.map((id) => parseModel(id, "free", lookupModelsDev(index, id)));
+	const pass = passIds.map((id) => parseModel(id, "pass", lookupModelsDev(index, id)));
+	return { free, pass };
+}
+
+// ─── Resolution ────────────────────────────────────────────────────────────
+
+/** Resolve both Cline tier lists from the public catalog endpoints. */
+export async function resolveModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels> {
+	const remote = await fetchRemoteModels(options);
+	if (!remote) throw new Error("Cline model discovery failed");
+	return remote;
 }

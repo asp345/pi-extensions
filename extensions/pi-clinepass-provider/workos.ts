@@ -9,9 +9,9 @@
  */
 
 import type { OAuthCredentials } from "@earendil-works/pi-ai";
-import { isRecord, stringValue } from "./utils.js";
+import { type AuthKeyOptions, walkAuthPaths } from "./auth.js";
 import { resolveApiBase, WORKOS_TOKEN_PREFIX } from "./env.js";
-import { walkAuthPaths, type AuthKeyOptions } from "./auth.js";
+import { isRecord, stringValue } from "./utils.js";
 
 // Re-export for consumers that import from this module (tests)
 export { WORKOS_TOKEN_PREFIX };
@@ -184,20 +184,23 @@ function extractWorkosAuthFromRecord(auth: Record<string, unknown>): ClineAuthCr
 	};
 }
 
-/** Parse pi `auth.json` `clinepass` OAuth credentials. */
-function extractPiClinepassAuth(parsed: Record<string, unknown>): ClineAuthCredentials | undefined {
-	const cpField = parsed.clinepass;
-	if (!isRecord(cpField)) return undefined;
+/** Parse Pi OAuth credentials stored under either Cline provider id. */
+function extractPiClineAuth(parsed: Record<string, unknown>): ClineAuthCredentials | undefined {
+	for (const providerId of ["cline-pass", "clinepass"]) {
+		const providerField = parsed[providerId];
+		if (!isRecord(providerField)) continue;
 
-	const accessToken = stringValue(cpField.access);
-	const refreshToken = stringValue(cpField.refresh);
-	if (!accessToken || !refreshToken || !isWorkosToken(accessToken)) return undefined;
+		const accessToken = stringValue(providerField.access);
+		const refreshToken = stringValue(providerField.refresh);
+		if (!accessToken || !refreshToken || !isWorkosToken(accessToken)) continue;
 
-	return {
-		accessToken,
-		refreshToken,
-		expiresAt: resolveExpiresAt(cpField.expires),
-	};
+		return {
+			accessToken,
+			refreshToken,
+			expiresAt: resolveExpiresAt(providerField.expires),
+		};
+	}
+	return undefined;
 }
 
 /** Collect WorkOS credentials from every Cline CLI provider entry. */
@@ -228,8 +231,8 @@ function pickFreshestAuth(candidates: ClineAuthCredentials[]): ClineAuthCredenti
  * Extract WorkOS OAuth credentials from all known auth stores.
  *
  * Scans `~/.cline/data/settings/providers.json` and `~/.pi/agent/auth.json`,
- * collecting every WorkOS candidate (pi `clinepass` OAuth, `cline-pass`, and
- * `cline` CLI providers) and returning the one with the latest `expiresAt`.
+ * collecting every WorkOS candidate (Pi Cline OAuth, `cline-pass`, and `cline`
+ * CLI providers) and returning the one with the latest `expiresAt`.
  *
  * Note: the accessToken may be expired — callers should refresh via
  * Cline's /api/v1/auth/refresh endpoint before use.
@@ -238,7 +241,7 @@ export function resolveClineAuthCredentials(options: AuthKeyOptions = {}): Cline
 	const candidates: ClineAuthCredentials[] = [];
 
 	walkAuthPaths(options, (parsed) => {
-		const piAuth = extractPiClinepassAuth(parsed);
+		const piAuth = extractPiClineAuth(parsed);
 		if (piAuth) candidates.push(piAuth);
 		candidates.push(...collectClineProviderAuths(parsed));
 		return undefined;

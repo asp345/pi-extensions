@@ -12,10 +12,10 @@ export const ENV_API_KEY = "CLINE_API_KEY";
 export const WORKOS_TOKEN_PREFIX = "workos:";
 
 /**
- * The ClinePass provider name used in pi (pi registerProvider name).
- * Models are referenced as `clinepass/<model-slug>`.
+ * The Cline Pass subscription provider name used in pi (pi registerProvider name).
+ * Models are referenced under the `cline-pass` provider.
  */
-export const PROVIDER_NAME = "clinepass";
+export const PROVIDER_NAME = "cline-pass";
 
 /**
  * Resolve the API base URL, allowing override via CLINE_API_BASE env var.
