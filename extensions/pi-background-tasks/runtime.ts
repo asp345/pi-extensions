@@ -12,13 +12,13 @@ export interface TaskSnapshot {
 	command: string;
 	title: string;
 	notify: boolean;
+	heartbeatMs: number;
 	cwd: string;
 	pid: number;
 	logFile: string;
 	startedAt: number;
 	updatedAt: number;
 	lastOutputAt: number | null;
-	expiresAt: number;
 	status: TaskStatus;
 	exitCode: number | null;
 	outputBytes: number;
@@ -30,7 +30,7 @@ export interface WaitResult {
 }
 
 export interface TaskEvent {
-	type: "exit";
+	type: "exit" | "running";
 	task: TaskSnapshot;
 	output: string;
 }
@@ -41,7 +41,7 @@ type ManagedTask = {
 	output: string;
 	closed: boolean;
 	stopRequested: boolean;
-	expiryTimer: ReturnType<typeof setTimeout> | null;
+	heartbeatTimer: ReturnType<typeof setInterval> | null;
 	forceTimer: ReturnType<typeof setTimeout> | null;
 	logBytes: number;
 	flushOutput: (() => void) | null;
@@ -51,7 +51,7 @@ type ManagedTask = {
 const BUFFER_LIMIT = 120_000;
 const READ_LIMIT = 5_000;
 const ALERT_LIMIT = 3_000;
-const TIMEOUT_MS = 10 * 60_000;
+const HEARTBEAT_MS = 30 * 60_000;
 
 export function tail(text: string, limit = READ_LIMIT): string {
 	return text.length <= limit ? text : `[...truncated]\n${text.slice(-limit)}`;
@@ -96,7 +96,7 @@ export class BackgroundRuntime {
 		return task.output;
 	}
 
-	start(command: string, cwd: string, options: { notify?: boolean } = {}): TaskSnapshot {
+	start(command: string, cwd: string, options: { notify?: boolean; heartbeatMs?: number } = {}): TaskSnapshot {
 		const id = `bg-${++this.counter}`;
 		const now = Date.now();
 		const logFile = join(tmpdir(), `pi-bg-${id}-${now}.log`);
@@ -114,13 +114,13 @@ export class BackgroundRuntime {
 				command,
 				title: command,
 				notify: options.notify ?? true,
+				heartbeatMs: options.heartbeatMs ?? HEARTBEAT_MS,
 				cwd,
 				pid: child.pid ?? 0,
 				logFile,
 				startedAt: now,
 				updatedAt: now,
 				lastOutputAt: null,
-				expiresAt: now + TIMEOUT_MS,
 				status: "running",
 				exitCode: null,
 				outputBytes: 0,
@@ -129,7 +129,7 @@ export class BackgroundRuntime {
 			output: "",
 			closed: false,
 			stopRequested: false,
-			expiryTimer: null,
+			heartbeatTimer: null,
 			forceTimer: null,
 			logBytes: 0,
 			flushOutput: null,
@@ -166,8 +166,8 @@ export class BackgroundRuntime {
 			this.finish(task, 1);
 		});
 		child.on("close", (code) => this.finish(task, typeof code === "number" ? code : null));
-		task.expiryTimer = setTimeout(() => this.stop(id), TIMEOUT_MS);
-		task.expiryTimer.unref?.();
+		task.heartbeatTimer = setInterval(() => this.heartbeat(task), task.info.heartbeatMs);
+		task.heartbeatTimer.unref?.();
 		if (task.info.notify) this.reportState();
 		this.update();
 		return snapshot(task);
@@ -249,6 +249,13 @@ export class BackgroundRuntime {
 		task.forceTimer.unref?.();
 	}
 
+	// Tasks run indefinitely; each heartbeat interval reminds the agent that the task is still running.
+	private heartbeat(task: ManagedTask): void {
+		if (task.closed || this.shuttingDown || !this.tasks.has(task.info.id)) return;
+		if (!task.info.notify) return;
+		this.emit({ type: "running", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
+	}
+
 	private finish(task: ManagedTask, code: number | null): void {
 		if (task.closed) return;
 		task.child.stdout?.removeAllListeners("data");
@@ -259,9 +266,9 @@ export class BackgroundRuntime {
 		task.info.exitCode = code;
 		task.info.status = task.stopRequested ? "stopped" : code === 0 ? "completed" : "failed";
 		task.info.updatedAt = Date.now();
-		if (task.expiryTimer) clearTimeout(task.expiryTimer);
+		if (task.heartbeatTimer) clearInterval(task.heartbeatTimer);
 		if (task.forceTimer) clearTimeout(task.forceTimer);
-		task.expiryTimer = null;
+		task.heartbeatTimer = null;
 		task.forceTimer = null;
 		const result: WaitResult = { task: snapshot(task), output: task.output };
 		for (const waiter of task.waiters) waiter(result);

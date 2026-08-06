@@ -34,7 +34,9 @@ function taskStatus(task: TaskSnapshot): string {
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }
 
-function exitText(event: TaskEvent): string {
+function eventText(event: TaskEvent): string {
+	if (event.type === "running")
+		return `Background task ${event.task.id} is still running (${duration(Date.now() - event.task.startedAt)} elapsed).`;
 	return `Background task ${event.task.id} finished (${taskStatus(event.task)}).`;
 }
 
@@ -79,8 +81,12 @@ function visibleTasks(runtime: BackgroundRuntime): TaskSnapshot[] {
 }
 
 function eventLines(event: TaskEvent, theme: Theme, expanded: boolean): string[] {
+	const running = event.type === "running";
 	const lines = [
-		theme.fg("success", theme.bold("Background task finished")),
+		theme.fg(
+			running ? "accent" : "success",
+			theme.bold(running ? "Background task still running" : "Background task finished"),
+		),
 		`${theme.fg("muted", "Task")}: ${event.task.id} · ${oneLine(event.task.title)}`,
 		`${theme.fg("muted", "Status")}: ${taskStatus(event.task)} · pid ${event.task.pid}`,
 		`${theme.fg("muted", "Started")}: ${relative(event.task.startedAt)} · ${duration(Date.now() - event.task.startedAt)} elapsed`,
@@ -99,7 +105,7 @@ export class BackgroundUI {
 	private active: ExtensionContext | null = null;
 	private requestRender: (() => void) | null = null;
 	private widgetMounted = false;
-	private readonly pendingExits = new Map<string, TaskEvent>();
+	private readonly pendingEvents = new Map<string, TaskEvent>();
 
 	constructor(
 		private readonly pi: ExtensionAPI,
@@ -120,16 +126,16 @@ export class BackgroundUI {
 	}
 
 	handleEvent(event: TaskEvent): void {
-		this.pendingExits.set(event.task.id, event);
-		this.active?.ui.notify(exitText(event), "info");
-		void this.flushExits();
+		this.pendingEvents.set(event.task.id, event);
+		this.active?.ui.notify(eventText(event), "info");
+		void this.flushEvents();
 	}
 
-	async flushExits(): Promise<void> {
-		const events = [...this.pendingExits.values()].filter((event) => this.runtime.get(event.task.id));
-		this.pendingExits.clear();
+	async flushEvents(): Promise<void> {
+		const events = [...this.pendingEvents.values()].filter((event) => this.runtime.get(event.task.id));
+		this.pendingEvents.clear();
 		if (!events.length) return;
-		const content = events.map(exitText).join("\n");
+		const content = events.map(eventText).join("\n");
 		// While the agent is streaming the message is queued as a steer and
 		// injected at the next turn iteration; when idle it triggers a run.
 		try {
@@ -138,7 +144,7 @@ export class BackgroundUI {
 				{ deliverAs: "steer", triggerTurn: true },
 			);
 		} catch {
-			for (const event of events) if (this.runtime.get(event.task.id)) this.pendingExits.set(event.task.id, event);
+			for (const event of events) if (this.runtime.get(event.task.id)) this.pendingEvents.set(event.task.id, event);
 		}
 	}
 
@@ -206,7 +212,7 @@ export class BackgroundUI {
 		this.active = null;
 		this.requestRender = null;
 		this.widgetMounted = false;
-		this.pendingExits.clear();
+		this.pendingEvents.clear();
 	}
 
 	listText(): string {
@@ -346,7 +352,7 @@ export class BackgroundUI {
 							right.push(
 								`${theme.fg("muted", "Started")}: ${relative(task.startedAt)} · ${duration(Date.now() - task.startedAt)} elapsed`,
 							);
-							right.push(`${theme.fg("muted", "Expiry")}: in ${duration(task.expiresAt - Date.now())}`);
+							right.push(`${theme.fg("muted", "Heartbeat")}: every ${duration(task.heartbeatMs)}`);
 							right.push(`${theme.fg("muted", "Command")}: ${oneLine(task.command)}`);
 							right.push(`${theme.fg("muted", "Cwd")}: ${task.cwd}`);
 							right.push(`${theme.fg("muted", "Log")}: ${task.logFile}`, "", theme.fg("accent", theme.bold("Output")));

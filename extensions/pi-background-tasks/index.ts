@@ -40,7 +40,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		publishState(runtime.runningNotifiedTaskIds());
 	};
 	pi.on("session_start", attach);
-	pi.on("agent_settled", async () => ui.flushExits());
+	pi.on("agent_settled", async () => ui.flushEvents());
 	pi.on("session_shutdown", () => {
 		runtime.shutdown();
 		ui.clearWidget();
@@ -50,7 +50,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		name: "background_task",
 		label: "Background Task",
 		description:
-			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle.",
+			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle. While a task runs, a still-running notification is delivered at the heartbeat interval (default 30 minutes).",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
 			"After starting a background_task, continue independent work or end the turn; completion is delivered as steering at the next turn boundary. Do not sleep or poll to wait.",
@@ -66,12 +66,20 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			]),
 			command: Type.Optional(Type.String()),
 			id: Type.Optional(Type.String()),
+			heartbeat: Type.Optional(
+				Type.Number({ description: "Minutes between still-running notifications while the task runs (default 30)" }),
+			),
 		}),
 		async execute(_callId, params, _signal, _update, ctx) {
 			if (params.action === "start") {
 				const command = params.command?.trim();
 				if (!command) return result("command is required for action=start.", true);
-				const task = runtime.start(command, ctx.cwd);
+				const heartbeat = params.heartbeat;
+				if (heartbeat !== undefined && (!Number.isFinite(heartbeat) || heartbeat <= 0))
+					return result("heartbeat must be a positive number of minutes.", true);
+				const task = runtime.start(command, ctx.cwd, {
+					heartbeatMs: heartbeat === undefined ? undefined : heartbeat * 60_000,
+				});
 				return result(
 					`${startedText(task)} Completion is delivered as steering at the next turn boundary; do not sleep or poll to wait.`,
 				);
