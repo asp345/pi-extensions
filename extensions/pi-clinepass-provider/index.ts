@@ -24,6 +24,10 @@ const FREE_SUFFIX = ":free";
 export default async function (pi: ExtensionAPI) {
 	const apiBase = resolveApiBase();
 	const models = await resolveModels({ apiBase });
+	if (!models) {
+		console.error("[cline-pass] Cline model discovery failed; provider not registered");
+		return;
+	}
 	const envApiKey = process.env[ENV_API_KEY]?.trim();
 
 	// Display id → Cline API id for suffixed free models. Requests must carry

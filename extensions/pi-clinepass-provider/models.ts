@@ -333,9 +333,11 @@ export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Prom
 
 // ─── Resolution ────────────────────────────────────────────────────────────
 
-/** Resolve both Cline tier lists from the public catalog endpoints. */
-export async function resolveModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels> {
-	const remote = await fetchRemoteModels(options);
-	if (!remote) throw new Error("Cline model discovery failed");
-	return remote;
+/**
+ * Resolve both Cline tier lists from the public catalog endpoints.
+ * Returns undefined when discovery fails so the extension can skip registration
+ * without aborting pi startup.
+ */
+export async function resolveModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels | undefined> {
+	return fetchRemoteModels(options);
 }
