@@ -3,7 +3,7 @@ description: Capable general agent for multi-step analysis, research, debugging,
 tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix, web_search, web
 extensions: true
 skills: true
-models: parent, anthropic/claude-opus-5, openai/gpt-5.6-terra
+models: parent
 thinking: parent
 max_turns: 40
 prompt_mode: append
