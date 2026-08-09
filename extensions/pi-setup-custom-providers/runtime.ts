@@ -81,12 +81,12 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 	return async (context: RefreshModelsContext): Promise<ProviderModelConfig[]> => {
 		const configured = config.models ?? [];
 		const asProviderModel = (model: CustomModelConfig) => toProviderModel(model, config.compat);
+		const persisted = context.stored;
 		const persistedCatalog = async (): Promise<Map<string, ModelMetadata>> => {
-			const persisted = await context.store.read().catch(() => undefined);
 			if (!persisted) return new Map();
 			const age = persisted.checkedAt === undefined ? Number.POSITIVE_INFINITY : Date.now() - persisted.checkedAt;
 			if (age > CATALOG_MAX_AGE_MS) {
-				await context.store.delete().catch(() => undefined);
+				await context.publish({ persist: null }).catch(() => undefined);
 				return new Map();
 			}
 			return persisted.models.length > 0 ? storedMetadata(persisted.models) : new Map();
@@ -99,8 +99,7 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 		};
 		if (!context.allowNetwork || context.signal?.aborted) return offline();
 		if (!context.force && Date.now() - checkedAt < REFRESH_TTL_MS) return offline();
-		const stored = await context.store.read().catch(() => undefined);
-		if (!context.force && stored?.checkedAt !== undefined && Date.now() - stored.checkedAt < REFRESH_TTL_MS) {
+		if (!context.force && persisted?.checkedAt !== undefined && Date.now() - persisted.checkedAt < REFRESH_TTL_MS) {
 			return offline();
 		}
 		if (!context.force && inflight) return offline();
@@ -125,7 +124,7 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 					provider: providerId,
 					baseUrl: config.baseUrl as string,
 				})) as Model<Api>[];
-				await context.store.write({ models, checkedAt }).catch(() => undefined);
+				await context.publish({ persist: { models, checkedAt } }).catch(() => undefined);
 			}
 			return merged;
 		})();

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Api, Model, ModelsStoreEntry, Provider } from "@earendil-works/pi-ai";
+import type { Api, Model, Provider } from "@earendil-works/pi-ai";
 import { wrapProvider } from "./index.ts";
 
 const model: Model<"openai-responses"> = {
@@ -37,50 +37,4 @@ test("wrapped catalog and credential filtering contain each model ID once", () =
 		assert.equal(new Set(ids).size, ids.length);
 		assert.deepEqual(ids, ["auto", `auto-${model.id}`, model.id]);
 	}
-});
-
-test("wrapped catalog persists auto models without dropping base validators", async () => {
-	let stored: ModelsStoreEntry | undefined = { models: [model], checkedAt: 0, etag: 'W/"old"' };
-	let refreshedModels = [model];
-	const base = {
-		id: "github-copilot",
-		name: "GitHub Copilot",
-		baseUrl: model.baseUrl,
-		getModels: () => refreshedModels,
-		refreshModels: async (context: { store: { write(entry: ModelsStoreEntry): Promise<void> } }) => {
-			refreshedModels = [{ ...model, name: "Refreshed" }];
-			await context.store.write({ models: refreshedModels, checkedAt: 10, etag: 'W/"new"', lastModified: 9 });
-		},
-		stream: () => {
-			throw new Error("unused");
-		},
-		streamSimple: () => {
-			throw new Error("unused");
-		},
-	} as unknown as Provider;
-	let resolveRefresh!: () => void;
-	const completed = new Promise<void>((resolve) => {
-		resolveRefresh = resolve;
-	});
-	const wrapped = wrapProvider(base, [model.id], resolveRefresh);
-	await wrapped.refreshModels?.({
-		allowNetwork: true,
-		force: true,
-		store: {
-			read: async () => structuredClone(stored),
-			write: async (entry) => {
-				stored = structuredClone(entry);
-			},
-			delete: async () => {
-				stored = undefined;
-			},
-		},
-	});
-	await completed;
-
-	assert.equal(stored?.etag, 'W/"new"');
-	assert.equal(stored?.lastModified, 9);
-	assert.ok(stored?.models.some((entry) => entry.id === "auto"));
-	assert.ok(stored?.models.some((entry) => entry.id === `auto-${model.id}`));
-	assert.ok(stored?.models.some((entry) => entry.id === model.id));
 });

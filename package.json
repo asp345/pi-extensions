@@ -24,7 +24,7 @@
 			"./extensions/github-copilot-auto/index.ts",
 			"./extensions/question/index.ts",
 			"./extensions/pi-goal/index.ts",
-			"./extensions/pi-web-access/index.ts",
+			"./extensions/pi-gpt-search/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",
 			"./extensions/pi-lsp/index.ts",
 			"./extensions/pi-openrouter-metadata/index.ts",
@@ -43,13 +43,13 @@
 		]
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.6",
-		"@earendil-works/pi-ai": "0.83.0",
-		"@earendil-works/pi-coding-agent": "0.83.0",
-		"@earendil-works/pi-tui": "0.83.0",
-		"@types/node": "26.1.2",
+		"@biomejs/biome": "2.5.7",
+		"@earendil-works/pi-ai": "0.84.1",
+		"@earendil-works/pi-coding-agent": "0.84.1",
+		"@earendil-works/pi-tui": "0.84.1",
+		"@types/node": "26.2.0",
 		"typescript": "7.0.2",
-		"typebox": "1.3.9"
+		"typebox": "1.3.11"
 	},
 	"overrides": {
 		"minimatch": "10.2.6"

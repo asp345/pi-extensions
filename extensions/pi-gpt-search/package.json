@@ -1,0 +1,29 @@
+{
+	"name": "@asp345/pi-gpt-search",
+	"version": "0.0.0",
+	"description": "Model-independent standalone web search extension for pi powered by the OpenAI Codex standalone search engine",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"LICENSE",
+		"README.md",
+		"HOW-IT-WORKS.md",
+		"HOW-IT-WAS-EXTRACT.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	}
+}

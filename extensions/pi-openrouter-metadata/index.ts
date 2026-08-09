@@ -248,7 +248,7 @@ function createExtensionCatalog(
 		return extensionModelConfigs(applyMetadataOverrides(baseline, overrides));
 	};
 	const refresh = async (context: RefreshModelsContext) => {
-		const stored = await context.store.read();
+		const stored = context.stored;
 		const dynamic = (stored?.models ?? []).flatMap((value) => {
 			const model = storedOpenRouterModel(value);
 			return model ? [model] : [];

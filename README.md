@@ -13,13 +13,13 @@ My personal Pi monorepo.
 - `extensions/pi-clinepass-provider/`
 - `extensions/pi-direnv/`
 - `extensions/pi-goal/`
+- `extensions/pi-gpt-search/`
 - `extensions/pi-lsp/`
 - `extensions/pi-openrouter-metadata/`
 - `extensions/pi-setup-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-usage/`
-- `extensions/pi-web-access/`
 - `extensions/question/`
 
 The only included theme is `themes/flatland.json`.
@@ -53,6 +53,8 @@ Bundled definitions live in `extensions/pi-subagents/agents/`; global overrides 
 `/agents` opens the workspace, and while agents run a widget below the editor lists them: `shift+↑↓`, or `↓` then enter on an empty editor, opens the selected one. The workspace is a centered, bordered overlay that leaves the parent session visible around its edges. Its conversation is fetched from the tail, PgUp/PgDn scroll it, and the embedded editor steers the running agent or resumes a finished one.
 
 `pi-usage` adds a `/usage` command that fetches current provider usage limits on demand. It resolves the OAuth access token through `ctx.modelRegistry.getProviderAuth` (auto-refreshed) and reads account and project metadata from `auth.json`, then calls the provider usage endpoint: Anthropic `/api/oauth/usage`, OpenAI Codex `backend-api/wham/usage`, Google Antigravity `v1internal:fetchAvailableModels`, and xAI SuperGrok `cli-chat-proxy.grok.com/v1/billing`. No rate-limit headers are captured during normal model calls.
+
+`pi-gpt-search` adds the `web` research harness and `web_search` tools plus a `/gpt-search` command. It calls the OpenAI Codex standalone search endpoint (`chatgpt.com/backend-api/codex/alpha/search`) directly with the existing Codex session from `~/.codex/auth.json` (or `CODEX_ACCESS_TOKEN`), so the active model stays the only reasoning model and no GPT inference turn is billed. `web` runs multi-step research (`search_query`, `open`, `find`, `click`) and `web_search` is a single-query wrapper; `/gpt-search` searches straight from the prompt line. The request never carries conversation history, project files, or system prompts.
 
 ## Development
 

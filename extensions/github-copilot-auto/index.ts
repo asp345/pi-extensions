@@ -318,7 +318,7 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 				? streamAuto(requestModel, context, options)
 				: base.streamSimple(requestModel, context, options),
 		refreshModels: async (context) => {
-			const stored = await context.store.read();
+			const stored = context.stored;
 			const checkedAt = stored?.checkedAt;
 			const fresh = checkedAt !== undefined && Date.now() - checkedAt < REFRESH_TTL_MS;
 			if (context.allowNetwork && (context.force || !fresh)) {
@@ -327,11 +327,11 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 				void (async () => {
 					try {
 						await base.refreshModels?.(context);
-						const refreshed = await context.store.read();
-						await context.store.write({
-							...(refreshed ?? {}),
-							models: listModels(),
-							checkedAt: Date.now(),
+						await context.publish({
+							persist: {
+								models: listModels(),
+								checkedAt: Date.now(),
+							},
 						});
 						onBaseRefreshed?.();
 					} catch {}

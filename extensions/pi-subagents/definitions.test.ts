@@ -38,7 +38,7 @@ test("agent Markdown accepts ordered models", () => {
 
 	const plan = parseDefinition(fileURLToPath(new URL("./agents/Plan.md", import.meta.url)), "default");
 	assert.ok(plan.tools.includes("web_search"));
-	assert.ok(plan.tools.includes("fetch_content"));
+	assert.ok(plan.tools.includes("web"));
 
 	const review = parseDefinition(fileURLToPath(new URL("./agents/Review.md", import.meta.url)), "default");
 	assert.ok(!review.tools.includes("edit"));

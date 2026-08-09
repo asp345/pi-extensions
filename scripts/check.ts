@@ -29,6 +29,7 @@ const expectedDirs = [
 	"pi-clinepass-provider",
 	"pi-direnv",
 	"pi-goal",
+	"pi-gpt-search",
 	"pi-lsp",
 	"pi-openrouter-metadata",
 	"pi-sensitive-guard",
@@ -36,7 +37,6 @@ const expectedDirs = [
 	"pi-setup-custom-providers",
 	"pi-subagents",
 	"pi-usage",
-	"pi-web-access",
 	"question",
 ];
 const actualDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: true }))
