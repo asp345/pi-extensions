@@ -1,33 +1,47 @@
-export interface SearchQuery {
-	q: string;
-	recency?: number;
-	domains?: string[];
-}
+import { type Static, Type } from "typebox";
+import { Check, Errors } from "typebox/value";
 
-export interface OpenOperation {
-	ref_id: string;
-	lineno?: number;
-}
+export const SearchQuerySchema = Type.Object({
+	q: Type.String({ description: "Search query string" }),
+	recency: Type.Optional(Type.Number({ description: "Optional recency filter in days" })),
+	domains: Type.Optional(Type.Array(Type.String(), { description: "Allowed domain filters" })),
+});
+export type SearchQuery = Static<typeof SearchQuerySchema>;
 
-export interface ClickOperation {
-	ref_id: string;
-	id: number;
-}
+export const OpenOperationSchema = Type.Object({
+	ref_id: Type.String({ description: "Reference ID of search result or document to open (e.g. turn0search0)" }),
+	lineno: Type.Optional(Type.Number({ description: "Line number to jump to" })),
+});
+export type OpenOperation = Static<typeof OpenOperationSchema>;
 
-export interface FindOperation {
-	ref_id: string;
-	pattern: string;
-}
+export const ClickOperationSchema = Type.Object({
+	ref_id: Type.String({ description: "Reference ID of document" }),
+	id: Type.Number({ description: "Element ID to click" }),
+});
+export type ClickOperation = Static<typeof ClickOperationSchema>;
 
-export type ResponseLength = "short" | "medium" | "long";
+export const FindOperationSchema = Type.Object({
+	ref_id: Type.String({ description: "Reference ID of opened document" }),
+	pattern: Type.String({ description: "Pattern to find in document" }),
+});
+export type FindOperation = Static<typeof FindOperationSchema>;
 
-export interface WebRunCommand {
-	search_query?: SearchQuery[];
-	open?: OpenOperation[];
-	click?: ClickOperation[];
-	find?: FindOperation[];
-	response_length?: ResponseLength;
-}
+export const ResponseLengthSchema = Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long")], {
+	description: "Desired length of returned content output",
+});
+export type ResponseLength = Static<typeof ResponseLengthSchema>;
+
+export const WebRunCommandSchema = Type.Object(
+	{
+		search_query: Type.Optional(Type.Array(SearchQuerySchema, { description: "Search queries to execute" })),
+		open: Type.Optional(Type.Array(OpenOperationSchema, { description: "Open document/page by reference ID" })),
+		click: Type.Optional(Type.Array(ClickOperationSchema, { description: "Click element by ID inside document" })),
+		find: Type.Optional(Type.Array(FindOperationSchema, { description: "Find pattern inside document" })),
+		response_length: Type.Optional(ResponseLengthSchema),
+	},
+	{ description: "Web research action command" },
+);
+export type WebRunCommand = Static<typeof WebRunCommandSchema>;
 
 export class InvalidCommandError extends Error {
 	constructor(message: string) {
@@ -37,129 +51,90 @@ export class InvalidCommandError extends Error {
 }
 
 export function validateWebRunCommand(cmd: unknown): WebRunCommand {
-	if (typeof cmd !== "object" || cmd === null) {
-		throw new InvalidCommandError("Command must be a non-null object");
+	if (!Check(WebRunCommandSchema, cmd)) {
+		const firstError = Errors(WebRunCommandSchema, cmd)[0];
+		const path = firstError?.instancePath ?? "/";
+		const message = firstError?.message ?? "value does not match the command schema";
+		throw new InvalidCommandError(`Command validation failed at ${path || "/"}: ${message}`);
 	}
+	return normalizeWebRunCommand(cmd as WebRunCommand);
+}
 
-	const obj = cmd as Record<string, unknown>;
-	const validated: WebRunCommand = {};
+function normalizeWebRunCommand(cmd: WebRunCommand): WebRunCommand {
+	const normalized: WebRunCommand = {};
 
-	if ("search_query" in obj && obj.search_query !== undefined) {
-		if (!Array.isArray(obj.search_query)) {
-			throw new InvalidCommandError("search_query must be an array");
-		}
-		validated.search_query = obj.search_query.map((sq, idx) => {
-			if (typeof sq !== "object" || sq === null || typeof (sq as { q?: unknown }).q !== "string") {
-				throw new InvalidCommandError(`search_query[${idx}] must be an object with a string 'q' property`);
-			}
-			const item: SearchQuery = { q: (sq as { q: string }).q.trim() };
+	if (cmd.search_query && cmd.search_query.length > 0) {
+		const queries = cmd.search_query.map((sq, idx) => {
+			const item: SearchQuery = { q: sq.q.trim() };
 			if (!item.q) {
 				throw new InvalidCommandError(`search_query[${idx}].q cannot be empty`);
 			}
-			if (typeof (sq as { recency?: unknown }).recency === "number") {
-				item.recency = (sq as { recency: number }).recency;
+			if (sq.recency !== undefined) {
+				item.recency = sq.recency;
 			}
-			if (Array.isArray((sq as { domains?: unknown }).domains)) {
-				item.domains = (sq as { domains: string[] }).domains
-					.filter((d) => typeof d === "string" && d.trim())
-					.map((d) => d.trim());
+			const domains = sq.domains?.filter((d) => d.trim()).map((d) => d.trim());
+			if (domains && domains.length > 0) {
+				item.domains = domains;
 			}
 			return item;
 		});
+		normalized.search_query = queries;
 	}
 
-	if ("open" in obj && obj.open !== undefined) {
-		if (!Array.isArray(obj.open)) {
-			throw new InvalidCommandError("open must be an array");
-		}
-		validated.open = obj.open.map((op, idx) => {
-			if (typeof op !== "object" || op === null || typeof (op as { ref_id?: unknown }).ref_id !== "string") {
-				throw new InvalidCommandError(`open[${idx}] must be an object with a string 'ref_id' property`);
-			}
-			const item: OpenOperation = { ref_id: (op as { ref_id: string }).ref_id.trim() };
-			if (!item.ref_id) {
+	if (cmd.open && cmd.open.length > 0) {
+		normalized.open = cmd.open.map((op, idx) => {
+			const refId = op.ref_id.trim();
+			if (!refId) {
 				throw new InvalidCommandError(`open[${idx}].ref_id cannot be empty`);
 			}
-			if (typeof (op as { lineno?: unknown }).lineno === "number") {
-				item.lineno = (op as { lineno: number }).lineno;
+			const item: OpenOperation = { ref_id: refId };
+			if (op.lineno !== undefined) {
+				item.lineno = op.lineno;
 			}
 			return item;
 		});
 	}
 
-	if ("click" in obj && obj.click !== undefined) {
-		if (!Array.isArray(obj.click)) {
-			throw new InvalidCommandError("click must be an array");
-		}
-		validated.click = obj.click.map((cl, idx) => {
-			if (
-				typeof cl !== "object" ||
-				cl === null ||
-				typeof (cl as { ref_id?: unknown }).ref_id !== "string" ||
-				typeof (cl as { id?: unknown }).id !== "number"
-			) {
-				throw new InvalidCommandError(`click[${idx}] must be an object with a string 'ref_id' and numeric 'id'`);
-			}
-			const item: ClickOperation = {
-				ref_id: (cl as { ref_id: string }).ref_id.trim(),
-				id: (cl as { id: number }).id,
-			};
-			if (!item.ref_id) {
+	if (cmd.click && cmd.click.length > 0) {
+		normalized.click = cmd.click.map((cl, idx) => {
+			const refId = cl.ref_id.trim();
+			if (!refId) {
 				throw new InvalidCommandError(`click[${idx}].ref_id cannot be empty`);
 			}
-			return item;
+			return { ref_id: refId, id: cl.id };
 		});
 	}
 
-	if ("find" in obj && obj.find !== undefined) {
-		if (!Array.isArray(obj.find)) {
-			throw new InvalidCommandError("find must be an array");
-		}
-		validated.find = obj.find.map((fn, idx) => {
-			if (
-				typeof fn !== "object" ||
-				fn === null ||
-				typeof (fn as { ref_id?: unknown }).ref_id !== "string" ||
-				typeof (fn as { pattern?: unknown }).pattern !== "string"
-			) {
-				throw new InvalidCommandError(`find[${idx}] must be an object with string 'ref_id' and 'pattern'`);
-			}
-			const item: FindOperation = {
-				ref_id: (fn as { ref_id: string }).ref_id.trim(),
-				pattern: (fn as { pattern: string }).pattern,
-			};
-			if (!item.ref_id) {
+	if (cmd.find && cmd.find.length > 0) {
+		normalized.find = cmd.find.map((fn, idx) => {
+			const refId = fn.ref_id.trim();
+			if (!refId) {
 				throw new InvalidCommandError(`find[${idx}].ref_id cannot be empty`);
 			}
-			return item;
+			return { ref_id: refId, pattern: fn.pattern };
 		});
 	}
 
-	if ("response_length" in obj && obj.response_length !== undefined) {
-		const rl = obj.response_length;
-		if (rl !== "short" && rl !== "medium" && rl !== "long") {
-			throw new InvalidCommandError("response_length must be 'short', 'medium', or 'long'");
-		}
-		validated.response_length = rl;
+	if (cmd.response_length) {
+		normalized.response_length = cmd.response_length;
 	}
 
 	const hasOperations =
-		(validated.search_query && validated.search_query.length > 0) ||
-		(validated.open && validated.open.length > 0) ||
-		(validated.click && validated.click.length > 0) ||
-		(validated.find && validated.find.length > 0);
+		(normalized.search_query && normalized.search_query.length > 0) ||
+		(normalized.open && normalized.open.length > 0) ||
+		(normalized.click && normalized.click.length > 0) ||
+		(normalized.find && normalized.find.length > 0);
 
 	if (!hasOperations) {
 		throw new InvalidCommandError("Command must contain at least one operation: search_query, open, click, or find");
 	}
 
-	return validated;
+	return normalized;
 }
 
 export interface EndpointPayloadOptions {
 	sessionId?: string;
 	model?: string;
-	context?: unknown[];
 }
 
 export function serializeWebRunPayload(
@@ -184,15 +159,9 @@ export function serializeWebRunPayload(
 		commandsObj.response_length = command.response_length;
 	}
 
-	const payload: Record<string, unknown> = {
+	return {
 		id: options?.sessionId ?? "search_1",
 		model: options?.model ?? "gpt-4o",
 		commands: commandsObj,
 	};
-
-	if (options?.context && Array.isArray(options.context) && options.context.length > 0) {
-		payload.context = options.context;
-	}
-
-	return payload;
 }

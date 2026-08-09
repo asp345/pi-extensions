@@ -1,5 +1,4 @@
 import type { WebRunCommand } from "./commands.ts";
-import type { ConversationTurn, SearchContextMode } from "./context.ts";
 import type { SearchResponse } from "./normalize.ts";
 
 export interface SearchRequest {
@@ -8,8 +7,6 @@ export interface SearchRequest {
 
 export interface SearchExecutionOptions {
 	sessionId?: string;
-	contextMode?: SearchContextMode;
-	conversationTurns?: ConversationTurn[];
 }
 
 export interface WebSearchProvider {

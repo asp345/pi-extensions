@@ -2,7 +2,6 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { serializeWebRunPayload, validateWebRunCommand, type WebRunCommand } from "./commands.ts";
-import { filterSearchContext, type SearchContextMode } from "./context.ts";
 import {
 	CodexAuthExpiredError,
 	CodexAuthMissingError,
@@ -79,7 +78,6 @@ export interface CodexWebSearchProviderOptions {
 	customFetch?: typeof fetch;
 	sessionId?: string;
 	model?: string;
-	defaultContextMode?: SearchContextMode;
 	maxRetries?: number;
 }
 
@@ -93,7 +91,6 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 	private fetchImpl: typeof fetch;
 	private currentSessionId: string;
 	private model: string;
-	private defaultContextMode: SearchContextMode;
 	private maxRetries: number;
 
 	constructor(options?: CodexWebSearchProviderOptions) {
@@ -101,7 +98,6 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		this.fetchImpl = options?.customFetch ?? globalThis.fetch;
 		this.model = options?.model ?? DEFAULT_MODEL;
-		this.defaultContextMode = options?.defaultContextMode ?? "none";
 		this.maxRetries = options?.maxRetries ?? 2;
 		this.currentSessionId = options?.sessionId ?? `search_session_${Math.random().toString(36).substring(2, 10)}`;
 	}
@@ -156,15 +152,10 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		}
 
 		const sessionId = options?.sessionId ?? this.currentSessionId;
-		const contextMode = options?.contextMode ?? this.defaultContextMode;
-		const filteredContext = options?.conversationTurns
-			? filterSearchContext(options.conversationTurns, contextMode)
-			: [];
 
 		const payload = serializeWebRunPayload(validatedCmd, {
 			sessionId,
 			model: this.model,
-			context: filteredContext.length > 0 ? filteredContext : undefined,
 		});
 
 		const startTime = Date.now();

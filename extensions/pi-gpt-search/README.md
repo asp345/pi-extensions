@@ -4,33 +4,7 @@
 
 `pi-gpt-search` gives **any** Pi model (Gemini, Claude, local models, OpenRouter) real-time web search capabilities by reusing OpenAI Codex's standalone web retrieval infrastructure - with **ZERO GPT Model Inference Turns** and **ZERO GPT Tokens Consumed**.
 
----
-
-## ⚡ Quick Start: 1-Line Installation
-
-Install via npm:
-
-```bash
-pi install npm:pi-gpt-search
-```
-
-Or install via GitHub:
-
-```bash
-pi install https://github.com/mateusdcc/pi-gpt-search
-```
-
-Or install project-locally for your current repository (`-l` flag):
-
-```bash
-pi install npm:pi-gpt-search -l
-```
-
-Or try it temporarily in a single session without installing:
-
-```bash
-pi -e npm:pi-gpt-search
-```
+> **Upstream:** this is a slimmed-down fork of [`mateusdcc/pi-gpt-search`](https://github.com/mateusdcc/pi-gpt-search), extracted into this repository and maintained here.
 
 ---
 
@@ -151,13 +125,7 @@ cp -r pi-gpt-search .pi/extensions/
 
 ### 2. Environment Variables (Optional)
 
-Copy `.env.example` to `.env` if you want to explicitly override your Codex access token:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
+Set these in your environment or project `.env` file to override Codex credentials or enable debug logging:
 
 ```env
 # Optional: If unset, automatically reads ~/.codex/auth.json
@@ -172,27 +140,9 @@ PI_WEB_SEARCH_DEBUG=1
 
 ---
 
-## 🧪 Running Tests
-
-`pi-gpt-search` comes with a 4-level test suite:
-
-```bash
-npm test
-```
-
-Test suite breakdown:
-- **Unit Tests (`unit.test.ts`, `commands.test.ts`, `normalize.test.ts`, `output.test.ts`, `web-tool.test.ts`):** Schema validation, DTO normalization, error classes, output formatting, collapsible display.
-- **Integration Tests (`provider-integration.test.ts`):** Mock server handling for 200, 401, 403, 429, 500, timeouts, cancellation.
-- **Real Search Test (`real-search.test.ts` & `real-endpoint.test.ts`):** Live execution against OpenAI's search endpoint and session continuity.
-- **Zero-GPT Verification (`zero-gpt.test.ts`):** Network interception test proving **0 GPT inference calls** are made.
-- **E2E Research Harness Suite (`e2e-research.test.ts`):** Full end-to-end multi-step web research test suite.
-
----
-
 ## 📖 Documentation
 
-- [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) - Deep architectural breakdown of modules, data flow, TUI renderers, context isolation, and cancellation.
-- [HOW-IT-WAS-EXTRACT.md](./HOW-IT-WAS-EXTRACT.md) - Reverse-engineering guide documenting how the standalone search endpoint was discovered.
+- [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) - Transport layer, error hierarchy, citation engine, and command schema details.
 
 ---
 

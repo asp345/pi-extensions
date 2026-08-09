@@ -13,8 +13,7 @@
 		"*.ts",
 		"LICENSE",
 		"README.md",
-		"HOW-IT-WORKS.md",
-		"HOW-IT-WAS-EXTRACT.md"
+		"HOW-IT-WORKS.md"
 	],
 	"pi": {
 		"extensions": [
