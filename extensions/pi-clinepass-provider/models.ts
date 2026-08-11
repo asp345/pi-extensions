@@ -304,8 +304,9 @@ function idsFromField(field: unknown): string[] {
 /**
  * Discover Cline Free and Cline Pass models from the two public endpoints.
  *
- * Returns `{free, pass}` on success, or `undefined` when either endpoint is
- * unavailable or no tier ids are recovered.
+ * Returns `{free, pass}` when Cline's tier list supplies at least one model,
+ * or `undefined` when the tier list is unavailable or empty. Metadata loading
+ * is optional because it only enriches the list with limits and pricing.
  */
 export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels | undefined> {
 	const apiBase = options.apiBase ?? resolveApiBase();
@@ -318,14 +319,14 @@ export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Prom
 		fetchJson(MODELS_DEV_URL, fetchFn, timeoutMs),
 	]);
 
-	if (recommendedRaw === undefined || catalogRaw === undefined) return undefined;
+	if (recommendedRaw === undefined) return undefined;
 
 	const recommended = isRecord(recommendedRaw) ? (recommendedRaw as RawRecommendedResponse) : undefined;
 	const freeIds = idsFromField(recommended?.free);
 	const passIds = idsFromField(recommended?.clinePass);
 	if (freeIds.length === 0 && passIds.length === 0) return undefined;
 
-	const index = indexModelsDev(catalogRaw);
+	const index = catalogRaw === undefined ? new Map() : indexModelsDev(catalogRaw);
 	const free = freeIds.map((id) => parseModel(id, "free", lookupModelsDev(index, id)));
 	const pass = passIds.map((id) => parseModel(id, "pass", lookupModelsDev(index, id)));
 	return { free, pass };
@@ -335,8 +336,8 @@ export async function fetchRemoteModels(options: RemoteModelsOptions = {}): Prom
 
 /**
  * Resolve both Cline tier lists from the public catalog endpoints.
- * Returns undefined when discovery fails so the extension can skip registration
- * without aborting pi startup.
+ * Returns undefined when Cline's tier-list discovery fails so the extension
+ * can skip registration without aborting pi startup.
  */
 export async function resolveModels(options: RemoteModelsOptions = {}): Promise<ResolvedModels | undefined> {
 	return fetchRemoteModels(options);
