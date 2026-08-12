@@ -38,6 +38,9 @@
 			"./extensions/pi-service-tier/index.ts",
 			"./extensions/pi-usage/index.ts"
 		],
+		"prompts": [
+			"./prompts"
+		],
 		"themes": [
 			"./themes/flatland.json"
 		]

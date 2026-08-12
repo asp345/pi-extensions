@@ -1,6 +1,6 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { registerHybridBash } from "./bash.js";
+import { buildSessionEnv, registerHybridBash } from "./bash.js";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.js";
 import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.js";
 import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.js";
@@ -53,7 +53,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle. While a task runs, a still-running notification is delivered at the heartbeat interval (default 30 minutes).",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
-			"After starting a background_task, continue independent work or end the turn; completion is delivered as steering at the next turn boundary. Do not sleep or poll to wait.",
+			"After starting a background_task, continue independent work or end the turn; completion is delivered as steering at the next turn boundary. DO NOT sleep or poll to wait.",
 			"Use list or read only when you need status or output before completion arrives.",
 		],
 		parameters: Type.Object({
@@ -79,9 +79,10 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 					return result("heartbeat must be a positive number of minutes.", true);
 				const task = runtime.start(command, ctx.cwd, {
 					heartbeatMs: heartbeat === undefined ? undefined : heartbeat * 60_000,
+					env: buildSessionEnv(ctx),
 				});
 				return result(
-					`${startedText(task)} Completion is delivered as steering at the next turn boundary; do not sleep or poll to wait.`,
+					`${startedText(task)} Completion is delivered as steering at the next turn boundary; DO NOT sleep or poll to wait.`,
 				);
 			}
 			if (params.action === "list") {
@@ -113,7 +114,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			if (value.startsWith("run ")) {
 				const command = value.slice(4).trim();
 				if (!command) return ctx.ui.notify("Usage: /bg run <command>", "warning");
-				const task = runtime.start(command, ctx.cwd);
+				const task = runtime.start(command, ctx.cwd, { env: buildSessionEnv(ctx) });
 				return ctx.ui.notify(startedText(task), "info");
 			}
 			if (value.startsWith("stop ")) {

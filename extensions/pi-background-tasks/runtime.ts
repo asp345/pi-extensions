@@ -45,6 +45,7 @@ type ManagedTask = {
 	forceTimer: ReturnType<typeof setTimeout> | null;
 	logBytes: number;
 	flushOutput: (() => void) | null;
+	onOutputRaw: ((data: Buffer) => void) | null;
 	waiters: Set<(result: WaitResult) => void>;
 };
 
@@ -96,14 +97,23 @@ export class BackgroundRuntime {
 		return task.output;
 	}
 
-	start(command: string, cwd: string, options: { notify?: boolean; heartbeatMs?: number } = {}): TaskSnapshot {
+	start(
+		command: string,
+		cwd: string,
+		options: {
+			notify?: boolean;
+			heartbeatMs?: number;
+			env?: NodeJS.ProcessEnv;
+			onOutputRaw?: (data: Buffer) => void;
+		} = {},
+	): TaskSnapshot {
 		const id = `bg-${++this.counter}`;
 		const now = Date.now();
 		const logFile = join(tmpdir(), `pi-bg-${id}-${now}.log`);
 		const { shell, args } = getShellConfig();
 		const child = spawn(shell, [...args, command], {
 			cwd,
-			env: process.env,
+			env: options.env ?? process.env,
 			detached: process.platform !== "win32",
 			stdio: ["ignore", "pipe", "pipe"],
 		});
@@ -133,6 +143,7 @@ export class BackgroundRuntime {
 			forceTimer: null,
 			logBytes: 0,
 			flushOutput: null,
+			onOutputRaw: options.onOutputRaw ?? null,
 			waiters: new Set(),
 		};
 		this.tasks.set(id, task);
@@ -159,8 +170,14 @@ export class BackgroundRuntime {
 			append(stdoutDecoder.end());
 			append(stderrDecoder.end());
 		};
-		child.stdout?.on("data", (data: Buffer) => append(stdoutDecoder.write(data)));
-		child.stderr?.on("data", (data: Buffer) => append(stderrDecoder.write(data)));
+		child.stdout?.on("data", (data: Buffer) => {
+			task.onOutputRaw?.(data);
+			append(stdoutDecoder.write(data));
+		});
+		child.stderr?.on("data", (data: Buffer) => {
+			task.onOutputRaw?.(data);
+			append(stderrDecoder.write(data));
+		});
 		child.on("error", (error) => {
 			append(`\n[spawn error] ${error.message}\n`);
 			this.finish(task, 1);
@@ -262,6 +279,7 @@ export class BackgroundRuntime {
 		task.child.stderr?.removeAllListeners("data");
 		task.flushOutput?.();
 		task.flushOutput = null;
+		task.onOutputRaw = null;
 		task.closed = true;
 		task.info.exitCode = code;
 		task.info.status = task.stopRequested ? "stopped" : code === 0 ? "completed" : "failed";

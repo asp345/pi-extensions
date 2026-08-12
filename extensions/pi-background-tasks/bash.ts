@@ -1,14 +1,14 @@
-import { writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { constants } from "node:fs";
+import { access as fsAccess } from "node:fs/promises";
+import { delimiter, join } from "node:path";
 import {
-	type AgentToolResult,
-	type BashToolDetails,
+	type BashOperations,
+	createBashToolDefinition,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
-	formatSize,
-	truncateTail,
+	type ExtensionContext,
+	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.js";
@@ -16,82 +16,109 @@ import type { BackgroundRuntime } from "./runtime.js";
 const DEFAULT_SYNC_MS = 30_000;
 const MAX_SYNC_MS = 120_000;
 
-function appendStatus(text: string, status: string): string {
-	return `${text ? `${text}\n\n` : ""}${status}`;
+const HANDOFF_GUIDELINE =
+	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. DO NOT sleep or poll to wait.";
+
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 120 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`;
+
+const hybridBashSchema = Type.Object({
+	command: Type.String({ description: "Bash command to execute" }),
+	timeout: Type.Optional(
+		Type.Number({
+			description:
+				"Seconds to run in the foreground before moving the command to a background task (default 30, max 120)",
+		}),
+	),
+});
+
+function resolveWindowMs(timeout: number | undefined): number {
+	if (timeout === undefined) return DEFAULT_SYNC_MS;
+	if (!Number.isFinite(timeout) || timeout <= 0) {
+		throw new Error("Invalid timeout: must be a finite number of seconds");
+	}
+	const timeoutMs = timeout * 1000;
+	if (timeoutMs > MAX_SYNC_MS) {
+		throw new Error(`Invalid timeout: maximum is ${MAX_SYNC_MS / 1000} seconds`);
+	}
+	return timeoutMs;
 }
 
-export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime): void {
-	pi.registerTool({
-		name: "bash",
-		label: "bash",
-		description: `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 120 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`,
-		promptSnippet: "Execute bash commands (ls, grep, find, etc.)",
-		promptGuidelines: [
-			"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Do not sleep or poll to wait.",
-		],
-		parameters: Type.Object({
-			command: Type.String({ description: "Bash command to execute" }),
-			timeout: Type.Optional(
-				Type.Number({
-					description:
-						"Seconds to run in the foreground before moving the command to a background task (default 30, max 120)",
-				}),
-			),
-		}),
-		async execute(_toolCallId, params, signal, onUpdate, ctx): Promise<AgentToolResult<BashToolDetails | undefined>> {
-			const task = runtime.start(params.command, ctx.cwd, { notify: false });
-			onUpdate?.({ content: [], details: undefined });
-			const windowMs = Math.min(Math.max(1, params.timeout ?? DEFAULT_SYNC_MS / 1000) * 1000, MAX_SYNC_MS);
+/** Session env for spawned commands: pi's managed bin dir on PATH plus PI_* session metadata. */
+export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
+	const binDir = join(getAgentDir(), "bin");
+	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+	const currentPath = process.env[pathKey] ?? "";
+	const pathEntries = currentPath.split(delimiter).filter(Boolean);
+	const hasBinDir = pathEntries.includes(binDir);
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		[pathKey]: hasBinDir ? currentPath : [binDir, currentPath].filter(Boolean).join(delimiter),
+	};
+	delete env.PI_SESSION_ID;
+	delete env.PI_SESSION_FILE;
+	delete env.PI_PROVIDER;
+	delete env.PI_MODEL;
+	delete env.PI_REASONING_LEVEL;
+	env.PI_SESSION_ID = ctx.sessionManager.getSessionId();
+	const sessionFile = ctx.sessionManager.getSessionFile();
+	if (sessionFile) env.PI_SESSION_FILE = sessionFile;
+	const model = ctx.model;
+	if (model) {
+		env.PI_PROVIDER = model.provider;
+		env.PI_MODEL = model.id;
+	}
+	if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
+	return env;
+}
+
+function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
+	const operations: BashOperations = {
+		async exec(command, execCwd, { onData, signal, timeout, env }) {
+			try {
+				await fsAccess(execCwd, constants.F_OK);
+			} catch {
+				throw new Error(`Working directory does not exist: ${execCwd}\nCannot execute bash commands.`);
+			}
+			const windowMs = resolveWindowMs(timeout);
+			const task = runtime.start(command, execCwd, {
+				notify: false,
+				env,
+				onOutputRaw: onData,
+			});
 			const done = await runtime.waitForExit(task.id, windowMs, signal);
 			if (!done) {
 				if (signal?.aborted) {
-					const text = appendStatus(truncateTail(runtime.output(task.id) ?? "").content, "Command aborted");
 					runtime.discard(task.id);
-					throw new Error(text);
+					throw new Error("aborted");
 				}
 				if (!runtime.promote(task.id)) {
-					return {
-						content: [{ type: "text", text: `Command finished but its result is no longer available.` }],
-						details: undefined,
-					};
+					const snapshot = runtime.get(task.id);
+					runtime.discard(task.id);
+					return { exitCode: snapshot?.exitCode ?? null };
 				}
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Command still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; do not sleep or poll to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
-						},
-					],
-					details: undefined,
-				};
+				onData(
+					Buffer.from(
+						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; DO NOT sleep or poll to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
+					),
+				);
+				return { exitCode: null };
 			}
-			try {
-				const output = done.output;
-				const truncation = truncateTail(output);
-				let text = truncation.content || "(no output)";
-				let details: BashToolDetails | undefined;
-				if (truncation.truncated) {
-					const fullOutputPath = join(tmpdir(), `pi-bash-${task.id}.log`);
-					writeFileSync(fullOutputPath, output, "utf8");
-					details = { truncation, fullOutputPath };
-					const startLine = truncation.totalLines - truncation.outputLines + 1;
-					const endLine = truncation.totalLines;
-					if (truncation.lastLinePartial) {
-						const lastLine = output.slice(output.lastIndexOf("\n") + 1);
-						text += `\n\n[Showing last ${formatSize(truncation.outputBytes)} of line ${endLine} (line is ${formatSize(Buffer.byteLength(lastLine))}). Full output: ${fullOutputPath}]`;
-					} else if (truncation.truncatedBy === "lines") {
-						text += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines}. Full output: ${fullOutputPath}]`;
-					} else {
-						text += `\n\n[Showing lines ${startLine}-${endLine} of ${truncation.totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Full output: ${fullOutputPath}]`;
-					}
-				}
-				const { exitCode } = done.task;
-				if (exitCode !== 0 && exitCode !== null)
-					throw new Error(appendStatus(text, `Command exited with code ${exitCode}`));
-				return { content: [{ type: "text", text }], details };
-			} finally {
-				runtime.discard(task.id);
-			}
+			runtime.discard(task.id);
+			return { exitCode: done.task.exitCode };
 		},
+	};
+
+	const definition = createBashToolDefinition(cwd, { operations });
+	return {
+		...definition,
+		description: HANDOFF_DESCRIPTION,
+		parameters: hybridBashSchema,
+		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
+	};
+}
+
+export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime): void {
+	pi.on("session_start", (_event, ctx) => {
+		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime));
 	});
 }

@@ -37,7 +37,7 @@ function taskStatus(task: TaskSnapshot): string {
 function eventText(event: TaskEvent): string {
 	if (event.type === "running")
 		return `Background task ${event.task.id} is still running (${duration(Date.now() - event.task.startedAt)} elapsed).`;
-	return `Background task ${event.task.id} finished (${taskStatus(event.task)}).`;
+	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${duration(event.task.updatedAt - event.task.startedAt)}.`;
 }
 
 export function taskLine(task: TaskSnapshot): string {
