@@ -1,6 +1,4 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { type ExtensionContext, readStoredCredential } from "@earendil-works/pi-coding-agent";
 import { serializeWebRunPayload, validateWebRunCommand, type WebRunCommand } from "./commands.ts";
 import {
 	CodexAuthExpiredError,
@@ -13,63 +11,36 @@ import {
 import { normalizeSearchResponseBody, type SearchResponse } from "./normalize.ts";
 import type { SearchExecutionOptions, SearchRequest, WebSearchProvider } from "./provider.ts";
 
-export interface CodexAuthCredentials {
+const PROVIDER_ID = "openai-codex";
+
+export interface OpenAiAuthCredentials {
 	accessToken: string;
 	accountId?: string;
 }
 
-export function loadEnvFile(envPath?: string): void {
-	const targetPath = envPath ?? path.join(process.cwd(), ".env");
-	if (!fs.existsSync(targetPath)) return;
-	try {
-		const content = fs.readFileSync(targetPath, "utf8");
-		for (const line of content.split("\n")) {
-			const trimmed = line.trim();
-			if (!trimmed || trimmed.startsWith("#")) continue;
-			const eqIdx = trimmed.indexOf("=");
-			if (eqIdx > 0) {
-				const key = trimmed.slice(0, eqIdx).trim();
-				let val = trimmed.slice(eqIdx + 1).trim();
-				if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-					val = val.slice(1, -1);
-				}
-				if (!process.env[key]) {
-					process.env[key] = val;
-				}
-			}
-		}
-	} catch {
-		// Ignore read errors
-	}
+function readStoredOAuthCredential(): { access: string; accountId?: string } | undefined {
+	const credential = readStoredCredential(PROVIDER_ID);
+	if (!credential || credential.type !== "oauth") return undefined;
+	const accountId = typeof credential.accountId === "string" && credential.accountId ? credential.accountId : undefined;
+	return { access: credential.access, accountId };
 }
 
-export function loadCodexAuth(): CodexAuthCredentials | null {
-	loadEnvFile();
-
-	if (process.env.CODEX_ACCESS_TOKEN) {
-		return {
-			accessToken: process.env.CODEX_ACCESS_TOKEN,
-			accountId: process.env.CODEX_ACCOUNT_ID,
-		};
-	}
-
-	const authPath = path.join(os.homedir(), ".codex", "auth.json");
-	if (!fs.existsSync(authPath)) {
-		return null;
-	}
-
+async function resolveOpenAiAuth(ctx: ExtensionContext): Promise<OpenAiAuthCredentials | null> {
+	// Prefer the auto-refreshed OAuth token from pi's model registry.
+	let accessToken: string | undefined;
 	try {
-		const raw = fs.readFileSync(authPath, "utf8");
-		const parsed = JSON.parse(raw);
-		const accessToken = parsed.tokens?.access_token;
-		if (typeof accessToken !== "string" || !accessToken) {
-			return null;
-		}
-		const accountId = typeof parsed.tokens?.account_id === "string" ? parsed.tokens.account_id : undefined;
-		return { accessToken, accountId };
+		const resolved = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID);
+		const headerAuth = resolved?.auth.headers?.["Authorization"];
+		accessToken =
+			resolved?.auth.apiKey ?? (typeof headerAuth === "string" ? headerAuth.replace(/^Bearer\s+/i, "") : undefined);
 	} catch {
-		return null;
+		accessToken = undefined;
 	}
+
+	const stored = readStoredOAuthCredential();
+	const token = accessToken ?? stored?.access;
+	if (!token) return null;
+	return { accessToken: token, accountId: stored?.accountId };
 }
 
 export interface CodexWebSearchProviderOptions {
@@ -112,20 +83,21 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		}
 	}
 
-	async search(request: SearchRequest, signal?: AbortSignal): Promise<SearchResponse> {
+	async search(request: SearchRequest, ctx: ExtensionContext, signal?: AbortSignal): Promise<SearchResponse> {
 		const command: WebRunCommand = {
 			search_query: [{ q: request.query }],
 		};
-		return this.execute(command, undefined, signal);
+		return this.execute(command, undefined, ctx, signal);
 	}
 
 	async execute(
 		command: WebRunCommand,
-		options?: SearchExecutionOptions,
+		options: SearchExecutionOptions | undefined,
+		ctx: ExtensionContext,
 		signal?: AbortSignal,
 	): Promise<SearchResponse> {
 		const validatedCmd = validateWebRunCommand(command);
-		const auth = loadCodexAuth();
+		const auth = await resolveOpenAiAuth(ctx);
 		if (!auth) {
 			throw new CodexAuthMissingError();
 		}

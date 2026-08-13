@@ -12,7 +12,7 @@
 
 ## Transport Layer (`codex-provider.ts`)
 
-- **Auth resolution:** `CODEX_ACCESS_TOKEN` from environment or `.env` first, then `~/.codex/auth.json` (written by `codex login`). `accountId` is sent as `ChatGPT-Account-ID` when present.
+- **Auth resolution:** the ChatGPT access token is resolved through `ctx.modelRegistry.getProviderAuth("openai-codex")` (pi's auto-refreshed OAuth token), with `accountId` read from pi's `auth.json` (`openai-codex.accountId`). `accountId` is sent as `ChatGPT-Account-ID` when present.
 - **Session identity:** a stable `id` (`search_session_<random>` by default, overridable via `sessionId`) is sent on every call so reference IDs (`turn0search0`) stay valid across sequential `search` → `open` → `find` steps.
 - **Resilience:** transient gateway errors (HTTP 502/503/504) are retried up to `maxRetries` (default 2) with linear backoff; 401/403 maps to `CodexAuthExpiredError`, 429 to `CodexRateLimitError`, other non-OK statuses to `CodexHttpError`.
 - **Timeout and cancellation:** a `setTimeout` abort (`timeoutMs`, default 15000) and the caller's `AbortSignal` are bound to the `fetch` via one `AbortController`, so no request outlives its timeout or user `Esc`.

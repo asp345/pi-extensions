@@ -27,7 +27,7 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setStatus("gpt-search", `Searching web for "${query}"...`);
 			try {
 				const command = { search_query: [{ q: query }] };
-				const response = await provider.execute(command, undefined, ctx.signal);
+				const response = await provider.execute(command, undefined, ctx, ctx.signal);
 				ctx.ui.setStatus("gpt-search", undefined);
 
 				const formatted = formatWebToolResult(command, response);

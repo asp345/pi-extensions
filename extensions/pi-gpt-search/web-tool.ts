@@ -105,7 +105,7 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 		promptSnippet: "Perform iterative web research with search, open, find, click",
 		promptGuidelines: BROWSING_GUIDELINES,
 		parameters: WebToolParameters,
-		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const command = params as WebRunCommand;
 			if (typeof onUpdate === "function") {
 				const statusMsg = describeCommandStatus(command);
@@ -115,7 +115,7 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 				});
 			}
 			try {
-				const response = await provider.execute(command, undefined, signal);
+				const response = await provider.execute(command, undefined, ctx, signal);
 				const formatted = formatWebToolResult(command, response);
 				return formatted;
 			} catch (err) {
@@ -150,7 +150,7 @@ export function createWebSearchCompatTool(provider: WebSearchProvider): ToolDefi
 		parameters: Type.Object({
 			query: Type.String({ description: "The search query to look up on the web" }),
 		}),
-		async execute(_toolCallId, params, signal, onUpdate, _ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const query = (params as { query: string }).query;
 			if (typeof onUpdate === "function") {
 				onUpdate({
@@ -159,7 +159,7 @@ export function createWebSearchCompatTool(provider: WebSearchProvider): ToolDefi
 				});
 			}
 			try {
-				const response = await provider.search({ query }, signal);
+				const response = await provider.search({ query }, ctx, signal);
 				const textOutput = formatSearchResponseText(query, response);
 				return {
 					content: [{ type: "text", text: textOutput }],

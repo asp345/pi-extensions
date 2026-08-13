@@ -13,7 +13,7 @@
 - 🚀 **Zero GPT Tokens Spent:** Pure web retrieval via OpenAI's backend endpoint. No GPT/Codex LLM turns are executed, meaning **0 input tokens, 0 output tokens, and 0 reasoning credits are billed**.
 - 👑 **Model Sovereign:** Your active Pi model (e.g., Gemini 3.5 Flash / Gemini 3.1 Pro) remains the sole reasoning model.
 - 🛠️ **Slash Command & LLM Tools:** Works both automatically as LLM tools (`web_search` & `web`) and as a direct user command (`/gpt-search`).
-- 🔑 **Credential Reuse:** Automatically uses your existing `codex login` session (`~/.codex/auth.json`) or custom `.env` tokens.
+- 🔑 **Credential Reuse:** Automatically uses your pi ChatGPT Plus/Pro (Codex) OAuth login (`openai-codex` in `auth.json`).
 - 🛡️ **Data Privacy:** Query-only by default. Does not send conversation history, project files, or system prompts to search.
 
 ---
@@ -103,7 +103,7 @@ And pattern matching within opened documents:
 
 1. **Pi Coding Agent:** `pi` CLI installed (`v0.80+`).
 2. **Node.js:** `v18.0.0` or higher.
-3. **OpenAI Codex Auth:** An authenticated Codex session (run `codex login` in terminal, or set `CODEX_ACCESS_TOKEN` in `.env`).
+3. **OpenAI Codex Auth:** A ChatGPT Plus/Pro subscription authenticated via pi `/login` (select **ChatGPT Plus/Pro (Codex)**).
 
 ---
 
@@ -125,13 +125,9 @@ cp -r pi-gpt-search .pi/extensions/
 
 ### 2. Environment Variables (Optional)
 
-Set these in your environment or project `.env` file to override Codex credentials or enable debug logging:
+Set these in your environment or project `.env` file to enable debug logging:
 
 ```env
-# Optional: If unset, automatically reads ~/.codex/auth.json
-CODEX_ACCESS_TOKEN=your_token_here
-CODEX_ACCOUNT_ID=your_account_id_here
-
 # Enable debug logging
 PI_WEB_SEARCH_DEBUG=1
 ```
@@ -149,7 +145,7 @@ PI_WEB_SEARCH_DEBUG=1
 ## ⚠️ Limitations
 
 - **Search Index Scope:** Returns search result snippets, URLs, and document views; does not include a full headless browser DOM renderer.
-- **Session Auth:** Requires an active ChatGPT/Codex login session (`codex login`). Expired sessions require running `codex login` to re-authenticate.
+- **Session Auth:** Requires an active ChatGPT Plus/Pro subscription. Expired sessions require running pi `/login` and selecting **ChatGPT Plus/Pro (Codex)** to re-authenticate.
 
 ---
 

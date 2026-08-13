@@ -11,7 +11,7 @@ export class WebSearchError extends Error {
 export class CodexAuthMissingError extends WebSearchError {
 	constructor() {
 		super(
-			"Codex-backed web search is unavailable because Codex is not authenticated. Please run 'codex login' in your terminal or configure CODEX_ACCESS_TOKEN in .env.",
+			"ChatGPT web search is unavailable because the OpenAI Codex subscription is not authenticated. Run /login and select 'ChatGPT Plus/Pro (Codex)'.",
 			"CODEX_AUTH_MISSING",
 		);
 		this.name = "CodexAuthMissingError";
@@ -21,7 +21,7 @@ export class CodexAuthMissingError extends WebSearchError {
 export class CodexAuthExpiredError extends WebSearchError {
 	constructor() {
 		super(
-			"Codex authentication expired or unauthorized. Please run 'codex login' to re-authenticate.",
+			"ChatGPT authentication expired or unauthorized. Run /login and select 'ChatGPT Plus/Pro (Codex)' to re-authenticate.",
 			"CODEX_AUTH_EXPIRED",
 		);
 		this.name = "CodexAuthExpiredError";
