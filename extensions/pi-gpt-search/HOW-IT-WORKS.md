@@ -13,7 +13,8 @@
 ## Transport Layer (`codex-provider.ts`)
 
 - **Auth resolution:** the ChatGPT access token is resolved through `ctx.modelRegistry.getProviderAuth("openai-codex")` (pi's auto-refreshed OAuth token), with `accountId` read from pi's `auth.json` (`openai-codex.accountId`). `accountId` is sent as `ChatGPT-Account-ID` when present.
-- **Session identity:** a stable `id` (`search_session_<random>` by default, overridable via `sessionId`) is sent on every call so reference IDs (`turn0search0`) stay valid across sequential `search` → `open` → `find` steps.
+- **Session identity:** a stable `id` (`search_session_<random>` by default, overridable via `sessionId`) is sent on every call so reference IDs (`turn0search0`) stay valid across sequential `search` → `open` → `find` steps. Changing the session id clears the accumulated ref index.
+- **Ref index:** every response's `results[]` (`ref_id` → `url`, `title`) is recorded into a session-scoped index (`getRefIndex()`), so citation rewriting and the `Sources:` list can hyperlink refs from earlier turns in the same session, not just the current response.
 - **Resilience:** transient gateway errors (HTTP 502/503/504) are retried up to `maxRetries` (default 2) with linear backoff; 401/403 maps to `CodexAuthExpiredError`, 429 to `CodexRateLimitError`, other non-OK statuses to `CodexHttpError`.
 - **Timeout and cancellation:** a `setTimeout` abort (`timeoutMs`, default 15000) and the caller's `AbortSignal` are bound to the `fetch` via one `AbortController`, so no request outlives its timeout or user `Esc`.
 - **Debug logging:** with `PI_WEB_SEARCH_DEBUG=1`, each call logs `req_id`, session id, command, status, elapsed time, and result count to stderr.
@@ -25,8 +26,8 @@ All errors extend `WebSearchError` with a stable `code`: `CODEX_AUTH_MISSING`, `
 ## Output & Citation Engine (`output.ts`)
 
 - The backend's model-oriented `output` text is passed to the active model verbatim as `content[0].text`.
-- Private Unicode citation markers (`\uE200cite\uE202<ref>\uE201`) and raw turn references (`[turn0search0]`) are rewritten to numbered citations, clickable in the terminal via OSC 8 hyperlinks that resolve through the response's `ref_id` → URL map.
-- A numbered `Sources:` index (title, `ref_id`, URL) is appended when the output lacks one; results-only responses are rendered as a numbered list instead.
+- Private Unicode citation markers (`\uE200cite\uE202<ref>\uE201`) and raw turn references (`[turn0search0]`) are rewritten to numbered citations, clickable in the terminal via OSC 8 hyperlinks that resolve through the response's `ref_id` → URL map, falling back to the provider's session ref index.
+- A numbered `Sources:` index (title, `ref_id`, URL) is appended when the output lacks one; the `ref_id` and URL in it are OSC 8 hyperlinks. Results-only responses are rendered as a numbered list with the same hyperlinking.
 - Raw results are attached to `details` only, so raw web payloads never enter the model's conversation context; the TUI uses `details` for the collapsed/expanded result row (`Ctrl+O`).
 
 ## Command Schema (`commands.ts`)

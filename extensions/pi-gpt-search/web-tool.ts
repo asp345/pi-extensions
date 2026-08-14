@@ -107,6 +107,9 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 		parameters: WebToolParameters,
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const command = params as WebRunCommand;
+			if (!command.response_length) {
+				command.response_length = "long";
+			}
 			if (typeof onUpdate === "function") {
 				const statusMsg = describeCommandStatus(command);
 				onUpdate({
@@ -116,7 +119,7 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 			}
 			try {
 				const response = await provider.execute(command, undefined, ctx, signal);
-				const formatted = formatWebToolResult(command, response);
+				const formatted = formatWebToolResult(command, response, provider.getRefIndex());
 				return formatted;
 			} catch (err) {
 				const errorMsg = err instanceof Error ? err.message : String(err);

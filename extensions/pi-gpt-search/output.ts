@@ -1,5 +1,6 @@
 import type { WebRunCommand } from "./commands.ts";
 import type { SearchResponse, SearchResult } from "./normalize.ts";
+import type { RefIndex } from "./provider.ts";
 
 export interface FormattedToolOutput {
 	content: Array<{ type: "text"; text: string }>;
@@ -11,7 +12,7 @@ export function formatTerminalHyperlink(url: string, text: string): string {
 	return `\u001b]8;;${url}\u001b\\${text}\u001b]8;;\u001b\\`;
 }
 
-export function cleanCitationMarkers(text: string, results: SearchResult[] = []): string {
+export function cleanCitationMarkers(text: string, results: SearchResult[] = [], refIndex?: RefIndex): string {
 	if (!text) return "";
 
 	const refToEntryMap = new Map<string, { num: number; item: SearchResult }>();
@@ -21,6 +22,8 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [])
 			refToEntryMap.set(ref, { num: idx + 1, item: r });
 		}
 	});
+
+	const resolveUrl = (ref: string): string | undefined => refToEntryMap.get(ref)?.item.url ?? refIndex?.get(ref)?.url;
 
 	// 1. Matches Codex private Unicode citation markers: \uE200cite\uE202<ref>\uE201 or cite<ref>
 	let cleaned = text.replace(
@@ -47,6 +50,11 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [])
 				return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
 			}
 
+			const indexUrl = refIndex?.get(cleanInner)?.url;
+			if (indexUrl) {
+				return formatTerminalHyperlink(indexUrl, `[${cleanInner}]`);
+			}
+
 			return `[${cleanInner}]`;
 		},
 	);
@@ -59,6 +67,10 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [])
 				const entry = refToEntryMap.get(ref)!;
 				const label = `[${entry.num}]`;
 				return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
+			}
+			const indexUrl = refIndex?.get(ref)?.url;
+			if (indexUrl) {
+				return formatTerminalHyperlink(indexUrl, `[${ref}]`);
 			}
 			return `[${ref}]`;
 		});
@@ -82,11 +94,15 @@ export function formatSearchResponseText(query: string, response: SearchResponse
 	return `Search results for: "${query}"\n\n${formattedResults.join("\n\n")}`;
 }
 
-export function formatWebToolResult(command: WebRunCommand, response: SearchResponse): FormattedToolOutput {
+export function formatWebToolResult(
+	command: WebRunCommand,
+	response: SearchResponse,
+	refIndex?: RefIndex,
+): FormattedToolOutput {
 	let primaryText = "";
 
 	if (typeof response.output === "string" && response.output.trim().length > 0) {
-		primaryText = cleanCitationMarkers(response.output.trim(), response.results);
+		primaryText = cleanCitationMarkers(response.output.trim(), response.results, refIndex);
 
 		// Append formatted source reference list if results exist and aren't already formatted at end
 		if (response.results && response.results.length > 0 && !primaryText.includes("Sources:")) {
@@ -96,7 +112,7 @@ export function formatWebToolResult(command: WebRunCommand, response: SearchResp
 				.map((r, idx) => {
 					const num = idx + 1;
 					const title = r.title ? r.title : r.url;
-					const refStr = r.ref_id ? ` (${r.ref_id})` : "";
+					const refStr = r.ref_id ? ` (${formatTerminalHyperlink(r.url, r.ref_id)})` : "";
 					const clickableUrl = formatTerminalHyperlink(r.url, r.url);
 					return `[${num}] ${title}${refStr} - ${clickableUrl}`;
 				});
@@ -111,8 +127,9 @@ export function formatWebToolResult(command: WebRunCommand, response: SearchResp
 			const title = item.title ? item.title : (item.url ?? `Result ${num}`);
 			const clickableUrl = item.url ? formatTerminalHyperlink(item.url, item.url) : "";
 			const urlLine = clickableUrl ? `   URL: ${clickableUrl}\n` : "";
-			const refLine = item.ref_id ? `   Ref: [${num}] (${item.ref_id})\n` : "";
-			const snippetLine = item.snippet ? cleanCitationMarkers(item.snippet, response.results) : "";
+			const refLabel = item.ref_id && item.url ? formatTerminalHyperlink(item.url, item.ref_id) : (item.ref_id ?? "");
+			const refLine = refLabel ? `   Ref: [${num}] (${refLabel})\n` : "";
+			const snippetLine = item.snippet ? cleanCitationMarkers(item.snippet, response.results, refIndex) : "";
 			return `[${num}] ${title}\n${refLine}${urlLine}${snippetLine ? "   " + snippetLine : ""}`.trim();
 		});
 		primaryText = `Web Search Results:\n\n${formatted.join("\n\n")}`;

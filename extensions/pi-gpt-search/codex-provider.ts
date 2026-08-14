@@ -9,7 +9,7 @@ import {
 	WebSearchTimeoutError,
 } from "./errors.ts";
 import { normalizeSearchResponseBody, type SearchResponse } from "./normalize.ts";
-import type { SearchExecutionOptions, SearchRequest, WebSearchProvider } from "./provider.ts";
+import type { RefIndex, SearchExecutionOptions, SearchRequest, WebSearchProvider } from "./provider.ts";
 
 const PROVIDER_ID = "openai-codex";
 
@@ -63,6 +63,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 	private currentSessionId: string;
 	private model: string;
 	private maxRetries: number;
+	private refIndex: RefIndex = new Map();
 
 	constructor(options?: CodexWebSearchProviderOptions) {
 		this.endpoint = options?.endpoint ?? DEFAULT_ENDPOINT;
@@ -73,13 +74,29 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		this.currentSessionId = options?.sessionId ?? `search_session_${Math.random().toString(36).substring(2, 10)}`;
 	}
 
+	getRefIndex(): RefIndex {
+		return this.refIndex;
+	}
+
 	getSessionId(): string {
 		return this.currentSessionId;
 	}
 
 	setSessionId(id: string): void {
 		if (id && id.trim()) {
+			if (id.trim() !== this.currentSessionId) {
+				this.refIndex.clear();
+			}
 			this.currentSessionId = id.trim();
+		}
+	}
+
+	private recordRefs(response: SearchResponse): void {
+		for (const r of response.results) {
+			const ref = r.ref_id;
+			if (!ref || !r.url) continue;
+			const existing = this.refIndex.get(ref);
+			this.refIndex.set(ref, { url: r.url, title: r.title ?? existing?.title });
 		}
 	}
 
@@ -193,6 +210,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 
 			const body = await response.json();
 			const normalized = normalizeSearchResponseBody(body);
+			this.recordRefs(normalized);
 
 			if (process.env.PI_WEB_SEARCH_DEBUG) {
 				console.error(

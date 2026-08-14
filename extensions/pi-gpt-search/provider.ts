@@ -6,6 +6,13 @@ export interface SearchRequest {
 	query: string;
 }
 
+export interface RefIndexEntry {
+	url: string;
+	title?: string;
+}
+
+export type RefIndex = Map<string, RefIndexEntry>;
+
 export interface SearchExecutionOptions {
 	sessionId?: string;
 }
@@ -18,6 +25,7 @@ export interface WebSearchProvider {
 		ctx: ExtensionContext,
 		signal?: AbortSignal,
 	): Promise<SearchResponse>;
+	getRefIndex(): RefIndex;
 	getSessionId(): string;
 	setSessionId(id: string): void;
 }

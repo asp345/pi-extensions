@@ -149,43 +149,50 @@ interface ModelsDevEntry {
 type ModelsDevIndex = Map<string, ModelsDevEntry>;
 
 /**
- * Some Cline tier ids are not in models.dev under their own id. Map them to a
- * models.dev entry that describes the same underlying model, used only for
- * metadata (name, limits, reasoning, modalities). Pricing still comes from the
- * tier: Cline Free is zeroed, Cline Pass uses the aliased entry's cost.
+ * Cline tier ids not in models.dev under their own id are matched by model
+ * segment in lookupModelsDev; explicit aliases are no longer needed.
  */
-const MODELS_DEV_ALIASES: Record<string, string> = {
-	// Cline Free reuses the GLM-5.2 weights; cline-pass/glm-5.2 is in models.dev.
-	"cline-free/glm-5.2": "cline-pass/glm-5.2",
-	// Cline Pass exposes Qwen 3.8 Max; qwen/qwen3.8-max is the upstream entry.
-	"cline-pass/qwen3.8-max": "qwen/qwen3.8-max",
-};
 
 /**
  * Build a flat id → entry index from the models.dev catalog. The catalog is a
  * top-level object keyed by provider id; each provider has a `models` object
- * keyed by model id.
+ * keyed by model id. Unqualified ids also get a `provider/model` key so
+ * same-named models from different providers remain distinct for lookup.
  */
 function indexModelsDev(catalog: unknown): ModelsDevIndex {
 	const index: ModelsDevIndex = new Map();
 	if (!isRecord(catalog)) return index;
-	for (const provider of Object.values(catalog)) {
+	for (const [providerId, provider] of Object.entries(catalog)) {
 		if (!isRecord(provider)) continue;
 		const models = provider.models;
 		if (!isRecord(models)) continue;
 		for (const [id, entry] of Object.entries(models)) {
-			if (isRecord(entry)) index.set(id, entry as ModelsDevEntry);
+			if (!isRecord(entry)) continue;
+			index.set(id, entry as ModelsDevEntry);
+			if (!id.includes("/")) index.set(`${providerId}/${id}`, entry as ModelsDevEntry);
 		}
 	}
 	return index;
 }
 
 /**
- * Resolve a Cline tier id to its models.dev entry, applying the catalog alias
- * when the tier id is absent from models.dev.
+ * Resolve a Cline tier id to its models.dev entry. When the exact id is
+ * absent, fall back to any catalog id sharing the same model segment
+ * ("provider/model"), preferring entries with non-zero input cost because
+ * subscription-plan entries report $0 for the same underlying model.
  */
 function lookupModelsDev(index: ModelsDevIndex, id: string): ModelsDevEntry | undefined {
-	return index.get(id) ?? index.get(MODELS_DEV_ALIASES[id] ?? id);
+	const exact = index.get(id);
+	if (exact) return exact;
+	const model = id.slice(id.lastIndexOf("/") + 1);
+	const candidates = [...index.entries()]
+		.filter(([catalogId]) => catalogId.slice(catalogId.lastIndexOf("/") + 1) === model)
+		.sort(([a], [b]) => a.localeCompare(b));
+	const withRetailCost = candidates.filter(([, entry]) => {
+		const input = isRecord(entry.cost) ? numberValue(entry.cost.input) : undefined;
+		return input != null && input > 0;
+	});
+	return withRetailCost[0]?.[1] ?? candidates[0]?.[1];
 }
 
 // ─── Parsing ───────────────────────────────────────────────────────────────

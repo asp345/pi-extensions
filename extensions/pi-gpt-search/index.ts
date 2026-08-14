@@ -30,7 +30,7 @@ export default function (pi: ExtensionAPI) {
 				const response = await provider.execute(command, undefined, ctx, ctx.signal);
 				ctx.ui.setStatus("gpt-search", undefined);
 
-				const formatted = formatWebToolResult(command, response);
+				const formatted = formatWebToolResult(command, response, provider.getRefIndex());
 				const textOutput = formatted.content[0].text;
 				ctx.ui.notify(`Web action succeeded (${response.results.length} results)`, "info");
 
