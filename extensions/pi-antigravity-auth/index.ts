@@ -38,7 +38,7 @@ import {
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const PROVIDER_ID = "google-antigravity";
+const PROVIDER_ID = "antigravity";
 const TRAILING_USAGE_TIMEOUT = 1_000;
 const requestSessions = new AgyRequestSessionStore("");
 const refreshByAccessToken = new Map<string, string>();
@@ -745,7 +745,7 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 	const models = Object.values(getPublicModelDefinitions())
 		.filter((model) => !model.modalities.output.includes("image"))
 		.map((model) => ({
-			id: model.id,
+			id: model.id.replace(/^antigravity-/, ""),
 			name: model.name,
 			reasoning: model.reasoning,
 			input: ["text", "image"] as Array<"text" | "image">,

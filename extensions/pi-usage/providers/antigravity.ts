@@ -231,7 +231,7 @@ function normalizeQuotaInfos(info: AntigravityModelInfo): AntigravityQuotaInfo[]
 }
 
 export const antigravityUsageProvider: UsageProvider = {
-	id: "google-antigravity",
+	id: "antigravity",
 	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
 		if (!credential.projectId) return null;
 		const nowMs = Date.now();
@@ -322,7 +322,7 @@ export const antigravityUsageProvider: UsageProvider = {
 		for (const entry of deduped.values()) {
 			const label = entry.counterName ? `Usage (${entry.counterName})` : "Usage";
 			limits.push({
-				id: `google-antigravity:${entry.counterKey}:${entry.tier ?? "default"}:${entry.windowId}`,
+				id: `antigravity:${entry.counterKey}:${entry.tier ?? "default"}:${entry.windowId}`,
 				label,
 				window: entry.window,
 				amount: entry.amount,
@@ -333,6 +333,6 @@ export const antigravityUsageProvider: UsageProvider = {
 		limits.sort((a, b) => (a.amount.remainingFraction ?? 1) - (b.amount.remainingFraction ?? 1));
 		if (limits.length === 0) return null;
 		const metadata: Record<string, unknown> = { endpoint: successfulEndpoint, projectId: credential.projectId };
-		return { provider: "google-antigravity", fetchedAt: nowMs, limits, metadata };
+		return { provider: "antigravity", fetchedAt: nowMs, limits, metadata };
 	},
 };

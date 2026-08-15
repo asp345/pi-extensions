@@ -71,7 +71,7 @@ export async function resolveCredential(
 	// account/project metadata is not surfaced through getProviderAuth; read it
 	// from the stored credential.
 	if (stored?.accountId) credential.accountId = stored.accountId;
-	if (providerId === "google-antigravity") {
+	if (providerId === "google-antigravity" || providerId === "antigravity") {
 		const project = projectFromRefresh(stored?.refresh);
 		if (project) credential.projectId = project;
 	}

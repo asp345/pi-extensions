@@ -22,18 +22,18 @@ async function collect(response: Response): Promise<unknown[]> {
 }
 
 test("tool results use Antigravity's observed same-model and cross-model roles", () => {
-	const target = { provider: "google-antigravity", id: "claude-opus" } as Parameters<typeof convertMessages>[1];
+	const target = { provider: "antigravity", id: "claude-opus" } as Parameters<typeof convertMessages>[1];
 	const messages = [
 		{
 			role: "assistant",
-			provider: "google-antigravity",
+			provider: "antigravity",
 			model: "claude-opus",
 			content: [{ type: "toolCall", id: "same", name: "read", arguments: {} }],
 		},
 		{ role: "toolResult", toolCallId: "same", toolName: "read", content: [], isError: false },
 		{
 			role: "assistant",
-			provider: "google-antigravity",
+			provider: "antigravity",
 			model: "gemini-flash",
 			content: [{ type: "toolCall", id: "cross", name: "read", arguments: {} }],
 		},

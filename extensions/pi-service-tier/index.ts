@@ -13,7 +13,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 
-const TIERS = ["auto", "default", "flex", "fast"] as const;
+const TIERS = ["default", "flex", "priority"] as const;
 type Tier = (typeof TIERS)[number];
 
 const APIS = new Set(["openai-responses", "openai-completions"]);
@@ -23,10 +23,9 @@ const COMMAND = "service-tier";
 const BASE_PROVIDER = Symbol("pi-service-tier-base-provider");
 type WrappedProvider = Provider & { [BASE_PROVIDER]: Provider };
 const DESCRIPTIONS: Record<Tier, string> = {
-	auto: "project default (no service_tier sent)",
-	default: "standard processing",
+	default: "standard processing (no service_tier sent)",
 	flex: "lower-cost processing with slower or unavailable capacity",
-	fast: "faster processing at premium pricing (reported as priority)",
+	priority: "faster processing at premium pricing",
 };
 
 function isTier(value: string): value is Tier {
@@ -37,11 +36,11 @@ async function loadTier(): Promise<Tier> {
 	try {
 		const value: unknown = JSON.parse(await readFile(STATE_FILE, "utf8"));
 		const state = value as { version?: unknown; tier?: unknown };
-		if (state.version !== STATE_VERSION && state.tier === "default") return "auto";
-		if (state.tier === "priority") return "fast";
-		return typeof state.tier === "string" && isTier(state.tier) ? state.tier : "auto";
+		if (state.tier === "fast") return "priority";
+		if (state.tier === "auto") return "default";
+		return typeof state.tier === "string" && isTier(state.tier) ? state.tier : "default";
 	} catch {
-		return "auto";
+		return "default";
 	}
 }
 
@@ -54,13 +53,13 @@ async function saveTier(tier: Tier): Promise<void> {
 }
 
 export function applyTierToPayload(payload: unknown, tier: Tier): unknown | undefined {
-	if (tier === "auto" || payload === null || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+	if (tier === "default" || payload === null || typeof payload !== "object" || Array.isArray(payload)) return undefined;
 	return { ...payload, service_tier: tier };
 }
 
 export function tierCostMultiplier(tier: Tier, modelId: string): number {
 	if (tier === "flex") return 0.5;
-	if (tier === "fast") return modelId === "gpt-5.5" ? 2.5 : 2;
+	if (tier === "priority") return modelId === "gpt-5.5" ? 2.5 : 2;
 	return 1;
 }
 
@@ -78,7 +77,7 @@ function optionsWithTier<T extends StreamOptions>(options: T | undefined, tier: 
 	const originalPayload = options?.onPayload;
 	return {
 		...(options ?? ({} as T)),
-		serviceTier: undefined,
+		serviceTier: tier === "default" ? undefined : tier,
 		onPayload: async (payload: unknown, model: Model<Api>) => {
 			const replacement = await originalPayload?.(payload, model);
 			const transformed = replacement === undefined ? payload : replacement;
@@ -115,7 +114,7 @@ function streamWithTier(
 	options: StreamOptions | undefined,
 	tier: Tier,
 ): AssistantMessageEventStream {
-	if (!APIS.has(model.api) || tier === "auto") return start(model, context, options);
+	if (!APIS.has(model.api) || tier === "default") return start(model, context, options);
 	const output = createAssistantMessageEventStream();
 	const multiplier = tierCostMultiplier(tier, model.id);
 	void (async () => {
@@ -124,8 +123,10 @@ function streamWithTier(
 			const inner = start(model, context, optionsWithTier(options, tier));
 			for await (const event of inner) {
 				last = "partial" in event ? event.partial : event.type === "done" ? event.message : event.error;
-				if (event.type === "done") applyTierCost(event.message, multiplier);
-				if (event.type === "error") applyTierCost(event.error, multiplier);
+				if (model.api !== "openai-responses") {
+					if (event.type === "done") applyTierCost(event.message, multiplier);
+					if (event.type === "error") applyTierCost(event.error, multiplier);
+				}
 				output.push(event);
 			}
 		} catch (error) {
@@ -197,11 +198,10 @@ export default async function serviceTier(pi: ExtensionAPI): Promise<void> {
 				if (ctx.hasUI) return select(ctx);
 				return ctx.ui.notify(describe(), "info");
 			}
-			const tier = value === "priority" ? "fast" : value;
-			if (!isTier(tier)) {
+			if (!isTier(value)) {
 				return ctx.ui.notify(`Usage: /${COMMAND} [${TIERS.join("|")}]\n${describe()}`, "warning");
 			}
-			await apply(ctx, tier);
+			await apply(ctx, value);
 		},
 	});
 }
