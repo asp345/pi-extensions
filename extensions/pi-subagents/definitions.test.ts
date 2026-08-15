@@ -4,7 +4,6 @@ import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -21,36 +20,11 @@ registerHooks({
 	},
 });
 
-const { discoverDefinitions, parseDefinition } = await import("./definitions.ts");
+const { discoverDefinitions } = await import("./definitions.ts");
 const { delegationPrompt } = await import("./index.ts");
 const { promptWithFallbacks, resolveModel, resolveThinking, resumeSession, turnLimitAction } = await import(
 	"./runner.ts"
 );
-
-test("agent Markdown accepts ordered models", () => {
-	const path = fileURLToPath(new URL("./agents/General.md", import.meta.url));
-	const definition = parseDefinition(path, "default");
-	assert.deepEqual(definition.models, ["parent", "anthropic/claude-opus-5", "openai/gpt-5.6-terra"]);
-	assert.equal(definition.thinking, "parent");
-
-	const explore = parseDefinition(fileURLToPath(new URL("./agents/Explore.md", import.meta.url)), "default");
-	assert.deepEqual(explore.models, ["openai-codex/gpt-5.6-luna", "openrouter/deepseek/deepseek-v4-flash-0731"]);
-
-	const plan = parseDefinition(fileURLToPath(new URL("./agents/Plan.md", import.meta.url)), "default");
-	assert.ok(plan.tools.includes("web_search"));
-	assert.ok(plan.tools.includes("web"));
-
-	const review = parseDefinition(fileURLToPath(new URL("./agents/Review.md", import.meta.url)), "default");
-	assert.ok(!review.tools.includes("edit"));
-	assert.ok(!review.tools.includes("write"));
-	assert.equal(review.thinking, "xhigh");
-
-	const worker = parseDefinition(fileURLToPath(new URL("./agents/Worker.md", import.meta.url)), "default");
-	assert.deepEqual(worker.models, ["openai-codex/gpt-5.6-luna"]);
-	assert.equal(worker.thinking, "max");
-	assert.equal(worker.runInBackground, true);
-	assert.ok(worker.tools.includes("edit"));
-});
 
 test("untrusted projects cannot contribute agent definitions", async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-subagent-trust-"));

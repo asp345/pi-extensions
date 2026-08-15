@@ -26,6 +26,6 @@
 		"@earendil-works/pi-coding-agent": "*"
 	},
 	"dependencies": {
-		"@cortexkit/antigravity-auth-core": "2.0.0"
+		"@cortexkit/antigravity-auth-core": "^2.1.0"
 	}
 }
