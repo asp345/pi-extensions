@@ -3,8 +3,8 @@ description: Lightweight agent for bounded file, symbol, reference, and excerpt 
 tools: read, bash, grep, find, ls
 extensions: true
 skills: true
-models: openai-codex/gpt-5.6-luna, openrouter/deepseek/deepseek-v4-flash-0731
-thinking: max
+models: opencode-go/deepseek-v4-flash, openai-codex/gpt-5.6-luna
+thinking: high
 max_turns: 12
 prompt_mode: replace
 fork: false
