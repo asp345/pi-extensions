@@ -14,19 +14,19 @@ import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.js";
 
 const DEFAULT_SYNC_MS = 30_000;
-const MAX_SYNC_MS = 120_000;
+const MAX_SYNC_MS = 90_000;
 
 const HANDOFF_GUIDELINE =
-	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. DO NOT sleep or poll to wait.";
+	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 120 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 90 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
 	timeout: Type.Optional(
 		Type.Number({
 			description:
-				"Seconds to run in the foreground before moving the command to a background task (default 30, max 120)",
+				"Seconds to run in the foreground before moving the command to a background task (default 30, max 90)",
 		}),
 	),
 });
@@ -98,7 +98,7 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 				}
 				onData(
 					Buffer.from(
-						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; DO NOT sleep or poll to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
+						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
 					),
 				);
 				return { exitCode: null };

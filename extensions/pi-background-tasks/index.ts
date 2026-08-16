@@ -53,7 +53,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle. While a task runs, a still-running notification is delivered at the heartbeat interval (default 30 minutes).",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
-			"After starting a background_task, continue independent work or end the turn; completion will be delivered and wake you again. DO NOT run sleep command to wait. Do other jobs or end the turn.",
+			"After starting a background_task, continue independent work or end the turn; completion will be delivered and wake you again. Never run sleep command or poll Do other jobs or end the turn.",
 			"Use list or read only when you need status or output before completion arrives.",
 		],
 		parameters: Type.Object({
