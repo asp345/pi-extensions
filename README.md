@@ -24,8 +24,6 @@ My personal Pi monorepo.
 
 The included theme is `themes/flatland.json`.
 
-`prompts/anticlaude.md` defines `/anticlaude <file>`, which rewrites a document to remove Claude-typical phrasing: contrastive scaffolding, figurative language, significance inflation, and settlement verbs, with a separate list for Korean calques such as 값이 "살아남습니다", "확정했습니다", and "배선" outside literal circuit contexts. Terms the document itself defines stay, edits are minimal, and math, labels, and claim strength are untouched.
-
 `pi-setup-custom-providers` handles custom providers and their model metadata. It replaces the previously vendored setup wizard with a local implementation.
 
 Use `/custom-model` to add, edit, remove, and discover providers such as OpenRouter, Novita, Modal, and other OpenAI-compatible services. Provider definitions are stored in Pi's `models.json`, and credentials stay in Pi's auth storage when configured through `/login`. The extension never writes `settings.json`, so the `/models` allow-list is unaffected.
