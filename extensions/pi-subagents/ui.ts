@@ -9,7 +9,7 @@ import {
 	SelectList,
 	Text,
 } from "@earendil-works/pi-tui";
-import { CONTEXT_ROWS, renderAgentContext } from "./context.js";
+import { buildAgentContextFullLines, CONTEXT_ROWS, renderAgentContext, SCROLL_STEP } from "./context.js";
 import type { AgentManager } from "./manager.js";
 import type { AgentRecord } from "./types.js";
 
@@ -23,7 +23,8 @@ export class AgentsUI {
 	private inputUnsub?: () => void;
 	private selectedId?: string;
 	private contextVisible = false;
-	private scrollOffset = 0;
+	private topLine: number | null = null;
+	private lastRenderWidth = 80;
 	private opening = false;
 
 	constructor(private readonly manager: AgentManager) {}
@@ -45,7 +46,7 @@ export class AgentsUI {
 		this.widgetTui = undefined;
 		this.selectedId = undefined;
 		this.contextVisible = false;
-		this.scrollOffset = 0;
+		this.topLine = null;
 	}
 
 	private selected(records: AgentRecord[]): AgentRecord | undefined {
@@ -72,18 +73,46 @@ export class AgentsUI {
 		}
 		if (this.contextVisible && matchesKey(data, "escape") && this.context.ui.getEditorText() === "") {
 			this.contextVisible = false;
-			this.scrollOffset = 0;
+			this.topLine = null;
 			this.updateWidget(true);
 			return { consume: true };
 		}
 		if (this.contextVisible && matchesKey(data, Key.pageUp)) {
-			this.scrollOffset += CONTEXT_ROWS;
-			this.updateWidget(true);
+			const record = this.selected(this.manager.running());
+			if (record && this.context) {
+				const theme = this.context.ui.theme;
+				const fullLines = buildAgentContextFullLines(
+					record,
+					this.lastRenderWidth,
+					theme,
+					this.widgetTui as never,
+					this.context.cwd,
+				);
+				const currentTop = this.topLine ?? Math.max(0, fullLines.length - CONTEXT_ROWS);
+				this.topLine = Math.max(0, currentTop - SCROLL_STEP);
+				this.updateWidget(true);
+			}
 			return { consume: true };
 		}
 		if (this.contextVisible && matchesKey(data, Key.pageDown)) {
-			this.scrollOffset = Math.max(0, this.scrollOffset - CONTEXT_ROWS);
-			this.updateWidget(true);
+			const record = this.selected(this.manager.running());
+			if (record && this.context && this.topLine !== null) {
+				const theme = this.context.ui.theme;
+				const fullLines = buildAgentContextFullLines(
+					record,
+					this.lastRenderWidth,
+					theme,
+					this.widgetTui as never,
+					this.context.cwd,
+				);
+				const nextTop = this.topLine + SCROLL_STEP;
+				if (nextTop >= fullLines.length - CONTEXT_ROWS) {
+					this.topLine = null;
+				} else {
+					this.topLine = nextTop;
+				}
+				this.updateWidget(true);
+			}
 			return { consume: true };
 		}
 		if (!matchesKey(data, "alt+a")) return undefined;
@@ -102,14 +131,14 @@ export class AgentsUI {
 			this.widgetTui = undefined;
 			this.selectedId = undefined;
 			this.contextVisible = false;
-			this.scrollOffset = 0;
+			this.topLine = null;
 			tui?.requestRender(true);
 			return;
 		}
 		if (this.contextVisible && !this.selected(active)) {
 			this.contextVisible = false;
 			this.selectedId = undefined;
-			this.scrollOffset = 0;
+			this.topLine = null;
 			force = true;
 		}
 		if (this.widgetTui) {
@@ -120,11 +149,23 @@ export class AgentsUI {
 			this.widgetTui = tui;
 			return {
 				render: (width: number) => {
+					this.lastRenderWidth = width;
 					const records = this.manager.running();
 					const separator = theme.fg("borderMuted", "─".repeat(width));
 					const record = this.contextVisible ? this.selected(records) : undefined;
 					return record
-						? [separator, ...renderAgentContext(record, width, theme, tui, ctx.cwd, CONTEXT_ROWS, this.scrollOffset)]
+						? [
+								separator,
+								...renderAgentContext(
+									record,
+									width,
+									theme,
+									tui,
+									ctx.cwd,
+									CONTEXT_ROWS,
+									this.topLine !== null ? { topLine: this.topLine } : null,
+								),
+							]
 						: [separator, theme.fg("dim", `Agents · ${records.length} running · Alt+A open`)];
 				},
 				invalidate() {},
@@ -194,7 +235,7 @@ export class AgentsUI {
 				if (record) {
 					this.selectedId = record.id;
 					this.contextVisible = true;
-					this.scrollOffset = 0;
+					this.topLine = null;
 					this.updateWidget(true);
 				}
 				return;
@@ -214,7 +255,7 @@ export class AgentsUI {
 				}
 				this.selectedId = choice.id;
 				this.contextVisible = true;
-				this.scrollOffset = 0;
+				this.topLine = null;
 				this.updateWidget(true);
 				return;
 			}

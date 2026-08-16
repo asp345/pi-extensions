@@ -31,7 +31,7 @@ setThemeInstance(
 		),
 	),
 );
-const { renderAgentContext, renderAgentList } = await import("./context.ts");
+const { CONTEXT_ROWS, renderAgentContext, renderAgentList } = await import("./context.ts");
 
 const theme = { fg: (_color: "accent" | "borderMuted" | "dim" | "text", text: string) => text };
 const tui = { requestRender: () => undefined };
@@ -70,7 +70,7 @@ test("subagent context is titleless, bounded, and shows the latest activity", ()
 	}));
 	const lines = renderAgentContext(record(messages), 30, theme, tui as never, process.cwd());
 
-	assert.equal(lines.length, 20);
+	assert.equal(lines.length, CONTEXT_ROWS);
 	assert.match(lines.at(-1) ?? "", /activity-29/u);
 	assert.doesNotMatch(lines.join("\n"), /Explore|provider\/model|agent-12345678/u);
 	for (const line of lines) {
@@ -78,7 +78,15 @@ test("subagent context is titleless, bounded, and shows the latest activity", ()
 		assert.match(line, /\x1b\[0m *$/u);
 	}
 
-	const previousPage = renderAgentContext(record(messages), 30, theme, tui as never, process.cwd(), 20, 20);
+	const previousPage = renderAgentContext(
+		record(messages),
+		30,
+		theme,
+		tui as never,
+		process.cwd(),
+		CONTEXT_ROWS,
+		CONTEXT_ROWS,
+	);
 	assert.notDeepEqual(previousPage, lines);
 	assert.doesNotMatch(previousPage.join("\n"), /activity-29/u);
 });

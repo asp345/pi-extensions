@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearAgentContextCache } from "./context.js";
 import { resolveModels, resolveThinking, resumeSession, runNew } from "./runner.js";
 import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.js";
 import { message, onAbort } from "./util.js";
@@ -188,6 +189,7 @@ export class AgentManager {
 	private cleanup(record: AgentRecord, parentCwd: string): void {
 		record.session?.dispose();
 		if (record.worktree) removeWorktree(parentCwd, record.worktree);
+		clearAgentContextCache(record.id);
 	}
 
 	private async run(
