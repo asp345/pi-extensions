@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
+import { sleepBlockReason } from "./guard.ts";
 
 type TaskStatus = "running" | "completed" | "failed" | "stopped";
 
@@ -107,6 +108,8 @@ export class BackgroundRuntime {
 			onOutputRaw?: (data: Buffer) => void;
 		} = {},
 	): TaskSnapshot {
+		const reason = sleepBlockReason(command);
+		if (reason !== null) throw new Error(reason);
 		const id = `bg-${++this.counter}`;
 		const now = Date.now();
 		const logFile = join(tmpdir(), `pi-bg-${id}-${now}.log`);

@@ -75,6 +75,17 @@ test("clear removes finished tasks and does not recreate log files", async () =>
 	}
 });
 
+test("start rejects sleep at or above 10 seconds with guidance", () => {
+	const { runtime } = createHarness();
+	try {
+		assert.throws(() => runtime.start("sleep 30", process.cwd()), /Do not sleep to wait/);
+		assert.throws(() => runtime.start("sleep $N", process.cwd()), /Do not sleep to wait/);
+		assert.equal(runtime.list().length, 0);
+	} finally {
+		runtime.shutdown();
+	}
+});
+
 test("shutdown clears the task map and suppresses late events", async () => {
 	const { runtime, events, updates } = createHarness();
 	const task = runtime.start("sleep 5", process.cwd());
