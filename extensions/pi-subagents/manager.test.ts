@@ -1,21 +1,7 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
 import { test } from "node:test";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "./types.ts";
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-			try {
-				return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
-			} catch {
-				return nextResolve(specifier, context);
-			}
-		}
-		return nextResolve(specifier, context);
-	},
-});
 
 const { AgentManager } = await import("./manager.ts");
 const definition: AgentDefinition = {

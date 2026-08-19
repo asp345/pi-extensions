@@ -1,24 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { registerHooks } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-			try {
-				return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
-			} catch {
-				return nextResolve(specifier, context);
-			}
-		}
-		return nextResolve(specifier, context);
-	},
-});
 
 const { discoverDefinitions } = await import("./definitions.ts");
 const { delegationPrompt } = await import("./index.ts");

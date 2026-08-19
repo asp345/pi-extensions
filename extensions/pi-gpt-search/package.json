@@ -11,6 +11,7 @@
 	],
 	"files": [
 		"*.ts",
+		"!*.test.ts",
 		"LICENSE",
 		"README.md",
 		"HOW-IT-WORKS.md"

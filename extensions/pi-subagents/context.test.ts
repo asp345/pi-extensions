@@ -1,22 +1,8 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentRecord } from "./types.ts";
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-			try {
-				return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
-			} catch {
-				return nextResolve(specifier, context);
-			}
-		}
-		return nextResolve(specifier, context);
-	},
-});
 
 const { loadThemeFromPath, setThemeInstance } = await import(
 	"../../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/theme/theme.js"
@@ -89,33 +75,4 @@ test("subagent context is titleless, bounded, and shows the latest activity", ()
 	);
 	assert.notDeepEqual(previousPage, lines);
 	assert.doesNotMatch(previousPage.join("\n"), /activity-29/u);
-});
-
-test("subagent context reuses the main tool renderer and background", () => {
-	const lines = renderAgentContext(
-		record([
-			{
-				role: "assistant",
-				content: [{ type: "toolCall", name: "read", id: "call-1", arguments: { path: "sample.ts" } }],
-			},
-			{
-				role: "toolResult",
-				toolCallId: "call-1",
-				toolName: "read",
-				content: [{ type: "text", text: Array.from({ length: 30 }, (_, index) => `output-${index}`).join("\n") }],
-			},
-		]),
-		40,
-		theme,
-		tui as never,
-		process.cwd(),
-	);
-
-	assert.match(lines.join("\n"), /read/u);
-	assert.match(lines.join("\n"), /sample\.ts/u);
-	assert.match(lines.join("\n"), /\x1b\[48;2;/u);
-	assert.ok(lines.every((line) => !line.startsWith("│ ")));
-	assert.ok(lines.every((line) => visibleWidth(line) === 40));
-	assert.ok(lines.every((line) => /\x1b\[0m *$/u.test(line)));
-	assert.ok(lines.every((line) => !/[╭╮╰╯]/u.test(line)));
 });

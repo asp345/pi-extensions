@@ -64,8 +64,6 @@ npm run check
 nix fmt
 ```
 
-The development shell provides Node.js 24, Biome, `typescript-language-server`, and `nixd`. It also configures the Pi LSP extension to use the shell's Biome and nixd binaries.
-
 Install the package locally after dependencies are available:
 
 ```bash

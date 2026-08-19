@@ -11,10 +11,7 @@
 	],
 	"files": [
 		"*.ts",
-		"!*.test.ts",
-		"LICENSE",
-		"README.md",
-		"agents"
+		"!*.test.ts"
 	],
 	"pi": {
 		"extensions": [

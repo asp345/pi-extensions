@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Model, Provider, RefreshModelsContext, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Model, Provider, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
@@ -235,92 +235,6 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 	});
 }
 
-function createExtensionCatalog(
-	initialBaseline: OpenRouterModel[],
-	initialCache: OpenRouterMetadataCacheEntry | undefined,
-	cache: OpenRouterMetadataCache,
-) {
-	let baseline = initialBaseline;
-	let entry = initialCache;
-	let networkRefresh: Promise<void> | undefined;
-	const models = () => {
-		const overrides = new Map((entry?.models ?? []).map(({ id, ...value }) => [id, value]));
-		return extensionModelConfigs(applyMetadataOverrides(baseline, overrides));
-	};
-	const refresh = async (context: RefreshModelsContext) => {
-		const stored = context.stored;
-		const dynamic = (stored?.models ?? []).flatMap((value) => {
-			const model = storedOpenRouterModel(value);
-			return model ? [model] : [];
-		});
-		if (dynamic.length) baseline = mergeModelCatalog(baseline, dynamic);
-		entry ??= await cache.read();
-		if (!context.allowNetwork || context.signal?.aborted) return models();
-		if (!context.force && entry && Date.now() - entry.checkedAt < CACHE_TTL_MS) return models();
-		if (!context.force && networkRefresh) return models();
-
-		const execute = async () => {
-			if (context.signal?.aborted) return;
-			const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-			const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
-			const response = await globalThis.fetch(CATALOG_URL, {
-				headers: {
-					accept: "application/json",
-					...(entry?.etag ? { "if-none-match": entry.etag } : {}),
-					...(entry?.lastModified ? { "if-modified-since": entry.lastModified } : {}),
-				},
-				redirect: "error",
-				signal,
-			});
-			if (context.signal?.aborted) return;
-			if (response.status === 304 && entry) {
-				entry = { ...entry, checkedAt: Date.now() };
-				await cache.write(entry);
-				return;
-			}
-			if (!response.ok) throw new Error(`OpenRouter model refresh failed with HTTP ${response.status}.`);
-			const payload = await readCatalog(response);
-			if (context.signal?.aborted) return;
-			const overrides = buildMetadataOverrides(baseline, payload);
-			entry = {
-				version: CACHE_VERSION,
-				models: [...overrides].map(([id, value]) => ({ id, ...value })),
-				checkedAt: Date.now(),
-				etag: response.headers.get("etag") ?? undefined,
-				lastModified: response.headers.get("last-modified") ?? undefined,
-			};
-			await cache.write(entry);
-		};
-		const predecessor = networkRefresh;
-		const pending = (predecessor ? predecessor.catch(() => undefined) : Promise.resolve()).then(execute);
-		networkRefresh = pending;
-		if (context.force) {
-			try {
-				await pending;
-			} finally {
-				if (networkRefresh === pending) networkRefresh = undefined;
-			}
-		} else {
-			pending
-				.catch(() => undefined)
-				.finally(() => {
-					if (networkRefresh === pending) networkRefresh = undefined;
-				});
-		}
-		return models();
-	};
-	return { models, refresh };
-}
-
-function mergeModelCatalog(
-	baseline: readonly OpenRouterModel[],
-	dynamic: readonly OpenRouterModel[],
-): OpenRouterModel[] {
-	const merged = new Map(baseline.map((model) => [model.id, model]));
-	for (const model of dynamic) merged.set(model.id, model);
-	return [...merged.values()];
-}
-
 function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undefined {
 	try {
 		return parseCacheEntry(JSON.parse(readFileSync(join(getAgentDir(), CACHE_FILE), "utf8")) as unknown);
@@ -400,25 +314,6 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
 	if (!source) return undefined;
 	const entries = Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string");
 	return entries.length ? Object.fromEntries(entries) : undefined;
-}
-
-function extensionModelConfigs(models: readonly OpenRouterModel[]) {
-	return models.map((model) => ({
-		id: model.id,
-		name: model.name,
-		api: model.api,
-		baseUrl: model.baseUrl,
-		reasoning: model.reasoning,
-		thinkingLevelMap: model.thinkingLevelMap ? { ...model.thinkingLevelMap } : undefined,
-		input: [...model.input],
-		cost: model.cost.tiers
-			? { ...model.cost, tiers: model.cost.tiers.map((tier) => ({ ...tier })) }
-			: { ...model.cost },
-		contextWindow: model.contextWindow,
-		maxTokens: model.maxTokens,
-		headers: model.headers ? { ...model.headers } : undefined,
-		compat: model.compat ? { ...model.compat } : undefined,
-	}));
 }
 
 export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenRouterMetadataCache {

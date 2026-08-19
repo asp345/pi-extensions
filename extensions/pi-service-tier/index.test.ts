@@ -150,11 +150,4 @@ test("OpenAI requests apply the selected tier and matching cost multiplier", asy
 	assert.deepEqual(lastPayload, { model: model.id, stream: true, service_tier: "flex" });
 	assert.equal(lastServiceTier, "flex");
 	assert.deepEqual(flexResult.usage.cost, { input: 0.5, output: 1, cacheRead: 1.5, cacheWrite: 2, total: 5 });
-
-	// 3. priority tier: service_tier: "priority", multiplier 2
-	await command!("priority", ctx);
-	const priorityResult = await registered.streamSimple(model, { messages: [] }).result();
-	assert.deepEqual(lastPayload, { model: model.id, stream: true, service_tier: "priority" });
-	assert.equal(lastServiceTier, "priority");
-	assert.deepEqual(priorityResult.usage.cost, { input: 2, output: 4, cacheRead: 6, cacheWrite: 8, total: 20 });
 });

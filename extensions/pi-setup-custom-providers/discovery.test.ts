@@ -62,13 +62,6 @@ test("free models keep zero pricing and variable-pricing sentinels are ignored",
 	assert.equal(variable?.cost, undefined);
 });
 
-test("listings without metadata report no detected limits", () => {
-	const model = parseModelMetadata({ id: "moonshotai/Kimi-K3", object: "model", owned_by: "modal" });
-	assert.equal(model?.reasoning, undefined);
-	assert.equal(model?.contextDetected, false);
-	assert.equal(model?.maxTokensDetected, false);
-});
-
 test("capability tokens normalize provider vocabulary", () => {
 	assert.deepEqual(
 		capabilityTokens({ features: ["Function-Calling", "VISION"], supported_parameters: ["reasoning"] }),

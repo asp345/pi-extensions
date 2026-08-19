@@ -1,21 +1,7 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRuntime, TaskEvent } from "./runtime.ts";
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-			try {
-				return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
-			} catch {
-				return nextResolve(specifier, context);
-			}
-		}
-		return nextResolve(specifier, context);
-	},
-});
 
 const { BackgroundUI } = await import("./ui.ts");
 

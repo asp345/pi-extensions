@@ -12,9 +12,7 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"LICENSE",
-		"README.md",
-		"agents"
+		"README.md"
 	],
 	"pi": {
 		"extensions": [

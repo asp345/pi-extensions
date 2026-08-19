@@ -1,21 +1,7 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
 import { homedir } from "node:os";
 import { test } from "node:test";
 import type { GuardConfig } from "./config.ts";
-
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		if ((specifier.startsWith("./") || specifier.startsWith("../")) && specifier.endsWith(".js")) {
-			try {
-				return nextResolve(`${specifier.slice(0, -3)}.ts`, context);
-			} catch {
-				return nextResolve(specifier, context);
-			}
-		}
-		return nextResolve(specifier, context);
-	},
-});
 
 const { expandShellWord, inspectShell } = await import("./index.ts");
 

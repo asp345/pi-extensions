@@ -13,7 +13,6 @@
 		"*.ts",
 		"!*.test.ts",
 		"LICENSE",
-		"README.md",
 		"agents"
 	],
 	"pi": {
