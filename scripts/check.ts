@@ -26,7 +26,6 @@ const expectedDirs = [
 	"pi-anthropic-oauth",
 	"pi-antigravity-auth",
 	"pi-background-tasks",
-	"pi-clinepass-provider",
 	"pi-direnv",
 	"pi-goal",
 	"pi-gpt-search",
