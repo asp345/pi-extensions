@@ -3,7 +3,7 @@ description: Read-only code review agent for correctness, risks, and improvement
 tools: read, bash, grep, find, ls, lsp_diagnostics, web_search, web
 extensions: true
 skills: true
-models: openai-codex/gpt-5.6-terra, anthropic/claude-opus-5, opencode-go/deepseek-v4-pro
+models: openai-codex/gpt-5.6-terra, opencode-go/deepseek-v4-pro
 thinking: xhigh
 max_turns: 32
 prompt_mode: replace

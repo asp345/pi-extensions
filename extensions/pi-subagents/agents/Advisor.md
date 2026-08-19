@@ -3,7 +3,7 @@ description: High-skilled advisor that will give you good insights for difficult
 tools: read, bash, grep, find, ls, lsp_diagnostics, web_search, web
 extensions: true
 skills: true
-models: anthropic/claude-fable-5, openai-codex/gpt-5.6-sol
+models: openai-codex/gpt-5.6-sol
 thinking: xhigh
 max_turns: 32
 prompt_mode: append
