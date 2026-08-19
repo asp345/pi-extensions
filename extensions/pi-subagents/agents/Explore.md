@@ -1,5 +1,5 @@
 ---
-description: Lightweight agent for bounded file, symbol, reference, and excerpt discovery only. Not meant for deep analysis.
+description: Lightweight agent for bounded file, symbol, reference, and excerpt discovery only. Not for deep analysis or small codebase.
 tools: read, bash, grep, find, ls
 extensions: true
 skills: true
