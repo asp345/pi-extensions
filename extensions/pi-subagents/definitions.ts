@@ -81,7 +81,7 @@ export function parseDefinition(path: string, source: AgentDefinition["source"])
 		persistSession: bool(fm.persist_session, false),
 		outputTranscript: bool(fm.output_transcript, true),
 		sessionDir: text(fm.session_dir),
-		promptMode: fm.prompt_mode === "append" ? "append" : "replace",
+		promptMode: fm.prompt_mode === "replace" ? "replace" : "append",
 		fork: bool(fm.fork, false),
 		runInBackground: bool(fm.run_in_background, true),
 		memory,
@@ -122,7 +122,7 @@ thinking: parent
 max_turns: 24
 persist_session: false
 output_transcript: true
-prompt_mode: replace
+prompt_mode: append
 fork: false
 run_in_background: true
 worktree: false

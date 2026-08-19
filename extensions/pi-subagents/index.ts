@@ -22,7 +22,7 @@ const AgentParameters = Type.Object({
 		minLength: 1,
 		maxLength: 20_000,
 		description:
-			"Relevant project context the subagent needs, such as paths, symbols, observed behavior, prior findings, and validation requirements. The parent conversation is not inherited.",
+			"Relevant project context the subagent needs, such as paths, symbols, observed behavior, prior findings, and validation requirements. If the project has a project-specific environment (dev container, venv, nix flake/shell, package manager, build or test tooling), state what it is so the subagent runs commands correctly. The parent conversation is not inherited.",
 	}),
 	subagent_type: Type.String({ minLength: 1, maxLength: 64, description: "Markdown agent name." }),
 	run_in_background: Type.Optional(
@@ -161,7 +161,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as steering at the next turn boundary.",
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
-			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
+			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. If the project has a project-specific environment (dev container, venv, nix flake/shell, package manager, build or test tooling), state what it is so the subagent uses the correct commands. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
 			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
 			"After launching a background agent, continue independent work or end the turn; its settled result arrives as steering at the next turn boundary. Do not sleep, poll, or launch duplicate work to wait.",
 			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
