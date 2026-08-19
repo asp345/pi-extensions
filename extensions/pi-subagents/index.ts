@@ -30,9 +30,27 @@ const AgentParameters = Type.Object({
 			description: "Run asynchronously; default true. Set false only when the next parent action requires this result.",
 		}),
 	),
-	model: Type.Optional(Type.String({ maxLength: 256 })),
-	max_turns: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
-	resume: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
+	model: Type.Optional(
+		Type.String({
+			maxLength: 256,
+			description:
+				"Optional exact provider/model override. Omit to use the agent's configured model order. Do not use speed labels such as `fast`.",
+		}),
+	),
+	max_turns: Type.Optional(
+		Type.Integer({
+			minimum: 1,
+			maximum: 200,
+			description: "Optional turn-limit override. Omit to use the agent's configured limit.",
+		}),
+	),
+	resume: Type.Optional(
+		Type.String({
+			minLength: 1,
+			maxLength: 64,
+			description: "Existing subagent ID to resume. Cannot be combined with `fork`.",
+		}),
+	),
 	fork: Type.Optional(Type.Boolean({ description: "Copy the parent's active conversation; default false." })),
 });
 
@@ -162,6 +180,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
 			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. If the project has a project-specific environment (dev container, venv, nix flake/shell, package manager, build or test tooling), state what it is so the subagent uses the correct commands. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
+			"Omit `model` to use the agent's configured model order. If set, use an exact `provider/model` ID, not a speed label such as `fast`.",
 			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
 			"After launching a background agent, continue independent work or end the turn; its settled result arrives as steering at the next turn boundary. Do not sleep, poll, or launch duplicate work to wait.",
 			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
