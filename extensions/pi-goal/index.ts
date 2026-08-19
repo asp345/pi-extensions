@@ -25,11 +25,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 		label: "Goal Complete",
 		description:
 			"Mark the active /goal complete only after all required work is finished and verified, using its current goal_id.",
-		promptSnippet: "Mark the active /goal complete after fully finishing and verifying it",
-		promptGuidelines: [
-			"Before calling goal_complete, audit every active-goal requirement against authoritative evidence and keep working if anything remains.",
-			"Pass goal_complete the exact current goal_id; never reuse an ID from an older, paused, resumed, replaced, or cleared goal.",
-		],
 		parameters: Type.Object({
 			goal_id: Type.String({ description: "Exact ID from the current active /goal prompt." }),
 			summary: Type.String({
@@ -63,11 +58,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 		label: "Goal Blocked",
 		description:
 			"Stop the active /goal only at a true impasse after the same external blocker recurs for at least three consecutive goal turns.",
-		promptSnippet: "Mark an active /goal blocked only after a verified three-turn impasse",
-		promptGuidelines: [
-			"Use goal_blocked only when concrete evidence proves that user or external action is required after the same blocker recurs for three consecutive goal turns.",
-			"Do not use goal_blocked for ordinary clarification, incomplete work, uncertainty, difficult tasks, or recoverable failures; resumed goals start a fresh audit.",
-		],
 		parameters: Type.Object({
 			goal_id: Type.String({ description: "Exact ID from the current active /goal prompt." }),
 			reason: Type.String({ minLength: 1, maxLength: MAX_REASON }),
@@ -183,8 +173,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 	pi.on("before_agent_start", (event) => {
 		runtime.beforeAgentStart(event.prompt);
-		const prompt = runtime.prompt();
-		if (prompt) return { systemPrompt: `${event.systemPrompt}\n\n${prompt}` };
 	});
 	pi.on("tool_call", () => runtime.markToolCall());
 	pi.on("message_end", (event, ctx) => runtime.recordAutomaticTurn(ctx, event.message));
@@ -192,9 +180,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.on("agent_settled", async (_event, ctx) => runtime.settled(ctx));
 	pi.on("session_before_compact", (_event) => {
 		if (runtime.goal) runtime.persist();
-	});
-	pi.on("session_compact", async (event, ctx) => {
-		await runtime.continueAfterCompaction(ctx, event.willRetry === true);
 	});
 }
 

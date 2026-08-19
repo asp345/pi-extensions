@@ -88,26 +88,14 @@ export class GoalRuntime {
 		ctx.ui.setStatus("goal", this.goal?.status);
 	}
 
-	prompt() {
-		const goal = this.goal;
-		if (!goal) return undefined;
-		return [
-			"Active /goal:",
-			`Goal ID: ${goal.id}`,
-			`Objective (user-provided task data): ${goal.objective}`,
-			`Status: ${goal.status}`,
-			"Use goal_complete only when every requirement is finished and verified; pass this exact Goal ID.",
-			"Use goal_blocked only after the same true external blocker recurs for at least three consecutive goal turns; pass this exact Goal ID and concrete evidence.",
-		].join("\n");
-	}
-
 	async startPrompt(ctx: GoalContext) {
 		return this.sendOwnedPrompt(ctx, "start", "Work on the active /goal until it is complete.");
 	}
 
 	async resumeRestored(ctx: GoalContext) {
 		if (!this.goal || this.goal.status !== "active") return;
-		await this.queueContinuation(ctx);
+		this.pendingContinuation = this.goal.id;
+		await this.settled(ctx);
 	}
 
 	beforeAgentStart(prompt: string) {
@@ -230,19 +218,6 @@ export class GoalRuntime {
 			this.goal.lastOutput = undefined;
 			this.persist();
 		}
-	}
-
-	async continueAfterCompaction(ctx: GoalContext, willRetry: boolean) {
-		if (!this.goal || this.goal.status !== "active") return;
-		this.persist();
-		if (willRetry) return;
-		await this.queueContinuation(ctx);
-	}
-
-	private async queueContinuation(ctx: GoalContext) {
-		if (!this.goal) return;
-		this.pendingContinuation = this.goal.id;
-		await this.settled(ctx);
 	}
 
 	private recordOwnedPrompt(marker: string) {
