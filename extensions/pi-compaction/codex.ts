@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { loadCompactionConfig } from "./config.ts";
+import type { CompactionConfig } from "./config.ts";
 import { withoutDeletedHeaders } from "./headers.ts";
 import {
 	buildCodexHeaders,
@@ -37,11 +37,12 @@ type CompactionStatus = {
 
 type ForcedCompactionState = {
 	sessionId: string;
-	phase: "waitingForSettle" | "compacting" | "compacted";
+	running: boolean;
 };
 
 const AUTO_COMPACTION_THRESHOLD_PERCENT = 90;
 const COMPACTION_STATUS_KIND = "openai-codex-compaction-status";
+const CONTINUATION_KIND = "openai-codex-compaction-continuation";
 const CONTINUATION_PROMPT = "Compaction completed. Continue.";
 
 function localMarker(): string {
@@ -56,10 +57,6 @@ function effectiveBaseUrl(model: Model<Api>): string | undefined {
 	return model.baseUrl;
 }
 
-function nativeCompactionConfigured(ctx: ExtensionContext): boolean {
-	return loadCompactionConfig(ctx.cwd, ctx.isProjectTrusted()).nativeCodex;
-}
-
 function setFeatureHeader(headers: Record<string, string | null>): void {
 	const existing = Object.entries(headers).find(([name]) => name.toLowerCase() === "x-codex-beta-features");
 	if (existing) {
@@ -69,8 +66,9 @@ function setFeatureHeader(headers: Record<string, string | null>): void {
 	}
 }
 
-export default function codexCompactionExtension(pi: ExtensionAPI): void {
+export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
 	const payloadShapeBySession = new Map<string, CachedPayloadShape>();
+	const nativeCompactionConfigured = () => getConfig().nativeCodex;
 	let forcedCompaction: ForcedCompactionState | undefined;
 
 	pi.registerEntryRenderer<CompactionStatus>(COMPACTION_STATUS_KIND, (entry, _options, theme) => {
@@ -171,7 +169,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 	pi.on("before_provider_headers", (event, ctx) => {
 		if (!isOpenAICodexModel(ctx.model)) return;
 		const checkpoint = findNativeCheckpoint(ctx.sessionManager.getBranch() as SessionEntry[]);
-		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return;
+		if (checkpoint.status === "none" && !nativeCompactionConfigured()) return;
 		setFeatureHeader(event.headers);
 	});
 
@@ -181,7 +179,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 
 		const branch = ctx.sessionManager.getBranch() as SessionEntry[];
 		const checkpoint = findNativeCheckpoint(branch);
-		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return undefined;
+		if (checkpoint.status === "none" && !nativeCompactionConfigured()) return undefined;
 
 		const sessionId = ctx.sessionManager.getSessionId();
 		const basePayload = stripInputFromPayload(event.payload);
@@ -212,7 +210,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 
 		const branch = event.branchEntries as SessionEntry[];
 		const checkpoint = findNativeCheckpoint(branch);
-		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return undefined;
+		if (checkpoint.status === "none" && !nativeCompactionConfigured()) return undefined;
 
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
@@ -243,9 +241,6 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 				},
 			};
 		} catch (error) {
-			if (forcedCompaction?.sessionId === ctx.sessionManager.getSessionId()) {
-				forcedCompaction = undefined;
-			}
 			if (!event.signal.aborted && ctx.hasUI) {
 				ctx.ui.notify(`OpenAI Codex native compaction failed: ${errorMessage(error)}`, "error");
 			}
@@ -253,77 +248,40 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	const continueAfterCompaction = (ctx: ExtensionContext, expected: ForcedCompactionState): void => {
-		if (forcedCompaction !== expected) return;
-		forcedCompaction = undefined;
-		if (ctx.hasPendingMessages()) return;
-		if (ctx.isIdle()) {
-			pi.sendUserMessage(CONTINUATION_PROMPT);
-		} else {
-			pi.sendUserMessage(CONTINUATION_PROMPT, { deliverAs: "followUp" });
-		}
-	};
-
 	pi.on("turn_end", (_event, ctx) => {
-		if (forcedCompaction || !isOpenAICodexModel(ctx.model) || !nativeCompactionConfigured(ctx)) return;
+		if (forcedCompaction || !isOpenAICodexModel(ctx.model) || !nativeCompactionConfigured()) return;
 
 		const usage = ctx.getContextUsage();
 		if (usage?.percent === null || usage?.percent === undefined) return;
 		if (usage.percent < AUTO_COMPACTION_THRESHOLD_PERCENT) return;
 
-		forcedCompaction = {
-			sessionId: ctx.sessionManager.getSessionId(),
-			phase: "waitingForSettle",
-		};
+		forcedCompaction = { sessionId: ctx.sessionManager.getSessionId(), running: false };
 		if (ctx.hasUI) {
 			ctx.ui.notify(`OpenAI Codex context reached ${usage.percent.toFixed(1)}%; stopping for compaction.`, "warning");
 		}
 		ctx.abort();
 	});
 
-	pi.on("session_compact", (event, ctx) => {
-		const state = forcedCompaction;
-		const details = event.compactionEntry.details;
-		if (
-			!state ||
-			state.phase !== "waitingForSettle" ||
-			state.sessionId !== ctx.sessionManager.getSessionId() ||
-			event.reason === "manual" ||
-			!event.fromExtension ||
-			!isOpenAICodexModel(ctx.model) ||
-			!isJsonObject(details) ||
-			details.kind !== NATIVE_COMPACTION_KIND
-		) {
-			return;
-		}
-		if (event.willRetry) {
-			forcedCompaction = undefined;
-			return;
-		}
-		forcedCompaction = { ...state, phase: "compacted" };
-	});
-
 	pi.on("agent_settled", (_event, ctx) => {
 		const state = forcedCompaction;
-		if (!state || state.sessionId !== ctx.sessionManager.getSessionId() || !isOpenAICodexModel(ctx.model)) {
-			return;
-		}
-		if (state.phase === "compacted") {
-			continueAfterCompaction(ctx, state);
-			return;
-		}
-		if (state.phase !== "waitingForSettle") return;
+		if (!state || state.running || state.sessionId !== ctx.sessionManager.getSessionId()) return;
 
-		const compacting: ForcedCompactionState = { ...state, phase: "compacting" };
-		forcedCompaction = compacting;
+		const running = { ...state, running: true };
+		forcedCompaction = running;
 		ctx.compact({
-			onComplete: () => continueAfterCompaction(ctx, compacting),
-			onError: (error) => {
-				if (forcedCompaction !== compacting) return;
+			onComplete: () => {
+				if (forcedCompaction !== running) return;
 				forcedCompaction = undefined;
-				if (ctx.hasUI) {
-					ctx.ui.notify(`OpenAI Codex compaction failed: ${error.message}`, "error");
-				}
+				if (ctx.hasPendingMessages()) return;
+				pi.sendMessage(
+					{ customType: CONTINUATION_KIND, content: CONTINUATION_PROMPT, display: true },
+					{ triggerTurn: true, deliverAs: "followUp" },
+				);
+			},
+			onError: (error) => {
+				if (forcedCompaction !== running) return;
+				forcedCompaction = undefined;
+				if (ctx.hasUI) ctx.ui.notify(`OpenAI Codex compaction failed: ${error.message}`, "error");
 			},
 		});
 	});

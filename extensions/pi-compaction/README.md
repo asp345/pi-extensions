@@ -4,21 +4,21 @@ This extension selects either OpenAI Codex native encrypted compaction or Pi pro
 
 ## Configuration
 
-The global configuration file is `pi-compaction.json` in Pi's agent configuration directory. `PI_CODING_AGENT_DIR` determines that directory when set. A trusted project can override individual settings with `.pi/pi-compaction.json`.
+The global configuration file is `pi-compaction.json` in Pi's agent configuration directory. `PI_CODING_AGENT_DIR` determines that directory when set. A trusted project can override individual settings with `.pi/pi-compaction.json`. Configuration is read when the extension instance starts; use `/reload` to apply edits.
 
 ```json
 {
   "nativeCodex": true,
   "textModel": {
-    "provider": "opencode-go",
-    "id": "glm-5.2"
+    "provider": "antigravity",
+    "id": "gemini-3.7-flash"
   }
 }
 ```
 
-`nativeCodex` defaults to `true`. It controls native compaction when the active model uses provider `openai-codex` and API `openai-codex-responses`.
+These are the defaults. `nativeCodex` controls native compaction when the active model uses provider `openai-codex` and API `openai-codex-responses`.
 
-`textModel` is optional. It fixes the model used for every prompt-based compaction. Without it, prompt-based compaction uses the active model. The configured provider and model must exist in Pi's model registry and have valid authentication. A resolution or authentication error cancels compaction instead of selecting another model.
+`textModel` fixes the model used for every prompt-based compaction. The configured provider and model must exist in Pi's model registry and have valid authentication. A resolution or authentication error cancels compaction instead of selecting another model.
 
 Use GPT Luna for prompt-based compaction while retaining native compaction for active Codex sessions with:
 
@@ -53,11 +53,9 @@ An existing native checkpoint remains native even after `nativeCodex` is set to 
 
 ## Turn-boundary threshold
 
-When native compaction is enabled, the extension checks Pi's reported context usage after every `turn_end`. At 90% it aborts the active run, invokes Pi compaction after the session settles, and sends a visible continuation message when no user message is pending.
+When native compaction is enabled, the extension checks Pi's reported context usage after every `turn_end`. At 90% it stops the current run at the turn boundary and compacts after the agent settles. If no user message is pending, a custom continuation starts the next run through Pi's `sendMessage` API.
 
-Pi processes queued steering and follow-up messages before `agent_settled`. Compaction can therefore remain deferred while those queues are pending. Pi does not currently expose an extension API that inserts compaction between queued turns.
-
-Pi's `compaction.reserveTokens` setting independently controls Pi's own threshold.
+Using a custom message avoids the asynchronous input processing performed by `sendUserMessage`, so Pi marks the continuation run active before later steering, follow-up, or Esc input is handled. Esc aborts the active compaction through Pi's compaction controller. Pi's `compaction.reserveTokens` setting independently controls Pi's own threshold.
 
 ## Prompt-based behavior
 
@@ -71,7 +69,7 @@ Prompt-based compaction uses Pi's text summarizer. Its additional instructions p
 
 Native compaction sends the current Codex conversation to the ChatGPT Codex Responses endpoint. OpenAI returns `encrypted_content`, which is persisted in the local session JSONL and replayed only to the matching Codex model.
 
-Prompt-based compaction sends the text selected by Pi's compaction preparation to `textModel`, or to the active model when `textModel` is omitted. Its plaintext summary is persisted in the session JSONL.
+Prompt-based compaction sends the text selected by Pi's compaction preparation to `textModel`. Its plaintext summary is persisted in the session JSONL.
 
 ## Source
 

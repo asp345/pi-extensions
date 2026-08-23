@@ -1,5 +1,5 @@
 import { compact, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { loadCompactionConfig } from "./config.ts";
+import type { CompactionConfig } from "./config.ts";
 import { withoutDeletedHeaders } from "./headers.ts";
 import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
 
@@ -11,7 +11,7 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-export default function registerTextCompaction(pi: ExtensionAPI): void {
+export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
 	pi.on("session_before_compact", async (event, ctx) => {
 		try {
 			const activeModel = ctx.model;
@@ -21,7 +21,7 @@ export default function registerTextCompaction(pi: ExtensionAPI): void {
 				throw new Error("An OpenAI Codex native checkpoint requires its original OpenAI Codex model.");
 			}
 
-			const config = loadCompactionConfig(ctx.cwd, ctx.isProjectTrusted());
+			const config = getConfig();
 			if (config.nativeCodex && isOpenAICodexModel(activeModel)) return;
 
 			const model = config.textModel
