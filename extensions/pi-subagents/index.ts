@@ -8,9 +8,9 @@ import { compactTranscript, resolveModel, resolveThinking } from "./runner.ts";
 import type { AgentRecord, DefinitionRegistry } from "./types.ts";
 import { AgentsUI } from "./ui.ts";
 
-const RESULT_BYTES = 12_000;
-const RESULT_LINES = 200;
-const NOTIFICATION_BYTES = 2_000;
+const RESULT_BYTES = 8_000;
+const RESULT_LINES = 120;
+const NOTIFICATION_BYTES = 1_200;
 
 const AgentParameters = Type.Object({
 	prompt: Type.String({
@@ -20,9 +20,9 @@ const AgentParameters = Type.Object({
 	}),
 	context: Type.String({
 		minLength: 1,
-		maxLength: 20_000,
+		maxLength: 12_000,
 		description:
-			"Relevant project context the subagent needs, such as paths, symbols, observed behavior, prior findings, and validation requirements. If the project has a project-specific environment (dev container, venv, nix flake/shell, package manager, build or test tooling), state what it is so the subagent runs commands correctly. The parent conversation is not inherited.",
+			"Only context required to execute the task: relevant paths, symbols, observed behavior, constraints, validation, and any non-obvious project commands. Do not repeat the task or include unrelated parent-conversation history. The parent conversation is not inherited.",
 	}),
 	subagent_type: Type.String({ minLength: 1, maxLength: 64, description: "Markdown agent name." }),
 	run_in_background: Type.Optional(
@@ -179,11 +179,10 @@ export default function subagents(pi: ExtensionAPI): void {
 			"Launch or resume a selected Markdown subagent. Background runs deliver their settled result as steering at the next turn boundary.",
 		promptSnippet: "Launch or resume a Markdown subagent",
 		promptGuidelines: [
-			"Supply a concrete task and explicit context with relevant paths, symbols, findings, constraints, and validation requirements. If the project has a project-specific environment (dev container, venv, nix flake/shell, package manager, build or test tooling), state what it is so the subagent uses the correct commands. Subagents do not inherit the parent conversation; do not use fork merely to provide context.",
-			"Omit `model` except for special cases. If set, use an exact `provider/model` ID, not a speed label such as `fast`.",
-			"Agents run in background by default. Set run_in_background false only when the next parent action directly depends on the result.",
-			"After launching a background agent, continue independent work or end the turn; its settled result arrives as steering at the next turn boundary. Do not sleep, poll, or launch duplicate work to wait.",
-			"Call get_subagent_result early only when you need the result before the completion notification arrives.",
+			"Use Agent only when the user requests delegation or a substantial independent task needs isolated context or can run concurrently. Otherwise use direct tools. Start one by default; use multiple only for independent, non-overlapping tasks.",
+			"Do not use Agent for a few-file inspection, routine validation, or work already in progress. Choose the narrowest matching definition.",
+			"When calling Agent, provide only the concrete objective, essential context, relevant paths, constraints, and verification. The parent conversation is not inherited; do not use fork merely to provide context.",
+			"Run Agent in the background unless its result is required for the next parent action. Continue independent work or end the turn; do not poll, wait, or duplicate its work.",
 		],
 		parameters: AgentParameters,
 		async execute(_callId, params, signal, onUpdate, ctx) {

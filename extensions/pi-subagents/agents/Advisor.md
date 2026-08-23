@@ -1,12 +1,12 @@
 ---
-description: High-skilled advisor that will give you good insights for difficult problems you ask
+description: Read-only deep analysis for difficult cross-system questions and root causes
 tools: read, bash, grep, find, ls, lsp_diagnostics, web
 extensions: true
 skills: true
 models: openai-codex/gpt-5.6-sol
 thinking: xhigh
 max_turns: 32
-prompt_mode: append
+prompt_mode: replace
 fork: false
 run_in_background: true
 output_transcript: true
