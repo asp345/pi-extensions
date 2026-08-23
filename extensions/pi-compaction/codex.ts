@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { loadCompactionConfig } from "./config.ts";
 import { withoutDeletedHeaders } from "./headers.ts";
 import {
 	buildCodexHeaders,
@@ -53,6 +54,10 @@ function errorMessage(error: unknown): string {
 
 function effectiveBaseUrl(model: Model<Api>): string | undefined {
 	return model.baseUrl;
+}
+
+function nativeCompactionConfigured(ctx: ExtensionContext): boolean {
+	return loadCompactionConfig(ctx.cwd, ctx.isProjectTrusted()).nativeCodex;
 }
 
 function setFeatureHeader(headers: Record<string, string | null>): void {
@@ -165,6 +170,8 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 
 	pi.on("before_provider_headers", (event, ctx) => {
 		if (!isOpenAICodexModel(ctx.model)) return;
+		const checkpoint = findNativeCheckpoint(ctx.sessionManager.getBranch() as SessionEntry[]);
+		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return;
 		setFeatureHeader(event.headers);
 	});
 
@@ -172,12 +179,13 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 		const model = ctx.model;
 		if (!isOpenAICodexModel(model) || !isJsonObject(event.payload)) return undefined;
 
+		const branch = ctx.sessionManager.getBranch() as SessionEntry[];
+		const checkpoint = findNativeCheckpoint(branch);
+		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return undefined;
+
 		const sessionId = ctx.sessionManager.getSessionId();
 		const basePayload = stripInputFromPayload(event.payload);
 		payloadShapeBySession.set(sessionId, { modelKey: modelKey(model), payload: basePayload });
-
-		const branch = ctx.sessionManager.getBranch() as SessionEntry[];
-		const checkpoint = findNativeCheckpoint(branch);
 
 		try {
 			if (checkpoint.status === "none") return undefined;
@@ -202,9 +210,12 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 		const model = ctx.model;
 		if (!isOpenAICodexModel(model)) return undefined;
 
+		const branch = event.branchEntries as SessionEntry[];
+		const checkpoint = findNativeCheckpoint(branch);
+		if (checkpoint.status === "none" && !nativeCompactionConfigured(ctx)) return undefined;
+
 		try {
 			const sessionId = ctx.sessionManager.getSessionId();
-			const branch = event.branchEntries as SessionEntry[];
 			const input = effectiveInputForBranch({
 				branch,
 				model,
@@ -254,7 +265,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 	};
 
 	pi.on("turn_end", (_event, ctx) => {
-		if (forcedCompaction || !isOpenAICodexModel(ctx.model)) return;
+		if (forcedCompaction || !isOpenAICodexModel(ctx.model) || !nativeCompactionConfigured(ctx)) return;
 
 		const usage = ctx.getContextUsage();
 		if (usage?.percent === null || usage?.percent === undefined) return;
