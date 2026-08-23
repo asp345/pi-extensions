@@ -5,7 +5,6 @@ const { normalizeRawSearchResult, normalizeSearchResponseBody } = await import("
 
 test("normalizeRawSearchResult maps known fields and rejects items without identity", () => {
 	assert.deepEqual(normalizeRawSearchResult({ ref_id: " turn0search0 ", url: " https://x.io ", title: " X " }), {
-		refId: "turn0search0",
 		ref_id: "turn0search0",
 		url: "https://x.io",
 		title: "X",
@@ -23,7 +22,6 @@ test("normalizeSearchResponseBody extracts output and filters non-object results
 	});
 	assert.deepEqual(normalized.results, [
 		{
-			refId: "turn0search0",
 			ref_id: "turn0search0",
 			url: "https://x.io",
 			raw: { ref_id: "turn0search0", url: "https://x.io" },

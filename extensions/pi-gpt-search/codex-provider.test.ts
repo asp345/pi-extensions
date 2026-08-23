@@ -79,6 +79,7 @@ test("setSessionId clears the ref index only when the id changes", async () => {
 
 test("execute sends session id, model, and serialized commands in the payload", async () => {
 	const { provider, requests } = providerWithResponses([{ results: [] }]);
+	provider.getRefIndex().set("turn0search0", { url: "https://a.io" });
 
 	await provider.execute({ find: [{ ref_id: "turn0search0", pattern: "x" }] }, undefined, stubCtx);
 
@@ -87,4 +88,22 @@ test("execute sends session id, model, and serialized commands in the payload", 
 	assert.equal(body.model, "gpt-4o");
 	assert.deepEqual(body.commands, { find: [{ ref_id: "turn0search0", pattern: "x" }] });
 	assert.equal(requests[0].headers["Content-Type"], "application/json");
+});
+
+test("open and find fail fast with guidance when a reference is stale", async () => {
+	const { provider } = providerWithResponses([{ results: [] }]);
+
+	await assert.rejects(
+		provider.execute({ open: [{ ref_id: "turn9search9" }] }, undefined, stubCtx),
+		/Unknown or stale reference "turn9search9"/u,
+	);
+	await assert.rejects(
+		provider.execute({ find: [{ ref_id: "turn9view0", pattern: "x" }] }, undefined, stubCtx),
+		/Unknown or stale reference "turn9view0"/u,
+	);
+
+	const indexed = providerWithResponses([{ results: [{ ref_id: "turn0search0", url: "https://a.io" }] }]);
+	await indexed.provider.execute({ search_query: [{ q: "a" }] }, undefined, stubCtx);
+	const response = await indexed.provider.execute({ open: [{ ref_id: "turn0search0" }] }, undefined, stubCtx);
+	assert.ok(Array.isArray(response.results));
 });

@@ -1,6 +1,5 @@
 export interface SearchResult {
 	type?: string;
-	refId?: string;
 	ref_id?: string;
 	url?: string;
 	title?: string;
@@ -36,10 +35,7 @@ export function normalizeRawSearchResult(item: unknown): SearchResult | null {
 	};
 
 	if (url) result.url = url;
-	if (refId) {
-		result.refId = refId;
-		result.ref_id = refId;
-	}
+	if (refId) result.ref_id = refId;
 	if (title) result.title = title;
 	if (snippet) result.snippet = snippet;
 	if (domain) result.domain = domain;

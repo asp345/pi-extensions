@@ -12,24 +12,29 @@ export function formatTerminalHyperlink(url: string, text: string): string {
 	return `\u001b]8;;${url}\u001b\\${text}\u001b]8;;\u001b\\`;
 }
 
+// Backend reference ids are minted per research turn as turn<turn><kind><index>:
+// turn1search0, turn2view3. Citation rewriting and bracketed-list rewriting share
+// this one grammar description.
+const TURN_REF_SOURCE = String.raw`turn\d+[a-z0-9_]*`;
+const CITATION_PUA_RE = /[\uE000-\uE2FF]cite[\uE000-\uE2FF]([^\uE000-\uE2FF\r\n]+)[\uE000-\uE2FF]/gi;
+const CITATION_BARE_RE = new RegExp(String.raw`\bcite((?:${TURN_REF_SOURCE}|\d+)(?:†[^\r\n]*)?)`, "gi");
+const BRACKETED_REFS_RE = new RegExp(String.raw`\[(${TURN_REF_SOURCE}[a-z0-9_,\s]*)\]`, "gi");
+
 export function cleanCitationMarkers(text: string, results: SearchResult[] = [], refIndex?: RefIndex): string {
 	if (!text) return "";
 
 	const refToEntryMap = new Map<string, { num: number; item: SearchResult }>();
 	results.forEach((r, idx) => {
-		const ref = r.ref_id || r.refId;
+		const ref = r.ref_id;
 		if (ref) {
 			refToEntryMap.set(ref, { num: idx + 1, item: r });
 		}
 	});
 
-	const resolveUrl = (ref: string): string | undefined => refToEntryMap.get(ref)?.item.url ?? refIndex?.get(ref)?.url;
-
-	// 1. Matches Codex private Unicode citation markers: \uE200cite\uE202<ref>\uE201 or cite<ref>
-	// 1. Matches Codex private Unicode citation markers: \uE200cite\uE202<ref>\uE201 or bare cite<ref>.
-	// PUA-delimited markers are rewritten directly. The bare form only counts when the
-	// payload is a reference id (optionally with a † label), so ordinary words such as
-	// "cited" or "excited" never match.
+	// 1. Rewrites Codex private Unicode citation markers (\uE200cite\uE202<ref>\uE201)
+	// and bare cite<ref> payloads. The bare form only counts when the payload is a
+	// reference id (optionally with a † label), so ordinary words such as "cited" or
+	// "excited" never match.
 	const resolveCitation = (cleanInner: string): string => {
 		if (cleanInner.includes("†")) {
 			const parts = cleanInner.split("†");
@@ -43,7 +48,7 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 			return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
 		}
 
-		const matchedResult = results.find((r) => (r.ref_id || r.refId) === cleanInner);
+		const matchedResult = results.find((r) => r.ref_id === cleanInner);
 		if (matchedResult && matchedResult.url) {
 			const title = matchedResult.title ? matchedResult.title : matchedResult.url;
 			return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
@@ -57,16 +62,11 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 		return `[${cleanInner}]`;
 	};
 
-	let cleaned = text.replace(
-		/[\uE000-\uE2FF]cite[\uE000-\uE2FF]([^\uE000-\uE2FF\r\n]+)[\uE000-\uE2FF]/gi,
-		(_match, inner: string) => resolveCitation(inner.trim()),
-	);
-	cleaned = cleaned.replace(/\bcite((?:turn\d+[a-z0-9_]*|\d+)(?:\u2020[^\r\n]*)?)/gi, (_match, inner: string) =>
-		resolveCitation(inner.trim()),
-	);
+	let cleaned = text.replace(CITATION_PUA_RE, (_match, inner: string) => resolveCitation(inner.trim()));
+	cleaned = cleaned.replace(CITATION_BARE_RE, (_match, inner: string) => resolveCitation(inner.trim()));
 
 	// 2. Converts raw turn references like [turn0search0, turn2view0] into clickable OSC 8 hyperlink brackets [1] [2]
-	cleaned = cleaned.replace(/\[(turn\d+[a-z0-9_,\s]*)\]/gi, (_match, inner: string) => {
+	cleaned = cleaned.replace(BRACKETED_REFS_RE, (_match, inner: string) => {
 		const refs = inner.split(",").map((s: string) => s.trim());
 		const formattedRefs = refs.map((ref) => {
 			if (refToEntryMap.has(ref)) {

@@ -1,5 +1,5 @@
 import { type ExtensionContext, readStoredCredential } from "@earendil-works/pi-coding-agent";
-import { serializeWebRunPayload, validateWebRunCommand, type WebRunCommand } from "./commands.ts";
+import { InvalidCommandError, serializeWebRunPayload, validateWebRunCommand, type WebRunCommand } from "./commands.ts";
 import {
 	CodexAuthExpiredError,
 	CodexAuthMissingError,
@@ -114,6 +114,21 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		signal?: AbortSignal,
 	): Promise<SearchResponse> {
 		const validatedCmd = validateWebRunCommand(command);
+
+		// Document refs are only resolvable while the backend session and this process's
+		// ref index agree; fail fast with guidance instead of an opaque HTTP error.
+		for (const operation of [
+			...(validatedCmd.open ?? []),
+			...(validatedCmd.click ?? []),
+			...(validatedCmd.find ?? []),
+		]) {
+			if (!this.refIndex.has(operation.ref_id)) {
+				throw new InvalidCommandError(
+					`Unknown or stale reference "${operation.ref_id}". Run a new search_query first.`,
+				);
+			}
+		}
+
 		const auth = await resolveOpenAiAuth(ctx);
 		if (!auth) {
 			throw new CodexAuthMissingError();
