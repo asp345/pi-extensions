@@ -10,6 +10,7 @@ My personal Pi monorepo.
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
+- `extensions/pi-compaction/`
 - `extensions/pi-direnv/`
 - `extensions/pi-goal/`
 - `extensions/pi-gpt-search/`
@@ -32,6 +33,8 @@ Every configured provider registers a `refreshModels` callback, so Pi refreshes 
 Each reasoning model can carry a default thinking level and a map from Pi's levels to the values the provider expects, which is how `xhigh` and `max` become selectable for providers that support them.
 
 `pi-openrouter-metadata` supplements Pi's built-in OpenRouter provider. It keeps the bundled catalog as an offline and compatibility baseline, then refreshes validated metadata for matching models from OpenRouter's public catalog. It persists validated overlays in `~/.config/pi/openrouter-metadata-store.json`, revalidates them after five minutes, and retains the previous catalog on failure.
+
+`pi-compaction` uses OpenAI Codex remote compaction for `openai-codex` models. It checks context usage after each completed turn, stops the active run at 90%, stores the opaque checkpoint in Pi's native compaction entry, and continues after compaction. Other providers retain text compaction with exact build, test, run, and lint commands in the summary. Configure the Codex threshold in `pi-compaction.json` under the Pi agent configuration directory or in the trusted project `.pi` directory.
 
 `pi-subagents` runs subagents inside the parent session. Agent Markdown declares models in priority order:
 
