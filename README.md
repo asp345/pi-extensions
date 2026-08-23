@@ -34,7 +34,7 @@ Each reasoning model can carry a default thinking level and a map from Pi's leve
 
 `pi-openrouter-metadata` supplements Pi's built-in OpenRouter provider. It keeps the bundled catalog as an offline and compatibility baseline, then refreshes validated metadata for matching models from OpenRouter's public catalog. It persists validated overlays in `~/.config/pi/openrouter-metadata-store.json`, revalidates them after five minutes, and retains the previous catalog on failure.
 
-`pi-compaction` uses OpenAI Codex remote compaction for `openai-codex` models. It checks context usage after each completed turn, stops the active run at 90%, stores the opaque checkpoint in Pi's native compaction entry, and continues after compaction. Other providers retain text compaction with exact build, test, run, and lint commands in the summary. Configure the Codex threshold in `pi-compaction.json` under the Pi agent configuration directory or in the trusted project `.pi` directory.
+`pi-compaction` uses OpenAI Codex remote compaction for `openai-codex` models. It checks context usage after each completed turn, stops the active run at 90%, stores the opaque checkpoint in Pi's native compaction entry, and continues after compaction. Other providers retain text compaction with exact build, test, run, and lint commands in the summary.
 
 `pi-subagents` runs subagents inside the parent session. Agent Markdown declares models in priority order:
 

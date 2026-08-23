@@ -19,24 +19,11 @@ Remote compaction is fail-closed. A failed request cancels compaction and retain
 
 ## Turn-boundary threshold
 
-The extension checks Pi's reported context usage after every `turn_end`. At the configured ratio it aborts the active run, invokes Pi compaction after the session settles, and sends a visible continuation message when no user message is pending.
+The extension checks Pi's reported context usage after every `turn_end`. At 90% it aborts the active run, invokes Pi compaction after the session settles, and sends a visible continuation message when no user message is pending.
 
 Pi processes queued steering and follow-up messages before `agent_settled`. Compaction can therefore remain deferred while those queues are pending. Pi does not currently expose an extension API that inserts compaction between queued turns.
 
-## Configuration
-
-Mid-run compaction is enabled at 90% by default:
-
-```json
-{
-  "autoCompact": true,
-  "thresholdRatio": 0.9
-}
-```
-
-The global configuration file is `pi-compaction.json` in Pi's agent configuration directory. `PI_CODING_AGENT_DIR` determines that directory when set. A trusted project can override it with `.pi/pi-compaction.json`.
-
-`thresholdRatio` must satisfy $0 < r < 1$. Pi's `compaction.reserveTokens` setting independently controls Pi's own threshold.
+Pi's `compaction.reserveTokens` setting independently controls Pi's own threshold.
 
 ## Other providers
 

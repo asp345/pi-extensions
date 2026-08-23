@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { loadCodexConfig } from "./config.ts";
 import { withoutDeletedHeaders } from "./headers.ts";
 import {
 	buildCodexHeaders,
@@ -40,6 +39,7 @@ type ForcedCompactionState = {
 	phase: "waitingForSettle" | "compacting" | "compacted";
 };
 
+const AUTO_COMPACTION_THRESHOLD_PERCENT = 90;
 const COMPACTION_STATUS_KIND = "openai-codex-compaction-status";
 const CONTINUATION_PROMPT = "Compaction completed. Continue.";
 
@@ -255,12 +255,10 @@ export default function codexCompactionExtension(pi: ExtensionAPI): void {
 
 	pi.on("turn_end", (_event, ctx) => {
 		if (forcedCompaction || !isOpenAICodexModel(ctx.model)) return;
-		const config = loadCodexConfig(ctx.cwd, ctx.isProjectTrusted());
-		if (!config.autoCompact) return;
 
 		const usage = ctx.getContextUsage();
 		if (usage?.percent === null || usage?.percent === undefined) return;
-		if (usage.percent < config.thresholdRatio * 100) return;
+		if (usage.percent < AUTO_COMPACTION_THRESHOLD_PERCENT) return;
 
 		forcedCompaction = {
 			sessionId: ctx.sessionManager.getSessionId(),
