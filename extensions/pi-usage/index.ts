@@ -45,9 +45,9 @@ export default async function usage(pi: ExtensionAPI): Promise<void> {
 
 			const results = await Promise.allSettled(
 				targets.map(async (provider) => {
-					const credential = await resolveCredential(provider.id, ctx);
-					if (!credential) return null;
 					try {
+						const credential = await resolveCredential(provider.id, ctx);
+						if (!credential) return null;
 						const report = await provider.fetchUsage(credential, ctx.signal);
 						return { provider: provider.id, report, error: report ? null : "no usage data returned" };
 					} catch (error) {

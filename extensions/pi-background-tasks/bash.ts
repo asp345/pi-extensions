@@ -11,7 +11,7 @@ import {
 	getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { BackgroundRuntime } from "./runtime.js";
+import type { BackgroundRuntime } from "./runtime.ts";
 
 const DEFAULT_SYNC_MS = 30_000;
 const MAX_SYNC_MS = 90_000;

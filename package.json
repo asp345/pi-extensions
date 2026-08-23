@@ -13,7 +13,7 @@
 		"biome": "biome check extensions scripts themes package.json tsconfig.json biome.json",
 		"biome:fix": "biome check --write extensions scripts themes package.json tsconfig.json biome.json",
 		"typecheck": "tsc --noEmit",
-		"test": "node --disable-warning=ExperimentalWarning --experimental-transform-types --import ./scripts/test-hooks.ts --test extensions/**/*.test.ts",
+		"test": "node --disable-warning=ExperimentalWarning --experimental-transform-types --test extensions/**/*.test.ts",
 		"structure": "node scripts/check.ts"
 	},
 	"keywords": [

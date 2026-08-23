@@ -1,12 +1,12 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.js";
-import { AgentManager } from "./manager.js";
-import { NotificationQueue } from "./notifications.js";
-import { compactTranscript, resolveModel, resolveThinking } from "./runner.js";
-import type { AgentRecord, DefinitionRegistry } from "./types.js";
-import { AgentsUI } from "./ui.js";
+import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.ts";
+import { AgentManager } from "./manager.ts";
+import { NotificationQueue } from "./notifications.ts";
+import { compactTranscript, resolveModel, resolveThinking } from "./runner.ts";
+import type { AgentRecord, DefinitionRegistry } from "./types.ts";
+import { AgentsUI } from "./ui.ts";
 
 const RESULT_BYTES = 12_000;
 const RESULT_LINES = 200;

@@ -3,8 +3,8 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type ExtensionAPI, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { applyEdits, type Diagnostic, LspClient, type TextEdit, type WorkspaceEdit } from "./protocol.js";
-import { diagnosticRoutes, fixRoute, inside, languageId, loadConfig, type ServerConfig } from "./routing.js";
+import { applyEdits, type Diagnostic, LspClient, type TextEdit, type WorkspaceEdit } from "./protocol.ts";
+import { diagnosticRoutes, fixRoute, inside, languageId, loadConfig, type ServerConfig } from "./routing.ts";
 
 const STATUS = "lsp";
 const MAX_OUTPUT_BYTES = 30_000;
@@ -242,7 +242,12 @@ function bound(text: string) {
 	let output = lines.slice(0, MAX_OUTPUT_LINES).join("\n");
 	let truncated = lines.length > MAX_OUTPUT_LINES;
 	if (Buffer.byteLength(output) > MAX_OUTPUT_BYTES) {
-		output = Buffer.from(output).subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
+		// A byte cut can split a multibyte character; drop the trailing replacement
+		// sequence so the output stays valid UTF-8.
+		output = Buffer.from(output)
+			.subarray(0, MAX_OUTPUT_BYTES)
+			.toString("utf8")
+			.replace(/\uFFFD$/u, "");
 		truncated = true;
 	}
 	return truncated

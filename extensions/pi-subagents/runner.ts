@@ -11,9 +11,9 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { definitionBody } from "./definitions.js";
-import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.js";
-import { compact, message, onAbort } from "./util.js";
+import { definitionBody } from "./definitions.ts";
+import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.ts";
+import { compact, message, onAbort } from "./util.ts";
 
 interface Callbacks {
 	onSession(session: AgentSession): void;

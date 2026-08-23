@@ -1,9 +1,9 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { type GuardConfig, isProtectedPath, loadConfig } from "./config.js";
-import { redactOutput, scanSecrets } from "./scanner.js";
-import { registerSensitiveGuardUI } from "./ui.js";
+import { type GuardConfig, isProtectedPath, loadConfig } from "./config.ts";
+import { redactOutput, scanSecrets } from "./scanner.ts";
+import { registerSensitiveGuardUI } from "./ui.ts";
 
 interface ShellPart {
 	command: string;

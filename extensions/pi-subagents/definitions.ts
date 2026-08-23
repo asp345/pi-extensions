@@ -2,8 +2,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import type { AgentDefinition, DefinitionRegistry, Selection, ThinkingSetting } from "./types.js";
-import { compact, message } from "./util.js";
+import type { AgentDefinition, DefinitionRegistry, Selection, ThinkingSetting } from "./types.ts";
+import { compact, message } from "./util.ts";
 
 const THINKING = new Set<ThinkingSetting>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "parent"]);
 const DEFAULT_DIR = fileURLToPath(new URL("./agents", import.meta.url));

@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.js";
-import { tail } from "./runtime.js";
+import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
+import { tail } from "./runtime.ts";
 
 export const COMMAND = "bg";
 export const SHORTCUT = "ctrl+shift+b";

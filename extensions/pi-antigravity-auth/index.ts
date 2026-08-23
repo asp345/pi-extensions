@@ -33,6 +33,7 @@ import {
 	type TextContent,
 	type ThinkingContent,
 	type ThinkingLevel,
+	type ThinkingLevelMap,
 	type ToolCall,
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
@@ -472,15 +473,18 @@ export async function* parseSse(response: Response): AsyncGenerator<GeminiChunk>
 	}
 }
 
-function resolveModel(model: Model<Api>, reasoning?: ThinkingLevel) {
+// pi clamps requested levels to the model's advertised thinkingLevelMap before they
+// reach this provider, so only the three suffix tiers antigravity supports are handled
+// here; any other or missing level takes the header-style default path, which yields a
+// valid model id.
+export function resolveModel(model: Model<Api>, reasoning?: ThinkingLevel) {
 	const id = model.id.toLowerCase();
-	const supportsTiers =
-		model.reasoning && (id.includes("gemini-3") || (id.includes("claude") && id.includes("thinking")));
-	if (!supportsTiers || !reasoning) {
+	const tiered = model.reasoning && (id.includes("gemini-3") || (id.includes("claude") && id.includes("thinking")));
+	const tier = reasoning === "low" || reasoning === "medium" || reasoning === "high" ? reasoning : undefined;
+	if (!tiered || !tier) {
 		return resolveModelForHeaderStyle(model.id, "antigravity");
 	}
-	const tier = reasoning === "minimal" ? "low" : reasoning === "xhigh" ? "high" : reasoning;
-	const base = model.id.replace(/-(minimal|low|medium|high|xhigh)$/i, "");
+	const base = model.id.replace(/-(?:minimal|low|medium|high|xhigh)$/i, "");
 	return resolveModelForHeaderStyle(`${base}-${tier}`, "antigravity");
 }
 
@@ -741,6 +745,18 @@ function streamAntigravity(
 	return stream;
 }
 
+// Antigravity's suffix vocabulary is low, medium, high. minimal and xhigh are internal
+// aliases of low and high in resolveModel, and max has no representation, so none of
+// them are advertised; pi clamps requests for them to the nearest supported level.
+const TIER_THINKING_LEVEL_MAP: ThinkingLevelMap = {
+	low: "low",
+	medium: "medium",
+	high: "high",
+	minimal: null,
+	xhigh: null,
+	max: null,
+};
+
 export default function antigravityAuth(pi: ExtensionAPI): void {
 	const models = Object.values(getPublicModelDefinitions())
 		.filter((model) => !model.modalities.output.includes("image"))
@@ -748,6 +764,7 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 			id: model.id.replace(/^antigravity-/, ""),
 			name: model.name,
 			reasoning: model.reasoning,
+			thinkingLevelMap: model.reasoning ? { ...TIER_THINKING_LEVEL_MAP } : undefined,
 			input: ["text", "image"] as Array<"text" | "image">,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: model.limit.context,

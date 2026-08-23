@@ -4,7 +4,7 @@ import { existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { promisify } from "node:util";
-import type { WorktreeInfo } from "./types.js";
+import type { WorktreeInfo } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 

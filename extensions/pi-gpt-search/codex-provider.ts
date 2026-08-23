@@ -120,16 +120,14 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		}
 
 		const controller = new AbortController();
-		let timeoutId: NodeJS.Timeout | undefined;
+		const onAbort = () => controller.abort();
 
-		if (signal) {
-			if (signal.aborted) {
-				throw new WebSearchCancelledError();
-			}
-			signal.addEventListener("abort", () => controller.abort(), { once: true });
+		if (signal?.aborted) {
+			throw new WebSearchCancelledError();
 		}
+		signal?.addEventListener("abort", onAbort, { once: true });
 
-		timeoutId = setTimeout(() => controller.abort("timeout"), this.timeoutMs);
+		const timeoutId = setTimeout(() => controller.abort("timeout"), this.timeoutMs);
 
 		const headers: Record<string, string> = {
 			Authorization: `Bearer ${auth.accessToken}`,
@@ -173,6 +171,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 
 				if (response.status === 502 || response.status === 503 || response.status === 504) {
 					if (attempt <= this.maxRetries) {
+						await response.body?.cancel().catch(() => {});
 						await new Promise((res) => setTimeout(res, 500 * attempt));
 						continue;
 					}
@@ -226,14 +225,10 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 				}
 				throw new WebSearchCancelledError();
 			}
-			if (err instanceof Error && "code" in err && typeof (err as { code: unknown }).code === "string") {
-				throw err;
-			}
 			throw err;
 		} finally {
-			if (timeoutId) {
-				clearTimeout(timeoutId);
-			}
+			clearTimeout(timeoutId);
+			signal?.removeEventListener("abort", onAbort);
 		}
 	}
 }

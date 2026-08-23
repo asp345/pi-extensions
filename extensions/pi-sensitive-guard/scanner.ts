@@ -1,4 +1,4 @@
-import type { GuardConfig, Severity } from "./config.js";
+import type { GuardConfig, Severity } from "./config.ts";
 
 interface Pattern {
 	name: string;

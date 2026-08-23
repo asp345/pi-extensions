@@ -70,3 +70,36 @@ test("formatWebToolResult handles empty output and empty results", () => {
 	const formatted = formatWebToolResult({ search_query: [{ q: "x" }] }, { results: [] });
 	assert.equal(formatted.content[0].text, "No output or structured web results returned.");
 });
+
+test("cleanCitationMarkers leaves ordinary words containing cite untouched", () => {
+	const text = "The authors cited Smith. We were excited about it. Models cite sources properly.";
+	assert.equal(cleanCitationMarkers(text, []), text);
+});
+
+test("cleanCitationMarkers rewrites bare reference payloads and PUA markers together", () => {
+	const results = [
+		{ ref_id: "turn0search0", url: "https://a.example", title: "A" },
+		{ ref_id: "turn1view0", url: "https://b.example" },
+	];
+	const cleaned = cleanCitationMarkers("See citeturn0search0 and \uE200cite\uE202turn1view0\uE201.", results);
+	assert.match(cleaned, /\[1\]/);
+	assert.match(cleaned, /\[2\]/);
+	assert.equal(cleaned.includes("citeturn"), false);
+});
+
+test("formatWebToolResult numbers source entries by their position in the full result list", () => {
+	const cmd = { search_query: [{ q: "x" }] };
+	const response = {
+		output: "See [turn0search0] and [turn0search2].",
+		results: [
+			{ ref_id: "turn0search0", url: "https://a.example", title: "A" },
+			{ ref_id: "turn0search1", title: "B has no url" },
+			{ ref_id: "turn0search2", url: "https://c.example", title: "C" },
+		],
+	};
+
+	const text = formatWebToolResult(cmd, response).content[0].text;
+	assert.match(text, /Sources:\n\[1\] A /);
+	assert.match(text, /\[3\] C /);
+	assert.doesNotMatch(text, /\[2\] C/);
+});

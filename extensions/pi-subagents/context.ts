@@ -6,8 +6,8 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { Container, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { contentText } from "./runner.js";
-import type { AgentRecord } from "./types.js";
+import { contentText } from "./runner.ts";
+import type { AgentRecord } from "./types.ts";
 
 export const CONTEXT_ROWS = 30;
 export const SCROLL_STEP = 10;

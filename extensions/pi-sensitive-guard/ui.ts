@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { CONFIG_PATH, type GuardConfig, loadConfig, type Severity, saveConfig } from "./config.js";
+import { CONFIG_PATH, type GuardConfig, loadConfig, type Severity, saveConfig } from "./config.ts";
 
 function onOff(value: boolean): string {
 	return value ? "on" : "off";

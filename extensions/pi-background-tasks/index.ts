@@ -1,9 +1,9 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { buildSessionEnv, registerHybridBash } from "./bash.js";
-import { BACKGROUND_TASKS_STATE_EVENT } from "./events.js";
-import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.js";
-import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.js";
+import { buildSessionEnv, registerHybridBash } from "./bash.ts";
+import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
+import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.ts";
+import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.ts";
 
 const NO_MATCH = "No background task matched that id.";
 

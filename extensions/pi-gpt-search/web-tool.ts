@@ -106,10 +106,8 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 		promptGuidelines: BROWSING_GUIDELINES,
 		parameters: WebToolParameters,
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const command = params as WebRunCommand;
-			if (!command.response_length) {
-				command.response_length = "long";
-			}
+			const raw = params as WebRunCommand;
+			const command: WebRunCommand = raw.response_length ? raw : { ...raw, response_length: "long" };
 			if (typeof onUpdate === "function") {
 				const statusMsg = describeCommandStatus(command);
 				onUpdate({

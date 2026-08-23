@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { clearAgentContextCache } from "./context.js";
-import { resolveModels, resolveThinking, resumeSession, runNew } from "./runner.js";
-import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.js";
-import { message, onAbort } from "./util.js";
-import { createWorktree, removeWorktree, saveWorktree } from "./worktree.js";
+import { clearAgentContextCache } from "./context.ts";
+import { resolveModels, resolveThinking, resumeSession, runNew } from "./runner.ts";
+import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.ts";
+import { message, onAbort } from "./util.ts";
+import { createWorktree, removeWorktree, saveWorktree } from "./worktree.ts";
 
 interface SpawnOptions {
 	background: boolean;

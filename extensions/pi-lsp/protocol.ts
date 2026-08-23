@@ -2,7 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { commandFor, envName, record, resolveCommand, type ServerConfig } from "./routing.js";
+import { commandFor, envName, record, resolveCommand, type ServerConfig } from "./routing.ts";
 
 export interface Position {
 	line: number;
@@ -58,6 +58,7 @@ export class LspClient {
 	private diagnosticWaiters = new Map<string, Set<(items: Diagnostic[]) => void>>();
 	private capabilities: Record<string, unknown> = {};
 	private stderr = "";
+	private abortHook?: { signal: AbortSignal; listener: () => void };
 
 	constructor(
 		private readonly server: ServerConfig,
@@ -96,11 +97,14 @@ export class LspClient {
 			child.once("error", reject);
 		});
 		const abort = () => this.close();
-		signal?.addEventListener("abort", abort, { once: true });
+		if (signal) {
+			this.abortHook = { signal, listener: abort };
+			if (signal.aborted) abort();
+			else signal.addEventListener("abort", abort, { once: true });
+		}
 		try {
 			await this.initialize();
 		} catch (error) {
-			signal?.removeEventListener("abort", abort);
 			this.close();
 			throw error;
 		}
@@ -153,6 +157,9 @@ export class LspClient {
 	}
 
 	close() {
+		const hook = this.abortHook;
+		this.abortHook = undefined;
+		hook?.signal.removeEventListener("abort", hook.listener);
 		this.settle(new Error(`${this.server.name} LSP request cancelled.`));
 		this.buffer = Buffer.alloc(0);
 		const child = this.child;

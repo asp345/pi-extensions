@@ -9,9 +9,9 @@ import {
 	SelectList,
 	Text,
 } from "@earendil-works/pi-tui";
-import { buildAgentContextFullLines, CONTEXT_ROWS, renderAgentContext, SCROLL_STEP } from "./context.js";
-import type { AgentManager } from "./manager.js";
-import type { AgentRecord } from "./types.js";
+import { buildAgentContextFullLines, CONTEXT_ROWS, renderAgentContext, SCROLL_STEP } from "./context.ts";
+import type { AgentManager } from "./manager.ts";
+import type { AgentRecord } from "./types.ts";
 
 interface WidgetTui {
 	requestRender(force?: boolean): void;

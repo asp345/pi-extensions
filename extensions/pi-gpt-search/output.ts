@@ -26,37 +26,43 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 	const resolveUrl = (ref: string): string | undefined => refToEntryMap.get(ref)?.item.url ?? refIndex?.get(ref)?.url;
 
 	// 1. Matches Codex private Unicode citation markers: \uE200cite\uE202<ref>\uE201 or cite<ref>
+	// 1. Matches Codex private Unicode citation markers: \uE200cite\uE202<ref>\uE201 or bare cite<ref>.
+	// PUA-delimited markers are rewritten directly. The bare form only counts when the
+	// payload is a reference id (optionally with a † label), so ordinary words such as
+	// "cited" or "excited" never match.
+	const resolveCitation = (cleanInner: string): string => {
+		if (cleanInner.includes("†")) {
+			const parts = cleanInner.split("†");
+			const label = parts.slice(1).join("†").trim();
+			return label ? `[${label}]` : "";
+		}
+
+		if (refToEntryMap.has(cleanInner)) {
+			const entry = refToEntryMap.get(cleanInner)!;
+			const label = `[${entry.num}]`;
+			return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
+		}
+
+		const matchedResult = results.find((r) => (r.ref_id || r.refId) === cleanInner);
+		if (matchedResult && matchedResult.url) {
+			const title = matchedResult.title ? matchedResult.title : matchedResult.url;
+			return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
+		}
+
+		const indexUrl = refIndex?.get(cleanInner)?.url;
+		if (indexUrl) {
+			return formatTerminalHyperlink(indexUrl, `[${cleanInner}]`);
+		}
+
+		return `[${cleanInner}]`;
+	};
+
 	let cleaned = text.replace(
-		/[\uE000-\uE2FF]?cite[\uE000-\uE2FF]?([^\uE000-\uE2FF\r\n]+)[\uE000-\uE2FF]?/gi,
-		(match, inner) => {
-			const cleanInner = inner.trim();
-			if (!cleanInner) return "";
-
-			if (cleanInner.includes("†")) {
-				const parts = cleanInner.split("†");
-				const label = parts.slice(1).join("†").trim();
-				return label ? `[${label}]` : "";
-			}
-
-			if (refToEntryMap.has(cleanInner)) {
-				const entry = refToEntryMap.get(cleanInner)!;
-				const label = `[${entry.num}]`;
-				return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
-			}
-
-			const matchedResult = results.find((r) => (r.ref_id || r.refId) === cleanInner);
-			if (matchedResult && matchedResult.url) {
-				const title = matchedResult.title ? matchedResult.title : matchedResult.url;
-				return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
-			}
-
-			const indexUrl = refIndex?.get(cleanInner)?.url;
-			if (indexUrl) {
-				return formatTerminalHyperlink(indexUrl, `[${cleanInner}]`);
-			}
-
-			return `[${cleanInner}]`;
-		},
+		/[\uE000-\uE2FF]cite[\uE000-\uE2FF]([^\uE000-\uE2FF\r\n]+)[\uE000-\uE2FF]/gi,
+		(_match, inner: string) => resolveCitation(inner.trim()),
+	);
+	cleaned = cleaned.replace(/\bcite((?:turn\d+[a-z0-9_]*|\d+)(?:\u2020[^\r\n]*)?)/gi, (_match, inner: string) =>
+		resolveCitation(inner.trim()),
 	);
 
 	// 2. Converts raw turn references like [turn0search0, turn2view0] into clickable OSC 8 hyperlink brackets [1] [2]
@@ -106,11 +112,14 @@ export function formatWebToolResult(
 
 		// Append formatted source reference list if results exist and aren't already formatted at end
 		if (response.results && response.results.length > 0 && !primaryText.includes("Sources:")) {
+			// Keep each entry's position from the full result list so source numbers match
+			// the inline citation numbers produced by cleanCitationMarkers.
 			const sourcesList = response.results
-				.filter((r): r is SearchResult & { url: string } => Boolean(r.url))
+				.map((r, index) => ({ r, index }))
+				.filter((entry): entry is { r: SearchResult & { url: string }; index: number } => Boolean(entry.r.url))
 				.slice(0, 10)
-				.map((r, idx) => {
-					const num = idx + 1;
+				.map(({ r, index }) => {
+					const num = index + 1;
 					const title = r.title ? r.title : r.url;
 					const refStr = r.ref_id ? ` (${formatTerminalHyperlink(r.url, r.ref_id)})` : "";
 					const clickableUrl = formatTerminalHyperlink(r.url, r.url);
