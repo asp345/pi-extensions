@@ -34,7 +34,7 @@ Each reasoning model can carry a default thinking level and a map from Pi's leve
 
 `pi-openrouter-metadata` supplements Pi's built-in OpenRouter provider. It keeps the bundled catalog as an offline and compatibility baseline, then refreshes validated metadata for matching models from OpenRouter's public catalog. It persists validated overlays in `~/.config/pi/openrouter-metadata-store.json`, revalidates them after five minutes, and retains the previous catalog on failure.
 
-`pi-compaction` selects OpenAI Codex native encrypted compaction or prompt-based text compaction through `pi-compaction.json`. Prompt-based compaction defaults to `antigravity/gemini-3.7-flash` and can use `openai-codex/gpt-5.6-luna` without sending a native `compaction_trigger`. Native mode stops at a turn boundary at 90%, stores the opaque checkpoint, and starts a custom continuation after compaction.
+`pi-compaction` selects OpenAI Codex native encrypted compaction or prompt-based text compaction through `pi-compaction.json`. Prompt-based compaction uses a configurable fixed model, including models exposed through the `openai-codex` provider, without sending a native `compaction_trigger`. Native mode stops at a turn boundary at 90%, stores the opaque checkpoint, and starts a custom continuation after compaction.
 
 `pi-subagents` runs subagents inside the parent session. Agent Markdown declares models in priority order:
 
