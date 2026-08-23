@@ -1,6 +1,6 @@
 ---
 description: Capable read-only architecture and implementation planning agent. Give enough context about what to solve.
-tools: read, bash, grep, find, ls, web_search, web
+tools: read, bash, grep, find, ls, web
 extensions: true
 skills: true
 models: openai-codex/gpt-5.6-sol

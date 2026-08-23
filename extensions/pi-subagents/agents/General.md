@@ -1,6 +1,6 @@
 ---
 description: Capable general agent for work delegation, including research, debugging, and implementation (inherits parent model)
-tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix, web_search, web
+tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix, web
 extensions: true
 skills: true
 models: parent

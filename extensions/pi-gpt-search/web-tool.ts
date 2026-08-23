@@ -1,8 +1,7 @@
 import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
 import { type WebRunCommand, WebRunCommandSchema } from "./commands.ts";
-import { formatSearchResponseText, formatWebToolResult } from "./output.ts";
+import { formatWebToolResult } from "./output.ts";
 import type { WebSearchProvider } from "./provider.ts";
 
 export const BROWSING_GUIDELINES = [
@@ -126,59 +125,6 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 		},
 		renderCall(args, theme, _context) {
 			return renderToolCall(describeCommandStatus(args as WebRunCommand), labels, theme);
-		},
-		renderResult(result, options, theme, context) {
-			return renderToolResult(result, options, theme, context, labels);
-		},
-	};
-}
-
-export function createWebSearchCompatTool(provider: WebSearchProvider): ToolDefinition {
-	const labels: ToolRenderLabels = {
-		name: "web_search ",
-		errorPrefix: "✖ Search failed",
-		successPrefix: "✓ Search complete",
-	};
-	return {
-		name: "web_search",
-		label: "Web Search (Compatibility)",
-		description:
-			"Legacy single-query search tool wrapper around the web research harness. Translates directly into web({ search_query: [{ q: query }] }).",
-		promptSnippet: "Search the web for current or externally verifiable information",
-		promptGuidelines: [
-			"Use web_search for simple web lookups. For iterative research (opening pages, searching patterns), use the 'web' tool instead.",
-		],
-		parameters: Type.Object({
-			query: Type.String({ description: "The search query to look up on the web" }),
-		}),
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const query = (params as { query: string }).query;
-			if (typeof onUpdate === "function") {
-				onUpdate({
-					content: [{ type: "text", text: `Searching web for "${query}"...` }],
-					details: { status: `Searching web for "${query}"...`, query },
-				});
-			}
-			try {
-				const response = await provider.search({ query }, ctx, signal);
-				const textOutput = formatSearchResponseText(query, response);
-				return {
-					content: [{ type: "text", text: textOutput }],
-					details: {
-						query,
-						resultCount: response.results.length,
-						results: response.results,
-						output: response.output,
-					},
-				};
-			} catch (err) {
-				const errorMsg = err instanceof Error ? err.message : String(err);
-				throw new Error(`Search failed: ${errorMsg}`);
-			}
-		},
-		renderCall(args, theme, _context) {
-			const query = (args as { query?: string }).query ?? "";
-			return renderToolCall(`Searching web for "${query}"...`, labels, theme);
 		},
 		renderResult(result, options, theme, context) {
 			return renderToolResult(result, options, theme, context, labels);

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CodexWebSearchProvider } from "./codex-provider.ts";
 import { formatWebToolResult } from "./output.ts";
-import { createWebSearchCompatTool, createWebTool } from "./web-tool.ts";
+import { createWebTool } from "./web-tool.ts";
 
 export default function (pi: ExtensionAPI) {
 	const provider = new CodexWebSearchProvider();
@@ -9,10 +9,6 @@ export default function (pi: ExtensionAPI) {
 	// Register primary web research tool
 	const webTool = createWebTool(provider);
 	pi.registerTool(webTool);
-
-	// Register legacy web_search tool compatibility wrapper
-	const webSearchCompatTool = createWebSearchCompatTool(provider);
-	pi.registerTool(webSearchCompatTool);
 
 	// Register /gpt-search slash command
 	pi.registerCommand("gpt-search", {

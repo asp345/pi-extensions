@@ -4,7 +4,7 @@
 
 ## Data Flow
 
-1. The active model calls `web({ search_query, open, click, find, response_length })` or `web_search({ query })`, or the user runs `/gpt-search <query>` (`index.ts`).
+1. The active model calls `web({ search_query, open, click, find, response_length })`, or the user runs `/gpt-search <query>` (`index.ts`).
 2. `web-tool.ts` wraps the call as a `WebRunCommand` and forwards it to `CodexWebSearchProvider` (`codex-provider.ts`).
 3. `commands.ts` validates the command against the `WebRunCommandSchema` (the same TypeBox schema exposed to the model as tool parameters) and normalizes it.
 4. The provider serializes the payload and POSTs it to `https://chatgpt.com/backend-api/codex/alpha/search`.
