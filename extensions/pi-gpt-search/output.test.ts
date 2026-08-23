@@ -103,3 +103,17 @@ test("formatWebToolResult numbers source entries by their position in the full r
 	assert.match(text, /\[3\] C /);
 	assert.doesNotMatch(text, /\[2\] C/);
 });
+
+test("formatWebToolResult publishes source refs beyond the first ten", () => {
+	const cmd = { search_query: [{ q: "x" }] };
+	const results = Array.from({ length: 12 }, (_, i) => ({
+		ref_id: `turn0search${i}`,
+		url: `https://example.com/${i}`,
+		title: `R${i}`,
+	}));
+
+	const text = formatWebToolResult(cmd, { output: "text", results }).content[0].text;
+	assert.match(text, /\[1\] R0 /);
+	assert.match(text, /\[12\] R11 /);
+	assert.equal(text.includes("[10 results]"), false);
+});

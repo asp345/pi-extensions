@@ -96,14 +96,15 @@ export function formatWebToolResult(
 	if (typeof response.output === "string" && response.output.trim().length > 0) {
 		primaryText = cleanCitationMarkers(response.output.trim(), response.results, refIndex);
 
-		// Append formatted source reference list if results exist and aren't already formatted at end
+		// Append formatted source reference list if results exist and aren't already formatted at end.
+		// Every url-bearing result is published: capping this footer hides the ref_id for
+		// later display numbers, which forces the model to guess ids when opening documents.
 		if (response.results && response.results.length > 0 && !primaryText.includes("Sources:")) {
 			// Keep each entry's position from the full result list so source numbers match
 			// the inline citation numbers produced by cleanCitationMarkers.
 			const sourcesList = response.results
 				.map((r, index) => ({ r, index }))
 				.filter((entry): entry is { r: SearchResult & { url: string }; index: number } => Boolean(entry.r.url))
-				.slice(0, 10)
 				.map(({ r, index }) => {
 					const num = index + 1;
 					const title = r.title ? r.title : r.url;

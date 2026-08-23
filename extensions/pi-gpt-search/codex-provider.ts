@@ -78,6 +78,30 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		return this.refIndex;
 	}
 
+	// Groups indexed ids by their kind prefix (turn0search, turn2view, ...) into
+	// "prefix<min>-<max> (<count>)" ranges so a model that guessed an id can pick a
+	// valid one without another failing request.
+	private knownRefsSummary(): string {
+		if (!this.refIndex.size) return "none indexed yet";
+		const indexesByPrefix = new Map<string, Set<number>>();
+		for (const id of this.refIndex.keys()) {
+			const match = /^(.*?)(\d+)$/u.exec(id);
+			if (!match) continue;
+			const set = indexesByPrefix.get(match[1]) ?? new Set<number>();
+			set.add(Number(match[2]));
+			indexesByPrefix.set(match[1], set);
+		}
+		return [...indexesByPrefix.entries()]
+			.sort(([a], [b]) => a.localeCompare(b))
+			.map(([prefix, indexes]) => {
+				const ordered = [...indexes].sort((a, b) => a - b);
+				const span =
+					ordered.length === 1 ? `${ordered[0]}` : `${ordered[0]}-${ordered[ordered.length - 1]} (${ordered.length})`;
+				return `${prefix}${span}`;
+			})
+			.join(", ");
+	}
+
 	getSessionId(): string {
 		return this.currentSessionId;
 	}
@@ -124,7 +148,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		]) {
 			if (!this.refIndex.has(operation.ref_id)) {
 				throw new InvalidCommandError(
-					`Unknown or stale reference "${operation.ref_id}". Run a new search_query first.`,
+					`Unknown or stale reference "${operation.ref_id}"; known refs: ${this.knownRefsSummary()}. Run a new search_query first.`,
 				);
 			}
 		}

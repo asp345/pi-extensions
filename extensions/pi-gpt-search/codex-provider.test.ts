@@ -107,3 +107,26 @@ test("open and find fail fast with guidance when a reference is stale", async ()
 	const response = await indexed.provider.execute({ open: [{ ref_id: "turn0search0" }] }, undefined, stubCtx);
 	assert.ok(Array.isArray(response.results));
 });
+
+test("stale reference errors list the known ref ranges for self-correction", async () => {
+	const { provider } = providerWithResponses([{ results: [] }]);
+	await assert.rejects(
+		provider.execute({ open: [{ ref_id: "turn9search9" }] }, undefined, stubCtx),
+		/known refs: none indexed yet/u,
+	);
+
+	const indexed = providerWithResponses([
+		{
+			results: [
+				{ ref_id: "turn4reddit12", url: "https://reddit.com/r/x" },
+				{ ref_id: "turn4search1", url: "https://a.io" },
+			],
+		},
+	]);
+	await indexed.provider.execute({ search_query: [{ q: "a" }] }, undefined, stubCtx);
+	await indexed.provider.execute({ search_query: [{ q: "b" }] }, undefined, stubCtx);
+	await assert.rejects(
+		indexed.provider.execute({ open: [{ ref_id: "turn0search29" }] }, undefined, stubCtx),
+		/known refs: turn4reddit12, turn4search1/u,
+	);
+});
