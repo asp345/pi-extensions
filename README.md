@@ -6,7 +6,7 @@ My personal Pi monorepo.
 
 ### Extensions
 
-- `extensions/github-copilot-auto/`
+- `extensions/pi-github-copilot/`
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
@@ -20,7 +20,7 @@ My personal Pi monorepo.
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-usage/`
-- `extensions/question/`
+- `extensions/pi-question/`
 
 The included theme is `themes/flatland.json`.
 

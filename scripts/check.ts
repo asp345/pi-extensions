@@ -22,22 +22,22 @@ const manifest = await readJson<Manifest>("package.json");
 const extensions = manifest.pi?.extensions ?? [];
 const themes = manifest.pi?.themes ?? [];
 const expectedDirs = [
-	"github-copilot-auto",
 	"pi-anthropic-oauth",
 	"pi-antigravity-auth",
 	"pi-background-tasks",
 	"pi-compaction",
 	"pi-direnv",
+	"pi-github-copilot",
 	"pi-goal",
 	"pi-gpt-search",
 	"pi-lsp",
 	"pi-openrouter-metadata",
+	"pi-question",
 	"pi-sensitive-guard",
 	"pi-service-tier",
 	"pi-setup-custom-providers",
 	"pi-subagents",
 	"pi-usage",
-	"question",
 ];
 const actualDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: true }))
 	.filter((entry) => entry.isDirectory())

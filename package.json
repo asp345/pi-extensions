@@ -21,8 +21,8 @@
 	],
 	"pi": {
 		"extensions": [
-			"./extensions/github-copilot-auto/index.ts",
-			"./extensions/question/index.ts",
+			"./extensions/pi-github-copilot/index.ts",
+			"./extensions/pi-question/index.ts",
 			"./extensions/pi-goal/index.ts",
 			"./extensions/pi-gpt-search/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",

@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/github-copilot-auto",
+	"name": "@asp345/pi-question",
 	"version": "0.0.0",
-	"description": "Auto-approve GitHub Copilot OAuth for pi",
+	"description": "Interactive question tool for pi",
 	"license": "MIT",
 	"type": "module",
 	"main": "./index.ts",
@@ -19,7 +19,7 @@
 		]
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": "*",
-		"@earendil-works/pi-coding-agent": "*"
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
 	}
 }
