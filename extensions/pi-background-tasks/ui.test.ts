@@ -23,6 +23,7 @@ function exitEvent(): TaskEvent {
 			status: "completed",
 			exitCode: 0,
 			outputBytes: 5,
+			timedOut: false,
 		},
 		output: "done\n",
 	};

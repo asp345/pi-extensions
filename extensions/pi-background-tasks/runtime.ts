@@ -23,6 +23,7 @@ export interface TaskSnapshot {
 	status: TaskStatus;
 	exitCode: number | null;
 	outputBytes: number;
+	timedOut: boolean;
 }
 
 export interface WaitResult {
@@ -44,8 +45,11 @@ type ManagedTask = {
 	stopRequested: boolean;
 	heartbeatTimer: ReturnType<typeof setInterval> | null;
 	forceTimer: ReturnType<typeof setTimeout> | null;
+	timeoutTimer: ReturnType<typeof setTimeout> | null;
+	timeoutMs: number | undefined;
 	logBytes: number;
 	flushOutput: (() => void) | null;
+	appendOutput: ((value: string) => void) | null;
 	onOutputRaw: ((data: Buffer) => void) | null;
 	waiters: Set<(result: WaitResult) => void>;
 };
@@ -54,6 +58,19 @@ const BUFFER_LIMIT = 120_000;
 const READ_LIMIT = 5_000;
 const ALERT_LIMIT = 3_000;
 const HEARTBEAT_MS = 30 * 60_000;
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+export function resolveTimeoutMs(timeout: number | undefined): number | undefined {
+	if (timeout === undefined) return undefined;
+	if (!Number.isFinite(timeout) || timeout <= 0) {
+		throw new Error("Invalid timeout: must be a finite number of seconds");
+	}
+	const timeoutMs = timeout * 1000;
+	if (timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`Invalid timeout: maximum is ${MAX_TIMEOUT_MS / 1000} seconds`);
+	}
+	return timeoutMs;
+}
 
 export function tail(text: string, limit = READ_LIMIT): string {
 	return text.length <= limit ? text : `[...truncated]\n${text.slice(-limit)}`;
@@ -104,10 +121,12 @@ export class BackgroundRuntime {
 		options: {
 			notify?: boolean;
 			heartbeatMs?: number;
+			timeout?: number;
 			env?: NodeJS.ProcessEnv;
 			onOutputRaw?: (data: Buffer) => void;
 		} = {},
 	): TaskSnapshot {
+		const timeoutMs = resolveTimeoutMs(options.timeout);
 		const reason = sleepBlockReason(command);
 		if (reason !== null) throw new Error(reason);
 		const id = `bg-${++this.counter}`;
@@ -137,6 +156,7 @@ export class BackgroundRuntime {
 				status: "running",
 				exitCode: null,
 				outputBytes: 0,
+				timedOut: false,
 			},
 			child,
 			output: "",
@@ -144,8 +164,11 @@ export class BackgroundRuntime {
 			stopRequested: false,
 			heartbeatTimer: null,
 			forceTimer: null,
+			timeoutTimer: null,
+			timeoutMs,
 			logBytes: 0,
 			flushOutput: null,
+			appendOutput: null,
 			onOutputRaw: options.onOutputRaw ?? null,
 			waiters: new Set(),
 		};
@@ -169,6 +192,7 @@ export class BackgroundRuntime {
 			} catch {}
 			if (!this.shuttingDown) this.update();
 		};
+		task.appendOutput = append;
 		task.flushOutput = (): void => {
 			append(stdoutDecoder.end());
 			append(stderrDecoder.end());
@@ -188,7 +212,10 @@ export class BackgroundRuntime {
 		child.on("close", (code) => this.finish(task, typeof code === "number" ? code : null));
 		task.heartbeatTimer = setInterval(() => this.heartbeat(task), task.info.heartbeatMs);
 		task.heartbeatTimer.unref?.();
-		if (task.info.notify) this.reportState();
+		if (task.info.notify) {
+			this.armTimeout(task);
+			this.reportState();
+		}
 		this.update();
 		return snapshot(task);
 	}
@@ -199,6 +226,7 @@ export class BackgroundRuntime {
 		if (task.info.status !== "running") return true;
 		task.stopRequested = true;
 		task.info.updatedAt = Date.now();
+		this.clearTimeoutTimer(task);
 		this.kill(task, "SIGTERM");
 		this.armForceKill(task);
 		this.update();
@@ -260,6 +288,25 @@ export class BackgroundRuntime {
 		}
 	}
 
+	private clearTimeoutTimer(task: ManagedTask): void {
+		if (task.timeoutTimer) clearTimeout(task.timeoutTimer);
+		task.timeoutTimer = null;
+	}
+
+	private armTimeout(task: ManagedTask): void {
+		const timeoutMs = task.timeoutMs;
+		if (task.timeoutTimer || timeoutMs === undefined || task.closed) return;
+		task.timeoutTimer = setTimeout(() => {
+			task.timeoutTimer = null;
+			if (task.closed) return;
+			task.info.timedOut = true;
+			task.appendOutput?.(`\n[timed out after ${timeoutMs / 1000}s]\n`);
+			this.kill(task, "SIGTERM");
+			this.armForceKill(task);
+		}, timeoutMs);
+		task.timeoutTimer.unref?.();
+	}
+
 	private armForceKill(task: ManagedTask): void {
 		if (task.forceTimer) clearTimeout(task.forceTimer);
 		task.forceTimer = setTimeout(() => {
@@ -282,6 +329,7 @@ export class BackgroundRuntime {
 		task.child.stderr?.removeAllListeners("data");
 		task.flushOutput?.();
 		task.flushOutput = null;
+		task.appendOutput = null;
 		task.onOutputRaw = null;
 		task.closed = true;
 		task.info.exitCode = code;
@@ -289,6 +337,7 @@ export class BackgroundRuntime {
 		task.info.updatedAt = Date.now();
 		if (task.heartbeatTimer) clearInterval(task.heartbeatTimer);
 		if (task.forceTimer) clearTimeout(task.forceTimer);
+		this.clearTimeoutTimer(task);
 		task.heartbeatTimer = null;
 		task.forceTimer = null;
 		const result: WaitResult = { task: snapshot(task), output: task.output };
@@ -305,6 +354,7 @@ export class BackgroundRuntime {
 		const task = this.find(id);
 		if (!task || task.info.notify) return false;
 		task.info.notify = true;
+		this.armTimeout(task);
 		if (task.closed && !this.shuttingDown)
 			this.emit({ type: "exit", task: snapshot(task), output: tail(task.output, ALERT_LIMIT) });
 		if (!this.shuttingDown) this.reportState();
@@ -317,6 +367,7 @@ export class BackgroundRuntime {
 		if (!task || task.info.notify) return false;
 		if (!task.closed) {
 			task.stopRequested = true;
+			this.clearTimeoutTimer(task);
 			this.kill(task, "SIGTERM");
 			this.armForceKill(task);
 		}

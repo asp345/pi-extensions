@@ -2,7 +2,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
-import { BackgroundRuntime, type TaskSnapshot, tail } from "./runtime.ts";
+import { BackgroundRuntime, resolveTimeoutMs, type TaskSnapshot, tail } from "./runtime.ts";
 import { BackgroundUI, COMMAND, SHORTCUT, taskLine } from "./ui.ts";
 
 const NO_MATCH = "No background task matched that id.";
@@ -69,6 +69,11 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			heartbeat: Type.Optional(
 				Type.Number({ description: "Minutes between still-running notifications while the task runs (default 30)" }),
 			),
+			timeout: Type.Optional(
+				Type.Number({
+					description: "Timeout in seconds. Kills the task after this time. Optional. No default timeout.",
+				}),
+			),
 		}),
 		async execute(_callId, params, _signal, _update, ctx) {
 			if (params.action === "start") {
@@ -77,8 +82,14 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				const heartbeat = params.heartbeat;
 				if (heartbeat !== undefined && (!Number.isFinite(heartbeat) || heartbeat <= 0))
 					return result("heartbeat must be a positive number of minutes.", true);
+				try {
+					resolveTimeoutMs(params.timeout);
+				} catch (error) {
+					return result(error instanceof Error ? error.message : "Invalid timeout.", true);
+				}
 				const task = runtime.start(command, ctx.cwd, {
 					heartbeatMs: heartbeat === undefined ? undefined : heartbeat * 60_000,
+					timeout: params.timeout,
 					env: buildSessionEnv(ctx),
 				});
 				return result(

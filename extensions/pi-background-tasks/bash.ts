@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { constants } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { delimiter, join } from "node:path";
@@ -13,36 +14,41 @@ import {
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
-const DEFAULT_SYNC_MS = 30_000;
-const MAX_SYNC_MS = 90_000;
+const DEFAULT_HANDOFF_MS = 30_000;
+const MAX_HANDOFF_MS = 90_000;
+const handoffStore = new AsyncLocalStorage<number | undefined>();
 
 const HANDOFF_GUIDELINE =
-	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait.";
+	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait. Never use the timeout shell command.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Foreground wait is 30s by default (must be 1-90). After that wait the command keeps running as a background task. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Foreground wait (handoff) is 30s by default (must be 1-90). After that wait the command keeps running as a background task. timeout, if set, is the background-task timeout in seconds after handoff; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
-	timeout: Type.Optional(
+	handoff: Type.Optional(
 		Type.Number({
 			minimum: 1,
 			maximum: 90,
-			description:
-				"Foreground wait in seconds before handoff to a background task. Default 30. Must be 1-90.",
+			description: "Foreground wait in seconds before handoff to a background task. Default 30. Must be 1-90.",
+		}),
+	),
+	timeout: Type.Optional(
+		Type.Number({
+			description: "Background-task timeout in seconds after handoff. Optional. No default timeout.",
 		}),
 	),
 });
 
-function resolveWindowMs(timeout: number | undefined): number {
-	if (timeout === undefined) return DEFAULT_SYNC_MS;
-	if (!Number.isFinite(timeout) || timeout <= 0) {
-		throw new Error("Invalid timeout: must be a finite number of seconds");
+function resolveHandoffMs(handoff: number | undefined): number {
+	if (handoff === undefined) return DEFAULT_HANDOFF_MS;
+	if (!Number.isFinite(handoff) || handoff <= 0) {
+		throw new Error("Invalid handoff: must be a finite number of seconds");
 	}
-	const timeoutMs = timeout * 1000;
-	if (timeoutMs > MAX_SYNC_MS) {
-		throw new Error(`Invalid timeout: maximum is ${MAX_SYNC_MS / 1000} seconds`);
+	const handoffMs = handoff * 1000;
+	if (handoffMs > MAX_HANDOFF_MS) {
+		throw new Error(`Invalid handoff: maximum is ${MAX_HANDOFF_MS / 1000} seconds`);
 	}
-	return timeoutMs;
+	return handoffMs;
 }
 
 /** Session env for spawned commands: pi's managed bin dir on PATH plus PI_* session metadata. */
@@ -81,11 +87,12 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 			} catch {
 				throw new Error(`Working directory does not exist: ${execCwd}\nCannot execute bash commands.`);
 			}
-			const windowMs = resolveWindowMs(timeout);
+			const windowMs = resolveHandoffMs(handoffStore.getStore());
 			const task = runtime.start(command, execCwd, {
 				notify: false,
 				env,
 				onOutputRaw: onData,
+				timeout,
 			});
 			const done = await runtime.waitForExit(task.id, windowMs, signal);
 			if (!done) {
@@ -98,9 +105,10 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 					runtime.discard(task.id);
 					return { exitCode: snapshot?.exitCode ?? null };
 				}
+				const timeoutNote = timeout === undefined ? "" : ` timeout ${timeout}s after handoff.`;
 				onData(
 					Buffer.from(
-						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}. Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
+						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
 					),
 				);
 				return { exitCode: null };
@@ -116,6 +124,10 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
+		execute(...args: Parameters<typeof definition.execute>) {
+			const handoff = (args[1] as { handoff?: number }).handoff;
+			return handoffStore.run(handoff, () => definition.execute(...args));
+		},
 	};
 }
 
