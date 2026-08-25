@@ -19,14 +19,16 @@ const MAX_SYNC_MS = 90_000;
 const HANDOFF_GUIDELINE =
 	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Runs in the foreground for up to 30 seconds (configurable via timeout, capped at 90 seconds); if the command is still running after that window, it automatically continues as a background task instead of being killed, and its completion is delivered as a steering message at the next turn boundary. Returns stdout and stderr truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first); when truncated, full output is saved to a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Foreground wait is 30s by default (must be 1-90). After that wait the command keeps running as a background task. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
 	timeout: Type.Optional(
 		Type.Number({
+			minimum: 1,
+			maximum: 90,
 			description:
-				"Seconds to run in the foreground before moving the command to a background task (default 30, max 90)",
+				"Foreground wait in seconds before handoff to a background task. Default 30. Must be 1-90.",
 		}),
 	),
 });

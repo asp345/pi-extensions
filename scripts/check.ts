@@ -31,6 +31,7 @@ const expectedDirs = [
 	"pi-goal",
 	"pi-gpt-search",
 	"pi-lsp",
+	"pi-nix-store-guard",
 	"pi-openrouter-metadata",
 	"pi-question",
 	"pi-sensitive-guard",
