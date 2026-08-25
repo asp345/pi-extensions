@@ -14,18 +14,19 @@ const ALLOWED = (command: string): void => {
 };
 
 test("blocks long and unknown sleeps", () => {
-	BLOCKED("sleep 10");
+	BLOCKED("sleep 30");
 	BLOCKED("sleep 1m");
 	BLOCKED("sleep $N");
-	const reason = sleepBlockReason("sleep 30");
-	assert.match(reason ?? "", /Blocked: sleep 30s \(max 10s\)/);
+	const reason = sleepBlockReason("sleep 60");
+	assert.match(reason ?? "", /Blocked: sleep 60s \(max 30s\)/);
 	ALLOWED("sleep 9");
+	ALLOWED("sleep 29");
 });
 
 test("blocks nested sleeps", () => {
-	BLOCKED("sleep 10 && echo done");
-	BLOCKED("echo $(sleep 10)");
-	BLOCKED("if true; then sleep 10; fi");
+	BLOCKED("sleep 15 && sleep 15");
+	BLOCKED("echo $(sleep 30)");
+	BLOCKED("if true; then sleep 30; fi");
 });
 
 test("allows short, quoted, and explicit sleeps", () => {

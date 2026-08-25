@@ -22,8 +22,5 @@
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*"
-	},
-	"dependencies": {
-		"@cortexkit/antigravity-auth-core": "^2.1.0"
 	}
 }

@@ -1,23 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import {
-	type AgyRequestScope,
-	AgyRequestSessionStore,
-	ANTIGRAVITY_ENDPOINT,
-	ANTIGRAVITY_REDIRECT_URI,
-	authorizeAntigravity,
-	buildAgyAgentRequestMetadata,
-	buildAntigravityHarnessUserAgent,
-	ensureProjectContext,
-	exchangeAntigravity,
-	fetchWithAgyCliTransport,
-	getPublicModelDefinitions,
-	orderAgyRequestPayloadInPlace,
-	refreshAntigravityToken,
-	resolveModelForHeaderStyle,
-	toGeminiSchema,
-} from "@cortexkit/antigravity-auth-core";
-import {
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
@@ -38,6 +21,25 @@ import {
 	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type AgyModelDefinition,
+	type AgyRequestScope,
+	AgyRequestSessionStore,
+	ANTIGRAVITY_ENDPOINT,
+	ANTIGRAVITY_REDIRECT_URI,
+	authorizeAntigravity,
+	buildAgyAgentRequestMetadata,
+	buildAntigravityHarnessUserAgent,
+	ensureProjectContext,
+	exchangeAntigravity,
+	fetchWithAgyCliTransport,
+	orderAgyRequestPayloadInPlace,
+	refreshAntigravityToken,
+	refreshModelCatalog,
+	resolveModelForAntigravity,
+	STATIC_MODEL_CATALOG,
+	toGeminiSchema,
+} from "./agy/index.ts";
 
 const PROVIDER_ID = "antigravity";
 const TRAILING_USAGE_TIMEOUT = 1_000;
@@ -482,16 +484,13 @@ export function resolveModel(model: Model<Api>, reasoning?: ThinkingLevel) {
 	const tiered = model.reasoning && (id.includes("gemini-3") || (id.includes("claude") && id.includes("thinking")));
 	const tier = reasoning === "low" || reasoning === "medium" || reasoning === "high" ? reasoning : undefined;
 	if (!tiered || !tier) {
-		return resolveModelForHeaderStyle(model.id, "antigravity");
+		return resolveModelForAntigravity(model.id);
 	}
 	const base = model.id.replace(/-(?:minimal|low|medium|high|xhigh)$/i, "");
-	return resolveModelForHeaderStyle(`${base}-${tier}`, "antigravity");
+	return resolveModelForAntigravity(base, tier);
 }
 
 function finalize(request: Record<string, unknown>, model: string, scope: AgyRequestScope): string {
-	if (Array.isArray(request.tools) && request.tools.length) {
-		request.toolConfig = { functionCallingConfig: { mode: "VALIDATED" } };
-	}
 	const metadata = buildAgyAgentRequestMetadata(scope.session, request, model, scope.timestamp, {
 		stepCountMode: "cli",
 	});
@@ -519,12 +518,7 @@ async function sendRequest(
 	});
 	const request = geminiRequest(context, model) as unknown as Record<string, unknown>;
 	const generationConfig: Record<string, unknown> = {};
-	if (resolved.thinkingLevel) {
-		generationConfig.thinkingConfig = {
-			includeThoughts: true,
-			thinkingLevel: resolved.thinkingLevel,
-		};
-	} else if (typeof resolved.thinkingBudget === "number") {
+	if (typeof resolved.thinkingBudget === "number") {
 		generationConfig.thinkingConfig = {
 			includeThoughts: true,
 			thinkingBudget: resolved.thinkingBudget,
@@ -555,15 +549,30 @@ async function sendRequest(
 		if (value === null) headers.delete(name);
 		else headers.set(name, value);
 	}
-	const response = await fetchWithAgyCliTransport(
-		`${ANTIGRAVITY_ENDPOINT}/v1internal:streamGenerateContent?alt=sse`,
-		{
-			method: "POST",
-			headers,
-			body: JSON.stringify(transformed),
-		},
-		{ signal },
-	);
+	// The transport already retries TLS handshake failures; this loop covers
+	// connection-level errors that surface after the handshake (ECONNRESET,
+	// EPIPE) where the request may or may not have reached the server. Each
+	// retry re-runs beginRequest so the requestId increments, matching agy CLI
+	// behavior of a unique requestId per attempt.
+	let response: Response | undefined;
+	for (let attempt = 0; ; attempt += 1) {
+		try {
+			response = await fetchWithAgyCliTransport(
+				`${ANTIGRAVITY_ENDPOINT}/v1internal:streamGenerateContent?alt=sse`,
+				{
+					method: "POST",
+					headers,
+					body: JSON.stringify(transformed),
+				},
+				{ signal },
+			);
+			break;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			const transient = code === "ECONNRESET" || code === "EPIPE" || code === "ETIMEDOUT";
+			if (!transient || attempt >= 2 || signal.aborted) throw error;
+		}
+	}
 	await options?.onResponse?.(
 		{ status: response.status, headers: Object.fromEntries(response.headers.entries()) },
 		model,
@@ -758,19 +767,19 @@ const TIER_THINKING_LEVEL_MAP: ThinkingLevelMap = {
 };
 
 export default function antigravityAuth(pi: ExtensionAPI): void {
-	const models = Object.values(getPublicModelDefinitions())
-		.filter((model) => !model.modalities.output.includes("image"))
-		.map((model) => ({
+	const toProviderModels = (definitions: AgyModelDefinition[]) =>
+		definitions.map((model) => ({
 			id: model.id.replace(/^antigravity-/, ""),
 			name: model.name,
 			reasoning: model.reasoning,
 			thinkingLevelMap: model.reasoning ? { ...TIER_THINKING_LEVEL_MAP } : undefined,
-			input: ["text", "image"] as Array<"text" | "image">,
+			input: model.input,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-			contextWindow: model.limit.context,
-			maxTokens: model.limit.output,
+			contextWindow: model.contextWindow,
+			maxTokens: model.maxTokens,
 		}));
-	pi.registerProvider(PROVIDER_ID, {
+	const models = toProviderModels(STATIC_MODEL_CATALOG);
+	const provider: Parameters<ExtensionAPI["registerProvider"]>[1] = {
 		name: "Google Antigravity",
 		baseUrl: "https://cloudcode-pa.googleapis.com",
 		api: "google-generative-ai",
@@ -782,9 +791,18 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 			refreshToken: refresh,
 			getApiKey: (credentials: OAuthCredentials) => {
 				rememberRefresh(credentials.access, credentials.refresh);
+				// Refresh the model catalog in the background so new releases appear
+				// without code changes; failures keep the current catalog.
+				void refreshModelCatalog(credentials.access).then(
+					(definitions) => {
+						provider.models = toProviderModels(definitions);
+					},
+					() => {},
+				);
 				return credentials.access;
 			},
 		},
 		streamSimple: streamAntigravity,
-	});
+	};
+	pi.registerProvider(PROVIDER_ID, provider);
 }

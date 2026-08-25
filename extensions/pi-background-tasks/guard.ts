@@ -1,6 +1,6 @@
 import { type Command, type ParsedScript, parse, type Word } from "unbash";
 
-export const MAX_SLEEP_SECONDS = 10;
+export const MAX_SLEEP_SECONDS = 30;
 
 const DURATION_RE = /^(\d+(?:\.\d+)?)([smhd])?$/;
 const SUFFIX_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };

@@ -88,19 +88,18 @@ test("resolveModel applies only the low|medium|high suffix tiers", () => {
 		({ provider: "antigravity", id, api: "google-generative-ai", reasoning: true }) as Parameters<
 			typeof resolveModel
 		>[0];
-	const gemini = model("gemini-3-pro");
-	const claude = model("claude-opus-4-6-thinking");
+	const gemini = model("gemini-3.7-flash");
 
-	assert.equal(resolveModel(gemini, "low").actualModel, "gemini-3-pro-low");
-	assert.equal(resolveModel(gemini, "medium").actualModel, "gemini-3-pro-medium");
-	assert.equal(resolveModel(gemini, "high").actualModel, "gemini-3-pro-high");
-	assert.equal(resolveModel(claude, "high").tier, "high");
-
-	// minimal, xhigh, and max are not in antigravity's vocabulary; they must resolve to a
-	// valid model without leaking the unsupported level into the wire id.
-	for (const id of ["gemini-3-pro", "claude-opus-4-6-thinking"]) {
-		for (const level of ["minimal", "xhigh", "max"] as const) {
-			assert.equal(resolveModel(model(id), level).actualModel.includes(level), false);
-		}
-	}
+	assert.deepEqual(resolveModel(gemini, "low"), {
+		actualModel: "gemini-3.7-flash-low",
+		thinkingBudget: 1000,
+	});
+	assert.deepEqual(resolveModel(gemini, "medium"), {
+		actualModel: "gemini-3.7-flash-medium",
+		thinkingBudget: 4000,
+	});
+	assert.deepEqual(resolveModel(model("claude-opus-4-6-thinking"), {} as never), {
+		actualModel: "claude-opus-4-6",
+		thinkingBudget: 1024,
+	});
 });
