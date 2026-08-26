@@ -367,6 +367,23 @@ export default function subagents(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.registerTool({
+		name: "stop_subagent",
+		label: "Stop Subagent",
+		description: "Stop a running subagent by ID.",
+		promptSnippet: "Stop a running subagent",
+		parameters: Type.Object({
+			id: Type.String({ minLength: 1, maxLength: 64 }),
+		}),
+		async execute(_callId, params) {
+			const stopped = manager.cancel(params.id);
+			return result(stopped ? `Stopped subagent ${params.id}.` : `Subagent ${params.id} is not running.`, {
+				id: params.id,
+				stopped,
+			});
+		},
+	});
+
 	pi.registerCommand("agents", {
 		description: "Choose the active subagent context shown above the editor",
 		handler: async (args, ctx) => ui.open(ctx, args),
