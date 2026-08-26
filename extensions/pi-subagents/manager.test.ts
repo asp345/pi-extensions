@@ -34,11 +34,12 @@ test("background subagents are detached from the parent turn abort signal", asyn
 		() => undefined,
 		() => undefined,
 		() => undefined,
+		() => undefined,
 		startSession as never,
 	);
 	const parent = new AbortController();
 	parent.abort();
-	const record = manager.spawn({ cwd: process.cwd() } as ExtensionContext, definition, "task", {
+	const record = manager.spawn({ cwd: process.cwd() } as ExtensionContext, definition, "Task title", "task", {
 		background: true,
 		fork: false,
 		signal: parent.signal,

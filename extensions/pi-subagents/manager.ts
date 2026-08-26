@@ -19,6 +19,7 @@ interface SpawnOptions {
 }
 
 interface ResumeOptions {
+	title: string;
 	background: boolean;
 	model?: Model<Api>;
 	models: string[];
@@ -37,14 +38,22 @@ export class AgentManager {
 		private readonly completed: (record: AgentRecord) => void,
 		private readonly resumed: (record: AgentRecord) => void,
 		private readonly fallback: (record: AgentRecord, reason: string) => void,
+		private readonly reported: (record: AgentRecord, summary: string) => void,
 		private readonly startSession: typeof runNew = runNew,
 	) {}
 
-	spawn(ctx: ExtensionContext, definition: AgentDefinition, prompt: string, options: SpawnOptions): AgentRecord {
+	spawn(
+		ctx: ExtensionContext,
+		definition: AgentDefinition,
+		title: string,
+		prompt: string,
+		options: SpawnOptions,
+	): AgentRecord {
 		const id = randomUUID();
 		const record: AgentRecord = {
 			id,
 			type: definition.name,
+			title,
 			prompt,
 			status: "running",
 			background: options.background,
@@ -73,6 +82,7 @@ export class AgentManager {
 			throw new Error(`Subagent ${id} is already running.`);
 		}
 		if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
+		record.title = options.title;
 		record.prompt = prompt;
 		record.background = options.background;
 		record.status = "running";
@@ -269,6 +279,7 @@ export class AgentManager {
 				record.toolUses += 1;
 				this.changed();
 			},
+			onReport: (summary: string) => this.reported(record, summary),
 		};
 	}
 

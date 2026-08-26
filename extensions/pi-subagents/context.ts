@@ -26,7 +26,7 @@ export function renderAgentList(
 		.slice(0, visible)
 		.map((record) =>
 			truncateToWidth(
-				`${theme.fg("accent", "●")} ${theme.fg("text", record.type)} ${theme.fg("dim", `· ${record.model ?? "model pending"} · ${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools`)}`,
+				`${theme.fg("accent", "●")} ${theme.fg("text", record.type)} ${theme.fg("text", record.title)} ${theme.fg("dim", `· ${record.model ?? "model pending"} · ${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools`)}`,
 				width,
 			),
 		);

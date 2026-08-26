@@ -13,6 +13,11 @@ const RESULT_LINES = 120;
 const NOTIFICATION_BYTES = 1_200;
 
 const AgentParameters = Type.Object({
+	title: Type.String({
+		minLength: 1,
+		maxLength: 120,
+		description: "Short task title shown in the subagent list.",
+	}),
 	prompt: Type.String({
 		minLength: 1,
 		maxLength: 30_000,
@@ -56,6 +61,7 @@ const AgentParameters = Type.Object({
 
 export function delegationPrompt(
 	definition: { description: string },
+	title: string,
 	task: string,
 	context: string,
 	cwd: string,
@@ -67,11 +73,19 @@ export function delegationPrompt(
 		"The parent conversation is not inherited. Work only from this explicit handoff and evidence you inspect yourself.",
 		"",
 		"## Task",
+		`Title: ${title.trim()}`,
 		task.trim(),
 		"",
 		"## Context from parent",
 		context.trim(),
 	].join("\n");
+}
+
+interface SubagentReportDetails {
+	id: string;
+	type: string;
+	title: string;
+	summary: string;
 }
 
 interface CompletionDetails {
@@ -103,6 +117,18 @@ export default function subagents(pi: ExtensionAPI): void {
 			currentContext?.ui.notify(
 				`${record.type} switched to fallback model ${record.model ?? "configured"}: ${summary.slice(0, 240)}`,
 				"warning",
+			);
+		},
+		(record, summary) => {
+			const content = bounded(summary, 4_000, 80).text;
+			pi.sendMessage<SubagentReportDetails>(
+				{
+					customType: "subagent-report",
+					content: `Progress report from ${record.id} (${record.type}, ${record.title}):\n${content}`,
+					display: true,
+					details: { id: record.id, type: record.type, title: record.title, summary: content },
+				},
+				{ deliverAs: "steer", triggerTurn: true },
 			);
 		},
 	);
@@ -154,6 +180,16 @@ export default function subagents(pi: ExtensionAPI): void {
 		);
 	}
 
+	pi.registerMessageRenderer<SubagentReportDetails>("subagent-report", (message, _options, theme) => {
+		const details = message.details;
+		if (!details) return undefined;
+		return new Text(
+			`${theme.fg("accent", "↳")} ${theme.fg("toolTitle", theme.bold(details.type))} ${theme.fg("dim", details.title)}\n${details.summary}`,
+			0,
+			0,
+		);
+	});
+
 	pi.registerMessageRenderer<CompletionBatchDetails>("subagent-completion", (message, _options, theme) => {
 		const records = message.details?.records;
 		if (!records?.length) return undefined;
@@ -194,7 +230,8 @@ export default function subagents(pi: ExtensionAPI): void {
 			}
 			if (!params.prompt.trim()) throw new Error("Agent configuration error: task must not be blank.");
 			if (!params.context.trim()) throw new Error("Agent configuration error: context must not be blank.");
-			const prompt = delegationPrompt(definition, params.prompt, params.context, ctx.cwd);
+			if (!params.title.trim()) throw new Error("Agent configuration error: title must not be blank.");
+			const prompt = delegationPrompt(definition, params.title, params.prompt, params.context, ctx.cwd);
 			if (params.resume && params.fork)
 				throw new Error("Agent configuration error: resume cannot be combined with fork.");
 			if (params.resume) {
@@ -207,6 +244,7 @@ export default function subagents(pi: ExtensionAPI): void {
 				const model = params.model ? resolveModel(params.model, ctx, definition) : undefined;
 				const models = params.model ? [params.model, ...definition.models] : definition.models;
 				const record = await manager.resume(ctx, existing.id, prompt, {
+					title: params.title.trim(),
 					background,
 					model,
 					models,
@@ -227,7 +265,7 @@ export default function subagents(pi: ExtensionAPI): void {
 
 			assertParentTools(pi, definition.tools, definition.path);
 			const background = params.run_in_background ?? definition.runInBackground;
-			const record = manager.spawn(ctx, definition, prompt, {
+			const record = manager.spawn(ctx, definition, params.title.trim(), prompt, {
 				background,
 				model: params.model,
 				maxTurns: params.max_turns,
@@ -314,8 +352,8 @@ export default function subagents(pi: ExtensionAPI): void {
 		name: "steer_subagent",
 		label: "Steer Subagent",
 		description:
-			"Send one bounded steering message to a running subagent, including one whose session is still starting.",
-		promptSnippet: "Redirect a running subagent",
+			"Send one bounded steering message to a running subagent, including one whose session is still starting. To request an asynchronous progress report, ask the subagent to summarize its current work and call report_to_parent.",
+		promptSnippet: "Steer a running subagent. You can request a progress report",
 		parameters: Type.Object({
 			id: Type.String({ minLength: 1, maxLength: 64 }),
 			message: Type.String({ minLength: 1, maxLength: 4_000 }),
@@ -404,6 +442,7 @@ function formatMetadata(record: AgentRecord): string {
 	return [
 		`ID: ${record.id}`,
 		`Type: ${record.type}`,
+		`Title: ${record.title}`,
 		`Status: ${record.status}`,
 		`Turns: ${record.turns}`,
 		`Tool uses: ${record.toolUses}`,

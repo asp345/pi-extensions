@@ -43,6 +43,7 @@ export interface WorktreeInfo {
 export interface AgentRecord {
 	id: string;
 	type: string;
+	title: string;
 	prompt: string;
 	status: AgentStatus;
 	background: boolean;

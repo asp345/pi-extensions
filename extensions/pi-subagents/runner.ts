@@ -6,11 +6,13 @@ import {
 	type AgentSessionEvent,
 	createAgentSession,
 	DefaultResourceLoader,
+	defineTool,
 	type ExtensionContext,
 	getAgentDir,
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { definitionBody } from "./definitions.ts";
 import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.ts";
 import { compact, message, onAbort } from "./util.ts";
@@ -21,6 +23,27 @@ interface Callbacks {
 	onText(text: string): void;
 	onTurn(): void;
 	onTool(name: string): void;
+	onReport(summary: string): void;
+}
+
+const REPORT_TOOL_NAME = "report_to_parent";
+
+function reportTool(callbacks: Callbacks) {
+	return defineTool({
+		name: REPORT_TOOL_NAME,
+		label: "Report to Parent",
+		description: "Send a concise requested progress summary to the parent agent while this subagent continues working.",
+		parameters: Type.Object({
+			summary: Type.String({ minLength: 1, maxLength: 4_000 }),
+		}),
+		async execute(_callId, params) {
+			callbacks.onReport(params.summary.trim());
+			return {
+				content: [{ type: "text" as const, text: "Progress summary sent to the parent agent." }],
+				details: {},
+			};
+		},
+	});
 }
 
 export async function runNew(
@@ -67,6 +90,7 @@ export async function runNew(
 		sessionManager,
 		modelRegistry: ctx.modelRegistry,
 		modelRuntime: modelRuntime as NonNullable<Parameters<typeof createAgentSession>[0]>["modelRuntime"],
+		customTools: [reportTool(callbacks)],
 		model,
 	};
 	const thinking = resolveThinking(definition.thinking, ctx);
@@ -380,7 +404,7 @@ function assertTools(session: AgentSession, definition: AgentDefinition): void {
 				"Every declared tool must exist in the child session's complete tool registry.",
 		);
 	}
-	session.setActiveToolsByName(definition.tools);
+	session.setActiveToolsByName([...definition.tools, REPORT_TOOL_NAME]);
 }
 
 interface FallbackPromptOptions {

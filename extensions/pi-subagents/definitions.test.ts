@@ -31,6 +31,7 @@ test("untrusted projects cannot contribute agent definitions", async () => {
 test("delegations receive an explicit role and bounded handoff instead of parent conversation inheritance", () => {
 	const prompt = delegationPrompt(
 		{ description: "Handle straightforward implementation tasks" },
+		"Update parser",
 		"Update the parser and run its focused test.",
 		"Parser: src/parser.ts. Preserve public behavior outside issue #42.",
 		"/workspace/project",
@@ -38,7 +39,7 @@ test("delegations receive an explicit role and bounded handoff instead of parent
 	assert.match(prompt, /Role: Handle straightforward implementation tasks/u);
 	assert.match(prompt, /Working directory: \/workspace\/project/u);
 	assert.match(prompt, /parent conversation is not inherited/u);
-	assert.match(prompt, /## Task\nUpdate the parser/u);
+	assert.match(prompt, /## Task\nTitle: Update parser\nUpdate the parser/u);
 	assert.match(prompt, /## Context from parent\nParser: src\/parser\.ts/u);
 });
 
@@ -57,6 +58,7 @@ const callbacks = {
 	onText: () => undefined,
 	onTurn: () => undefined,
 	onTool: () => undefined,
+	onReport: () => undefined,
 };
 
 test("a failed model tries later models until one succeeds", async () => {

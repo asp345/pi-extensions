@@ -26,6 +26,7 @@ function record(messages: unknown[]): AgentRecord {
 	return {
 		id: "agent-12345678",
 		type: "Explore",
+		title: "Inspect parser",
 		prompt: "inspect",
 		status: "running",
 		background: true,
@@ -44,8 +45,8 @@ test("default agent list is compact and titleless", () => {
 	const lines = renderAgentList([record([]), { ...record([]), id: "agent-87654321", type: "Worker" }], 80, theme);
 
 	assert.equal(lines.length, 2);
-	assert.match(lines[0] ?? "", /^● Explore/u);
-	assert.match(lines[1] ?? "", /^● Worker/u);
+	assert.match(lines[0] ?? "", /^● Explore Inspect parser/u);
+	assert.match(lines[1] ?? "", /^● Worker Inspect parser/u);
 	assert.doesNotMatch(lines.join("\n"), /Agents \(|Subagent context/u);
 });
 
