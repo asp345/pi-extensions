@@ -105,6 +105,10 @@ function positiveInteger(value: string | undefined): number | undefined {
 	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function formatPriceMultiplier(value: number | "auto" | undefined): string {
+	return value === undefined || value === "auto" ? "auto" : String(value);
+}
+
 /** Menu rows are labelled by id and described by this detail line. */
 function providerDetail(ctx: ExtensionContext, providerId: string, config: CustomProviderConfig): string {
 	const models = `${config.models?.length ?? 0} models`;
@@ -176,6 +180,7 @@ async function editProviderConnection(
 			{ label: `Base URL: ${config.baseUrl ?? "unset"}`, value: "url" },
 			{ label: `API: ${config.api ?? "unset"}`, value: "api" },
 			{ label: `Display name: ${config.name ?? "unset"}`, value: "name" },
+			{ label: `Price multiplier: ${formatPriceMultiplier(config.priceMultiplier)}`, value: "price" },
 			{
 				label: `Credentials: ${authenticated ? "configured" : `missing, run /login ${providerId}`}`,
 				value: "key",
@@ -196,6 +201,23 @@ async function editProviderConnection(
 		} else if (action === "name") {
 			const value = await ctx.ui.input("Display name (blank clears)", config.name);
 			if (value !== undefined) config.name = value.trim() || undefined;
+		} else if (action === "price") {
+			const value = (
+				await ctx.ui.input(
+					"Price multiplier (auto, or listing value × N = USD per million)",
+					formatPriceMultiplier(config.priceMultiplier),
+				)
+			)?.trim();
+			if (value === undefined) continue;
+			if (!value || value.toLowerCase() === "auto") config.priceMultiplier = undefined;
+			else {
+				const parsed = Number(value);
+				if (!Number.isFinite(parsed) || parsed <= 0) {
+					ctx.ui.notify("Enter 'auto' or a positive number", "warning");
+					continue;
+				}
+				config.priceMultiplier = parsed;
+			}
 		} else {
 			const value = await ctx.ui.input(
 				"API key config (blank clears; $ENV_VAR, or any placeholder for keyless local servers)",

@@ -32,13 +32,13 @@ A persisted catalog outranks the configured metadata it was derived from, so one
 
 Refresh only widens what is configured. Names, reasoning flags, and thinking maps set by hand are never overwritten, and models marked `manual` keep their limits. Pricing has no manual field and is always taken from the newest listing, so stale or zeroed rates are corrected by a refresh.
 
-Listings quote prices in two dialects. OpenRouter reports a per-token price as a string, Novita nests a `price_per_m` counted in units of 1e-4 USD per million tokens. Both are normalized to pi's USD-per-million convention.
+Listings quote prices in several dialects. OpenRouter reports a per-token price as a string, crof reports dollars per million tokens, and Novita nests a `price_per_m` counted in units of 1e-4 USD per million tokens. Auto-detection selects a multiplier that produces $0.001–$100 per million tokens; **Connection → Price multiplier** accepts a fixed override.
 
 System prompts are sent with the `system` role. Pi reads an unknown OpenAI-compatible endpoint as speaking OpenAI's role vocabulary and would otherwise send a `developer` message for every reasoning model, which most gateways reject with a bare 400. The two roles reach the same level of pi's instruction hierarchy on endpoints that accept either name, so `system` is the portable choice. Set `Developer role: Yes` for an endpoint that requires `developer`.
 
 Providers pi ships itself are left untouched, and the extension never writes `settings.json`. Use `/models` if you want to change which models pi cycles through.
 
-Thinking level maps come from the provider's listing (`reasoning.supported_efforts`) or from the values set by hand under **Thinking**. Without a map, pi offers `off` through `high`; `xhigh` and `max` require an explicit entry.
+Thinking level maps come from the provider's listing (`reasoning.supported_efforts`), Crof's `custom_reasoning`/`reasoning_effort` flags, or values set by hand under **Thinking**. Without an explicit map, pi offers `off` through `high`; `xhigh` and `max` remain hidden by pi.
 
 ## Files
 

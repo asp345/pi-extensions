@@ -19,7 +19,7 @@ const CATALOG_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
  */
 const CUSTOM_PROVIDER_COMPAT = { supportsDeveloperRole: false } as const;
 
-/** Values left unset in the wizard must not mask the defaults above. */
+/** Values left unset in the wizard must not mask provider defaults. */
 function assigned<T extends object>(value: T | undefined): Partial<T> {
 	return Object.fromEntries(Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }

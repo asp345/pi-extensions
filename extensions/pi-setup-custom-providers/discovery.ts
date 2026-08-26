@@ -58,9 +58,12 @@ function reasoningMetadata(raw: Record<string, unknown>): Pick<ModelMetadata, "r
 	const enabled =
 		raw.reasoning === true ||
 		reasoning !== undefined ||
+		raw.custom_reasoning === true ||
+		raw.reasoning_effort === true ||
 		tokens.has("reasoning") ||
 		tokens.has("thinking") ||
-		tokens.has("reasoning_effort");
+		tokens.has("reasoning_effort") ||
+		tokens.has("custom_reasoning");
 	if (!enabled) return {};
 
 	const supported = new Set(stringArray(reasoning?.supported_efforts));
@@ -71,37 +74,46 @@ function reasoningMetadata(raw: Record<string, unknown>): Pick<ModelMetadata, "r
 	return { reasoning: true, thinkingLevelMap };
 }
 
-/**
- * Two listing dialects appear in the wild. OpenRouter quotes a per-token price
- * as a string, while Novita nests a `price_per_m` counted in units of 1e-4 USD
- * per million tokens (deepseek-v3-0324 is published at $0.27 in and reported as
- * 2700). Both are normalized to Pi's USD-per-million convention.
- */
-function pricePerMillion(value: unknown): number | undefined {
-	const object = record(value);
-	if (object) {
-		const quoted = rate(object.price_per_m);
-		return quoted === undefined ? undefined : quoted / 10_000;
+/** Auto-detected USD-per-million-token prices must stay within this range. */
+const PRICE_MIN = 0.001;
+const PRICE_MAX = 100;
+
+/** Raw listing value multipliers: per-token, per-million, and Novita units. */
+const PRICE_MULTIPLIERS = [1_000_000, 1, 1 / 10_000] as const;
+
+type PriceMultiplier = number | "auto";
+
+function normalizePrice(raw: number, multiplier: PriceMultiplier): number | undefined {
+	if (raw === 0) return 0;
+	if (typeof multiplier === "number") return raw * multiplier;
+	for (const candidate of PRICE_MULTIPLIERS) {
+		const normalized = raw * candidate;
+		if (normalized >= PRICE_MIN && normalized <= PRICE_MAX) return normalized;
 	}
-	const perToken = rate(value);
-	return perToken === undefined ? undefined : perToken * 1_000_000;
+	return undefined;
 }
 
-function pricing(raw: Record<string, unknown>): ModelCost | undefined {
+function pricePerMillion(value: unknown, multiplier: PriceMultiplier): number | undefined {
+	const object = record(value);
+	const raw = object ? rate(object.price_per_m) : rate(value);
+	return raw === undefined ? undefined : normalizePrice(raw, multiplier);
+}
+
+function pricing(raw: Record<string, unknown>, multiplier: PriceMultiplier): ModelCost | undefined {
 	const value = record(raw.pricing);
 	if (!value) return undefined;
-	const input = pricePerMillion(value.prompt);
-	const output = pricePerMillion(value.completion);
+	const input = pricePerMillion(value.prompt, multiplier);
+	const output = pricePerMillion(value.completion, multiplier);
 	if (input === undefined || output === undefined) return undefined;
 	return {
 		input,
 		output,
-		cacheRead: pricePerMillion(value.input_cache_read) ?? 0,
-		cacheWrite: pricePerMillion(value.input_cache_write) ?? 0,
+		cacheRead: pricePerMillion(value.input_cache_read ?? value.cache_prompt, multiplier) ?? 0,
+		cacheWrite: pricePerMillion(value.input_cache_write ?? value.cache_write, multiplier) ?? 0,
 	};
 }
 
-export function parseModelMetadata(value: unknown): ModelMetadata | undefined {
+export function parseModelMetadata(value: unknown, multiplier: PriceMultiplier = "auto"): ModelMetadata | undefined {
 	const raw = record(value);
 	if (!raw) return undefined;
 	const id = string(raw.id) ?? string(raw.name);
@@ -147,7 +159,7 @@ export function parseModelMetadata(value: unknown): ModelMetadata | undefined {
 		name: string(raw.name) ?? id,
 		...reasoningMetadata(raw),
 		input: image ? ["text", "image"] : ["text"],
-		cost: pricing(raw),
+		cost: pricing(raw, multiplier),
 		contextWindow,
 		maxTokens,
 		contextDetected: contextWindow !== undefined,
@@ -203,7 +215,7 @@ export async function discoverProviderModels(
 			const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
 			const models = new Map<string, ModelMetadata>();
 			for (const item of items) {
-				const model = parseModelMetadata(item);
+				const model = parseModelMetadata(item, config.priceMultiplier);
 				if (model) models.set(model.id.trim().toLowerCase(), model);
 			}
 			if (models.size > 0) return models;
