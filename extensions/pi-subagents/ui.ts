@@ -9,13 +9,7 @@ import {
 	SelectList,
 	Text,
 } from "@earendil-works/pi-tui";
-import {
-	buildAgentContextFullLines,
-	CONTEXT_ROWS,
-	renderAgentContext,
-	renderAgentList,
-	SCROLL_STEP,
-} from "./context.ts";
+import { buildAgentContextFullLines, CONTEXT_ROWS, renderAgentContext, SCROLL_STEP } from "./context.ts";
 import type { AgentManager } from "./manager.ts";
 import type { AgentRecord } from "./types.ts";
 
@@ -172,11 +166,7 @@ export class AgentsUI {
 									this.topLine !== null ? { topLine: this.topLine } : null,
 								),
 							]
-						: [
-								separator,
-								theme.fg("dim", ` Agents · ${records.length} running · Alt+A open`),
-								...renderAgentList(records, width, theme),
-							];
+						: [separator, theme.fg("dim", ` Agents · ${records.length} running · Alt+A open`)];
 				},
 				invalidate() {},
 				dispose: () => {
