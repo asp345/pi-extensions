@@ -2,7 +2,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ThinkingSetting = ThinkingLevel | "parent";
-export type AgentStatus = "running" | "completed" | "cancelled" | "error";
+export type AgentStatus = "running" | "completed" | "stopped" | "error";
 export type Selection = true | false | string[];
 
 export interface AgentDefinition {
@@ -45,6 +45,7 @@ export interface AgentRecord {
 	type: string;
 	title: string;
 	prompt: string;
+	cwd: string;
 	status: AgentStatus;
 	background: boolean;
 	startedAt: number;
@@ -59,6 +60,7 @@ export interface AgentRecord {
 	fallbackReason?: string;
 	thinking?: ThinkingLevel;
 	session?: AgentSession;
+	sessionFile?: string;
 	abortController: AbortController;
 	pendingSteers: string[];
 	promise?: Promise<void>;

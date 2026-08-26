@@ -5,10 +5,10 @@ import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearAgentContextCache } from "./context.ts";
-import { resolveModels, resolveThinking, resumeSession, runNew } from "./runner.ts";
+import { openPersistedSession, resolveModels, resolveThinking, resumeSession, runNew } from "./runner.ts";
 import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.ts";
 import { message, onAbort } from "./util.ts";
-import { createWorktree, removeWorktree, saveWorktree } from "./worktree.ts";
+import { createWorktree, saveWorktree } from "./worktree.ts";
 
 interface SpawnOptions {
 	background: boolean;
@@ -39,6 +39,7 @@ export class AgentManager {
 		private readonly resumed: (record: AgentRecord) => void,
 		private readonly fallback: (record: AgentRecord, reason: string) => void,
 		private readonly reported: (record: AgentRecord, summary: string) => void,
+		private readonly persisted: (record: AgentRecord) => void,
 		private readonly startSession: typeof runNew = runNew,
 	) {}
 
@@ -55,6 +56,7 @@ export class AgentManager {
 			type: definition.name,
 			title,
 			prompt,
+			cwd: ctx.cwd,
 			status: "running",
 			background: options.background,
 			startedAt: Date.now(),
@@ -68,20 +70,23 @@ export class AgentManager {
 		};
 		this.records.set(id, record);
 		this.changed();
+		this.persisted(record);
 		record.promise = this.run(record, ctx, definition, prompt, options);
 		return record;
 	}
 
 	async resume(ctx: ExtensionContext, id: string, prompt: string, options: ResumeOptions): Promise<AgentRecord> {
-		const record = this.records.get(id);
-		if (!record) throw new Error(`Unknown subagent ID: ${id}`);
+		const record = this.get(id);
+		if (!record) throw new Error(`Unknown or ambiguous subagent ID: ${id}`);
 		if (record.status === "running") throw new Error(`Subagent ${id} is already running.`);
 		const previousRun = record.promise;
 		if (previousRun) await previousRun;
 		if (record.promise !== previousRun) {
 			throw new Error(`Subagent ${id} is already running.`);
 		}
-		if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
+		if (!record.session && !record.sessionFile && !options.definition) {
+			throw new Error(`Subagent ${id} has no resumable session.`);
+		}
 		record.title = options.title;
 		record.prompt = prompt;
 		record.background = options.background;
@@ -100,11 +105,34 @@ export class AgentManager {
 		record.resultConsumed = false;
 		this.resumed(record);
 		this.changed();
+		this.persisted(record);
 		const callbacks = this.callbacks(record);
 		record.promise = (async () => {
+			let ranNew = false;
 			const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 			try {
-				const result = await resumeSession(record.session!, prompt, {
+				if (!record.session && record.sessionFile && options.definition) {
+					record.session = await openPersistedSession(
+						ctx,
+						options.definition,
+						record.sessionFile,
+						record.worktree?.cwd ?? record.cwd,
+						callbacks,
+						record.abortController.signal,
+					);
+				}
+				if (!record.session && options.definition) {
+					ranNew = true;
+					await this.run(record, ctx, options.definition, prompt, {
+						background: true,
+						maxTurns: options.maxTurns,
+						fork: false,
+						signal: record.abortController.signal,
+					});
+					return;
+				}
+				if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
+				const result = await resumeSession(record.session, prompt, {
 					model: options.model,
 					models: options.models.length ? () => resolveModels(options.models, ctx, options.definition) : undefined,
 					thinking: options.thinking,
@@ -118,15 +146,24 @@ export class AgentManager {
 				this.settle(record, message(error));
 			} finally {
 				detach();
-				this.finish(record, undefined);
+				if (!ranNew) this.finish(record, options.definition);
 			}
 		})();
 		if (!options.background) await record.promise;
 		return record;
 	}
 
+	restore(records: AgentRecord[]): void {
+		this.records.clear();
+		for (const record of records) this.records.set(record.id, record);
+		this.changed();
+	}
+
 	get(id: string): AgentRecord | undefined {
-		return this.records.get(id);
+		const exact = this.records.get(id);
+		if (exact) return exact;
+		const matches = [...this.records.values()].filter((record) => record.id.startsWith(id));
+		return matches.length === 1 ? matches[0] : undefined;
 	}
 
 	list(): AgentRecord[] {
@@ -140,7 +177,7 @@ export class AgentManager {
 	}
 
 	async steer(id: string, text: string): Promise<boolean> {
-		const record = this.records.get(id);
+		const record = this.get(id);
 		if (!record || record.status !== "running") return false;
 		if (!record.session) {
 			record.pendingSteers.push(text);
@@ -154,52 +191,42 @@ export class AgentManager {
 		}
 	}
 
-	cancel(id: string): boolean {
-		const record = this.records.get(id);
+	stop(id: string): boolean {
+		const record = this.get(id);
 		if (!record || record.status !== "running") return false;
-		record.status = "cancelled";
+		record.status = "stopped";
 		record.completedAt = Date.now();
 		record.abortController.abort();
+		record.session?.abortCompaction();
 		void record.session?.abort();
 		this.changed();
+		this.persisted(record);
 		return true;
 	}
 
-	clearFinished(parentCwd: string): number {
-		let count = 0;
-		for (const [id, record] of this.records) {
-			if (record.status === "running") continue;
-			this.cleanup(record, parentCwd);
-			this.records.delete(id);
-			count += 1;
-		}
-		this.changed();
-		return count;
-	}
-
-	async shutdown(parentCwd: string): Promise<void> {
+	async shutdown(): Promise<void> {
 		const records = [...this.records.values()];
 		for (const record of records) {
 			if (record.status !== "running") continue;
-			record.status = "cancelled";
+			record.status = "stopped";
+			record.completedAt = Date.now();
 			record.abortController.abort();
+			record.session?.abortCompaction();
 			void record.session?.abort();
+			this.persisted(record);
 		}
 		await Promise.race([
 			Promise.allSettled(records.map((record) => record.promise).filter(Boolean)),
 			new Promise((resolve) => setTimeout(resolve, 2_000)),
 		]);
-		for (const record of records) this.cleanup(record, parentCwd);
+		for (const record of records) {
+			record.session?.dispose();
+			clearAgentContextCache(record.id);
+		}
 		if (this.renderTimer) clearTimeout(this.renderTimer);
 		this.renderTimer = undefined;
 		this.records.clear();
 		this.changed();
-	}
-
-	private cleanup(record: AgentRecord, parentCwd: string): void {
-		record.session?.dispose();
-		if (record.worktree) removeWorktree(parentCwd, record.worktree);
-		clearAgentContextCache(record.id);
 	}
 
 	private async run(
@@ -212,7 +239,7 @@ export class AgentManager {
 		const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 		try {
 			if (record.abortController.signal.aborted) throw new Error("Subagent cancelled before setup.");
-			if (definition.worktree) record.worktree = await createWorktree(ctx.cwd, record.id);
+			if (definition.worktree && !record.worktree) record.worktree = await createWorktree(ctx.cwd, record.id);
 			const result = await this.startSession(
 				ctx,
 				{
@@ -240,9 +267,9 @@ export class AgentManager {
 	}
 
 	private settle(record: AgentRecord, error: string | undefined): void {
-		if (record.status === "cancelled") return;
+		if (record.status === "stopped") return;
 		if (record.abortController.signal.aborted) {
-			record.status = "cancelled";
+			record.status = "stopped";
 			return;
 		}
 		record.status = error ? "error" : "completed";
@@ -253,12 +280,14 @@ export class AgentManager {
 		return {
 			onSession: (session: AgentRecord["session"]) => {
 				record.session = session;
+				record.sessionFile = session?.sessionFile ?? record.sessionFile;
 				if (session?.model) record.model = `${session.model.provider}/${session.model.id}`;
 				record.thinking = session?.thinkingLevel ?? record.thinking;
 				if (session) {
 					for (const message of record.pendingSteers.splice(0)) void session.steer(message).catch(() => undefined);
 				}
 				this.changed();
+				this.persisted(record);
 			},
 			onFallback: (model: Model<Api>, reason: string) => {
 				record.model = `${model.provider}/${model.id}`;
@@ -266,6 +295,7 @@ export class AgentManager {
 				record.fallbackReason = reason;
 				this.fallback(record, reason);
 				this.changed();
+				this.persisted(record);
 			},
 			onText: (text: string) => {
 				record.result = text;
@@ -299,7 +329,7 @@ export class AgentManager {
 				record.worktreeBranch = saveWorktree(record.worktree, record.prompt);
 			} catch (error) {
 				record.error = `${record.error ? `${record.error}; ` : ""}worktree: ${message(error)}`;
-				if (record.status !== "cancelled") record.status = "error";
+				if (record.status !== "stopped") record.status = "error";
 			}
 		}
 		if ((definition?.outputTranscript ?? true) && record.session) {
@@ -312,6 +342,7 @@ export class AgentManager {
 			}
 		}
 		this.changed();
+		this.persisted(record);
 		this.completed(record);
 	}
 }

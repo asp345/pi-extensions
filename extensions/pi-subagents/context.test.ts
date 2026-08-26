@@ -28,6 +28,7 @@ function record(messages: unknown[]): AgentRecord {
 		type: "Explore",
 		title: "Inspect parser",
 		prompt: "inspect",
+		cwd: process.cwd(),
 		status: "running",
 		background: true,
 		startedAt: Date.now(),

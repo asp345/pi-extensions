@@ -78,7 +78,7 @@ export function parseDefinition(path: string, source: AgentDefinition["source"])
 		models: models.length ? models : legacyModels,
 		thinking,
 		maxTurns,
-		persistSession: bool(fm.persist_session, false),
+		persistSession: bool(fm.persist_session, true),
 		outputTranscript: bool(fm.output_transcript, true),
 		sessionDir: text(fm.session_dir),
 		promptMode: fm.prompt_mode === "replace" ? "replace" : "append",
@@ -120,7 +120,7 @@ skills: true
 models: parent
 thinking: parent
 max_turns: 24
-persist_session: false
+persist_session: true
 output_transcript: true
 prompt_mode: append
 fork: false

@@ -35,6 +35,7 @@ test("background subagents are detached from the parent turn abort signal", asyn
 		() => undefined,
 		() => undefined,
 		() => undefined,
+		() => undefined,
 		startSession as never,
 	);
 	const parent = new AbortController();
@@ -47,4 +48,68 @@ test("background subagents are detached from the parent turn abort signal", asyn
 	await record.promise;
 	assert.equal(childSignal?.aborted, false);
 	assert.equal(record.status, "completed");
+});
+
+test("stopped subagents retain their ID and session when resumed", async () => {
+	let aborted = false;
+	const messages: Array<Record<string, unknown>> = [];
+	const session = {
+		messages,
+		model: { provider: "test", id: "model" },
+		thinkingLevel: "off",
+		subscribe: () => () => undefined,
+		abortCompaction: () => undefined,
+		async abort() {
+			aborted = true;
+		},
+		async prompt() {
+			messages.push({
+				role: "assistant",
+				content: [{ type: "text", text: "resumed" }],
+				stopReason: "stop",
+			});
+		},
+		setThinkingLevel: () => undefined,
+	} as unknown as AgentSession;
+	const manager = new AgentManager(
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+	);
+	manager.restore([
+		{
+			id: "agent-id",
+			type: "Test",
+			title: "Task title",
+			prompt: "task",
+			cwd: process.cwd(),
+			status: "running",
+			background: true,
+			startedAt: Date.now(),
+			turns: 1,
+			toolUses: 0,
+			models: [],
+			session,
+			abortController: new AbortController(),
+			pendingSteers: [],
+			promise: Promise.resolve(),
+		},
+	]);
+
+	assert.equal(manager.stop("agent-id"), true);
+	assert.equal(aborted, true);
+	assert.equal(manager.get("agent-id")?.status, "stopped");
+
+	const resumed = await manager.resume({} as ExtensionContext, "agent-id", "continue", {
+		title: "Task title",
+		background: false,
+		models: [],
+		definition,
+	});
+	assert.equal(resumed.id, "agent-id");
+	assert.equal(resumed.status, "completed");
+	assert.equal(resumed.result, "resumed");
 });

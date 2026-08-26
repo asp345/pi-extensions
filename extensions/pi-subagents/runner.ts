@@ -32,18 +32,68 @@ function reportTool(callbacks: Callbacks) {
 	return defineTool({
 		name: REPORT_TOOL_NAME,
 		label: "Report to Parent",
-		description: "Send a concise requested progress summary to the parent agent while this subagent continues working.",
+		description:
+			"Send a concise requested progress summary to the parent agent while this subagent continues working. Treat reported information as already delivered and do not repeat it in the final answer.",
+		promptGuidelines: [
+			"After using report_to_parent, do not repeat previously reported information in the final answer. Include only new findings, final status, and unresolved issues since the latest report.",
+		],
 		parameters: Type.Object({
 			summary: Type.String({ minLength: 1, maxLength: 4_000 }),
 		}),
 		async execute(_callId, params) {
 			callbacks.onReport(params.summary.trim());
 			return {
-				content: [{ type: "text" as const, text: "Progress summary sent to the parent agent." }],
+				content: [
+					{
+						type: "text" as const,
+						text: "Progress summary sent to the parent agent. Do not repeat reported information in the final answer; include only subsequent findings, final status, and unresolved issues.",
+					},
+				],
 				details: {},
 			};
 		},
 	});
+}
+
+async function childServices(
+	ctx: ExtensionContext,
+	definition: AgentDefinition,
+	cwd: string,
+	callbacks: Callbacks,
+	signal?: AbortSignal,
+) {
+	let systemPrompt = buildSystemPrompt(definition, ctx, cwd);
+	const settingsManager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
+	const loader = createLoader(definition, cwd, () => systemPrompt, settingsManager);
+	await loader.reload();
+	if (signal?.aborted) throw new Error("Subagent cancelled during resource setup.");
+	const skills = skillCatalog(loader);
+	if (skills)
+		systemPrompt += `\n\n# Available skills\n${skills}\n\nRead a skill's SKILL.md only when the task needs it.`;
+	const modelRuntime = (ctx.modelRegistry as unknown as { runtime?: unknown }).runtime;
+	if (!modelRuntime) throw new Error("Subagent runtime is unavailable in this Pi version.");
+	return { settingsManager, loader, modelRuntime, customTools: [reportTool(callbacks)] };
+}
+
+async function bindChildSession(
+	session: AgentSession,
+	definition: AgentDefinition,
+	callbacks: Callbacks,
+	signal?: AbortSignal,
+): Promise<void> {
+	await session.bindExtensions({
+		onError: (error) => callbacks.onTool(`extension-error:${error.extensionPath}`),
+	});
+	if (signal?.aborted) {
+		session.dispose();
+		throw new Error("Subagent cancelled during extension setup.");
+	}
+	try {
+		assertTools(session, definition);
+	} catch (error) {
+		session.dispose();
+		throw error;
+	}
 }
 
 export async function runNew(
@@ -55,15 +105,7 @@ export async function runNew(
 	const signal = request.parentSignal;
 	if (signal?.aborted) throw new Error("Subagent cancelled before session setup.");
 	const cwd = request.worktree?.cwd ?? request.cwd;
-	let systemPrompt = buildSystemPrompt(definition, ctx, cwd);
-	const settingsManager = SettingsManager.create(cwd, getAgentDir(), { projectTrusted: ctx.isProjectTrusted() });
-	const loader = createLoader(definition, cwd, () => systemPrompt, settingsManager);
-	await loader.reload();
-	if (signal?.aborted) throw new Error("Subagent cancelled during resource setup.");
-	const skills = skillCatalog(loader);
-	if (skills)
-		systemPrompt += `\n\n# Available skills\n${skills}\n\nRead a skill's SKILL.md only when the task needs it.`;
-
+	const services = await childServices(ctx, definition, cwd, callbacks, signal);
 	const modelNames = request.model ? [request.model, ...definition.models] : definition.models;
 	const models = () => resolveModels(modelNames.length ? modelNames : ["parent"], ctx, definition);
 	let model = models()[0];
@@ -76,21 +118,19 @@ export async function runNew(
 	}
 	const sessionDir = resolveSessionDir(definition.sessionDir, cwd);
 	const sessionManager = definition.persistSession
-		? SessionManager.create(cwd, sessionDir ?? settingsManager.getSessionDir?.())
+		? SessionManager.create(cwd, sessionDir ?? services.settingsManager.getSessionDir?.())
 		: SessionManager.inMemory(cwd);
-	const modelRuntime = (ctx.modelRegistry as unknown as { runtime?: unknown }).runtime;
-	if (!modelRuntime) throw new Error("Subagent runtime is unavailable in this Pi version.");
 	const options: NonNullable<Parameters<typeof createAgentSession>[0]> & {
 		modelRegistry: ExtensionContext["modelRegistry"];
 	} = {
 		cwd,
 		agentDir: getAgentDir(),
-		resourceLoader: loader,
-		settingsManager,
+		resourceLoader: services.loader,
+		settingsManager: services.settingsManager,
 		sessionManager,
 		modelRegistry: ctx.modelRegistry,
-		modelRuntime: modelRuntime as NonNullable<Parameters<typeof createAgentSession>[0]>["modelRuntime"],
-		customTools: [reportTool(callbacks)],
+		modelRuntime: services.modelRuntime as NonNullable<Parameters<typeof createAgentSession>[0]>["modelRuntime"],
+		customTools: services.customTools,
 		model,
 	};
 	const thinking = resolveThinking(definition.thinking, ctx);
@@ -112,19 +152,7 @@ export async function runNew(
 		session.dispose();
 		throw new Error("Subagent cancelled during session setup.");
 	}
-	await session.bindExtensions({
-		onError: (error) => callbacks.onTool(`extension-error:${error.extensionPath}`),
-	});
-	if (signal?.aborted) {
-		session.dispose();
-		throw new Error("Subagent cancelled during extension setup.");
-	}
-	try {
-		assertTools(session, definition);
-	} catch (error) {
-		session.dispose();
-		throw error;
-	}
+	await bindChildSession(session, definition, callbacks, signal);
 
 	session.setSessionName(`${definition.name}#${request.id.slice(0, 8)}`);
 	if (request.fork) copyParentConversation(ctx, session);
@@ -144,6 +172,37 @@ export async function runNew(
 		stopAbort();
 	}
 	return { session, ...result };
+}
+
+export async function openPersistedSession(
+	ctx: ExtensionContext,
+	definition: AgentDefinition,
+	sessionFile: string,
+	cwd: string,
+	callbacks: Callbacks,
+	signal?: AbortSignal,
+): Promise<AgentSession> {
+	if (signal?.aborted) throw new Error("Subagent cancelled before session restore.");
+	const services = await childServices(ctx, definition, cwd, callbacks, signal);
+	const options: NonNullable<Parameters<typeof createAgentSession>[0]> & {
+		modelRegistry: ExtensionContext["modelRegistry"];
+	} = {
+		cwd,
+		agentDir: getAgentDir(),
+		resourceLoader: services.loader,
+		settingsManager: services.settingsManager,
+		sessionManager: SessionManager.open(sessionFile),
+		modelRegistry: ctx.modelRegistry,
+		modelRuntime: services.modelRuntime as NonNullable<Parameters<typeof createAgentSession>[0]>["modelRuntime"],
+		customTools: services.customTools,
+	};
+	const restored = await createAgentSession(options);
+	await bindChildSession(restored.session, definition, callbacks, signal);
+	if (restored.modelFallbackMessage && restored.session.model) {
+		callbacks.onFallback(restored.session.model, restored.modelFallbackMessage);
+	}
+	callbacks.onSession(restored.session);
+	return restored.session;
 }
 
 export async function resumeSession(

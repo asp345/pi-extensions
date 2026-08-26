@@ -249,7 +249,7 @@ export class AgentsUI {
 				const choice = await this.chooseAgent(ctx, records);
 				if (!choice) return;
 				if (choice.action === "stop") {
-					if (this.manager.cancel(choice.id)) ctx.ui.notify(`Stopped ${choice.id.slice(0, 8)}.`, "info");
+					if (this.manager.stop(choice.id)) ctx.ui.notify(`Stopped ${choice.id.slice(0, 8)}.`, "info");
 					this.updateWidget(true);
 					continue;
 				}
