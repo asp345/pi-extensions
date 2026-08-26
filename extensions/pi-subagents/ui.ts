@@ -184,7 +184,6 @@ export class AgentsUI {
 			const items: SelectItem[] = records.map((record) => ({
 				value: record.id,
 				label: `${record.type} · ${record.title}`,
-				description: `${record.model ?? "model pending"} · ${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools`,
 			}));
 			const list = new SelectList(items, Math.min(items.length, 10), {
 				selectedPrefix: (text) => theme.fg("accent", text),
