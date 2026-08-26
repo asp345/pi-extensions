@@ -413,24 +413,39 @@ interface FallbackPromptOptions {
 	callbacks: Callbacks;
 }
 
+interface PromptAttempt {
+	aborted: boolean;
+	error?: string;
+	allowFallback: boolean;
+}
+
 export async function promptWithFallbacks(
 	session: AgentSession,
 	prompt: string,
 	start: number,
 	options: FallbackPromptOptions,
 ): Promise<{ text: string; error?: string }> {
-	const attempt = async (text: string, errorStart: number): Promise<{ aborted: boolean; error?: string }> => {
+	const attempt = async (text: string, errorStart: number): Promise<PromptAttempt> => {
 		let error: string | undefined;
 		try {
 			if (!options.signal?.aborted) await session.prompt(text);
 		} catch (caught) {
-			error = message(caught);
+			if (isAbortError(caught) && session.isCompacting) {
+				const compactionError = await waitForCompaction(session, options.signal);
+				if (options.signal?.aborted) return { aborted: true, allowFallback: false };
+				if (compactionError) return { aborted: false, error: compactionError, allowFallback: false };
+				await new Promise<void>((resolve) => setImmediate(resolve));
+				await session.waitForIdle();
+			} else {
+				error = message(caught);
+			}
 		}
-		if (options.signal?.aborted) return { aborted: true };
-		return { aborted: false, error: error ?? finalError(session, errorStart) };
+		if (options.signal?.aborted) return { aborted: true, allowFallback: false };
+		return { aborted: false, error: error ?? finalError(session, errorStart), allowFallback: true };
 	};
 	const first = await attempt(prompt, start);
 	if (first.aborted || !first.error) return { text: lastAssistantText(session, start) };
+	if (!first.allowFallback) return { text: lastAssistantText(session, start), error: first.error };
 
 	let currentError = first.error;
 	const failures = [`Primary model failed: ${currentError}`];
@@ -455,8 +470,34 @@ export async function promptWithFallbacks(
 		}
 		currentError = retry.error;
 		failures.push(`Fallback model ${modelName(fallback)} failed: ${currentError}`);
+		if (!retry.allowFallback) break;
 	}
 	return { text: lastAssistantText(session, start), error: failures.join("; ") };
+}
+
+function isAbortError(error: unknown): boolean {
+	return (
+		(error instanceof Error && error.name === "AbortError") ||
+		/the operation was aborted|operation aborted/iu.test(message(error))
+	);
+}
+
+function waitForCompaction(session: AgentSession, signal?: AbortSignal): Promise<string | undefined> {
+	return new Promise((resolve) => {
+		let unsubscribe: () => void = () => undefined;
+		const finish = (error?: string) => {
+			unsubscribe();
+			signal?.removeEventListener("abort", onAbort);
+			resolve(error);
+		};
+		const onAbort = () => finish();
+		unsubscribe = session.subscribe((event) => {
+			if (event.type !== "compaction_end") return;
+			finish(event.errorMessage ?? (event.aborted ? "Compaction was aborted." : undefined));
+		});
+		if (signal?.aborted) finish();
+		else signal?.addEventListener("abort", onAbort, { once: true });
+	});
 }
 
 function remainingModels(current: Model<Api> | undefined, resolve?: () => Model<Api>[]): Model<Api>[] {

@@ -3,7 +3,7 @@ description: Capable read-only architecture and implementation planning agent. G
 tools: read, bash, grep, find, ls, web
 extensions: true
 skills: true
-models: openai-codex/gpt-5.6-sol
+models: openai-codex/gpt-5.6-sol, opencode-go/kimi-k3
 thinking: high
 max_turns: 24
 prompt_mode: replace

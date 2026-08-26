@@ -3,7 +3,7 @@ description: Read-only deep analysis for difficult cross-system questions and ro
 tools: read, bash, grep, find, ls, lsp_diagnostics, web
 extensions: true
 skills: true
-models: openai-codex/gpt-5.6-sol
+models: openai-codex/gpt-5.6-sol, opencode-go/kimi-k3
 thinking: xhigh
 max_turns: 32
 prompt_mode: replace

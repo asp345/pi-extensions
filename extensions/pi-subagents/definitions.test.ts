@@ -101,6 +101,53 @@ test("a failed model tries later models until one succeeds", async () => {
 	assert.deepEqual(fallbacks, ["backup/model: rate limited"]);
 });
 
+test("compaction-owned abort waits for continuation without switching models", async () => {
+	const primary = { provider: "primary", id: "model" } as Model<Api>;
+	const backup = { provider: "backup", id: "model" } as Model<Api>;
+	let compacting = false;
+	let listener: ((event: { type: string; aborted?: boolean; errorMessage?: string }) => void) | undefined;
+	let modelChanges = 0;
+	const fake = {
+		messages: [] as Array<Record<string, unknown>>,
+		model: primary,
+		get isCompacting() {
+			return compacting;
+		},
+		subscribe(next: typeof listener) {
+			listener = next;
+			return () => {
+				listener = undefined;
+			};
+		},
+		async prompt() {
+			compacting = true;
+			setImmediate(() => {
+				compacting = false;
+				listener?.({ type: "compaction_end", aborted: false });
+			});
+			throw new DOMException("The operation was aborted.", "AbortError");
+		},
+		async waitForIdle() {
+			this.messages.push({
+				role: "assistant",
+				content: [{ type: "text", text: "continued-after-compaction" }],
+				stopReason: "stop",
+			});
+		},
+		async setModel(model: Model<Api>) {
+			modelChanges += 1;
+			this.model = model;
+		},
+	};
+	const result = await promptWithFallbacks(fake as unknown as AgentSession, "task", 0, {
+		models: () => [primary, backup],
+		callbacks,
+	});
+	assert.deepEqual(result, { text: "continued-after-compaction" });
+	assert.equal(modelChanges, 0);
+	assert.equal(fake.model, primary);
+});
+
 test("unavailable optional models are ignored", async () => {
 	const primary = { provider: "primary", id: "model" } as Model<Api>;
 	const fake = {
