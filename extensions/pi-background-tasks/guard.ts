@@ -28,7 +28,7 @@ function formatSeconds(seconds: number): string {
 }
 
 const GUIDANCE =
-	"Do not sleep to wait; if a background task is done, you will be notified. If you must sleep (you likely should NOT): sleep -- <seconds>";
+	"Do not sleep to wait. Launch a background task and end the turn instead; you will be notified when it completes.";
 
 // Text scan used when parsing is impossible or produced errors: catches literal
 // sleeps in unparsed regions. May double-count sleeps also found in the AST;
