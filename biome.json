@@ -4,8 +4,8 @@
 		"includes": [
 			"extensions/**/*.ts",
 			"extensions/**/package.json",
+			"extensions/pi-themes/themes/*.json",
 			"scripts/**/*.ts",
-			"themes/**/*.json",
 			"package.json",
 			"tsconfig.json",
 			"biome.json"

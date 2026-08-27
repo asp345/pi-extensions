@@ -22,8 +22,9 @@ My personal Pi monorepo.
 - `extensions/pi-subagents/`
 - `extensions/pi-usage/`
 - `extensions/pi-question/`
+- `extensions/pi-themes/`
 
-Each extension's details are documented in its own `README.md`. The included theme is `themes/flatland.json`.
+Each extension's details are documented in its own `README.md`. The `pi-themes` extension provides `flatland` and `mono-black`.
 
 ## Development
 

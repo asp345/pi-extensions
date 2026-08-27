@@ -10,8 +10,8 @@
 	],
 	"scripts": {
 		"check": "npm run biome && npm run typecheck && npm run test && npm run structure",
-		"biome": "biome check extensions scripts themes package.json tsconfig.json biome.json",
-		"biome:fix": "biome check --write extensions scripts themes package.json tsconfig.json biome.json",
+		"biome": "biome check extensions scripts package.json tsconfig.json biome.json",
+		"biome:fix": "biome check --write extensions scripts package.json tsconfig.json biome.json",
 		"typecheck": "tsc --noEmit",
 		"test": "node --disable-warning=ExperimentalWarning --experimental-transform-types --test extensions/**/*.test.ts",
 		"structure": "node scripts/check.ts"
@@ -43,7 +43,7 @@
 			"./prompts"
 		],
 		"themes": [
-			"./themes/flatland.json"
+			"./extensions/pi-themes/themes"
 		]
 	},
 	"devDependencies": {

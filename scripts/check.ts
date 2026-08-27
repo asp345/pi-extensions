@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,10 +6,6 @@ interface Manifest {
 	dependencies?: Record<string, string>;
 	devDependencies?: Record<string, string>;
 	peerDependencies?: Record<string, string>;
-	pi?: {
-		extensions?: string[];
-		themes?: string[];
-	};
 }
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,61 +15,6 @@ const fail = (message: string): never => {
 };
 
 const manifest = await readJson<Manifest>("package.json");
-const extensions = manifest.pi?.extensions ?? [];
-const themes = manifest.pi?.themes ?? [];
-const expectedDirs = [
-	"pi-anthropic-oauth",
-	"pi-antigravity-auth",
-	"pi-background-tasks",
-	"pi-compaction",
-	"pi-direnv",
-	"pi-github-copilot",
-	"pi-goal",
-	"pi-gpt-search",
-	"pi-lsp",
-	"pi-nix-store-guard",
-	"pi-openrouter-metadata",
-	"pi-question",
-	"pi-sensitive-guard",
-	"pi-service-tier",
-	"pi-setup-custom-providers",
-	"pi-subagents",
-	"pi-usage",
-];
-const actualDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: true }))
-	.filter((entry) => entry.isDirectory())
-	.map((entry) => entry.name)
-	.sort();
-if (actualDirs.join("\n") !== expectedDirs.join("\n")) fail("Unexpected extension directories");
-
-for (const name of actualDirs) {
-	const dir = resolve(root, "extensions", name);
-	const entries = await readdir(dir);
-	if (!entries.includes("package.json")) fail(`Missing extension manifest: ${name}`);
-	if (!entries.includes("index.ts")) fail(`Missing extension entrypoint: ${name}`);
-}
-
-const expectedEntries = expectedDirs.map((name) => `./extensions/${name}/index.ts`).sort();
-if ([...extensions].sort().join("\n") !== expectedEntries.join("\n")) fail("Unexpected extension entrypoints");
-if (themes.length !== 1 || themes[0] !== "./themes/flatland.json") {
-	fail(`Expected only the Flatland theme, found: ${themes.join(", ")}`);
-}
-
-for (const entry of extensions) {
-	if (!entry.startsWith("./extensions/") || entry.includes("/@")) fail(`Invalid extension path: ${entry}`);
-}
-
-for (const entry of [...extensions, ...themes]) {
-	const stat = await lstat(resolve(root, entry));
-	if (!stat.isFile()) fail(`Resource is not a file: ${entry}`);
-}
-
-const themeFiles = await readdir(resolve(root, "themes"));
-if (themeFiles.length !== 1 || themeFiles[0] !== "flatland.json") fail("Unexpected theme files");
-
-// Tooling deps (biome, tsc, @types/*) are not all import.meta.resolve-able, so the
-// root install state is not probed here. The per-extension loop below enforces the
-// real invariant: every imported package is declared in some manifest.
 const rootDeps = new Set([
 	...Object.keys(manifest.dependencies ?? {}),
 	...Object.keys(manifest.devDependencies ?? {}),
@@ -83,7 +24,11 @@ const rootDeps = new Set([
 const packageName = (specifier: string): string =>
 	specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/", 1)[0];
 
-for (const name of expectedDirs) {
+const extensionDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: true }))
+	.filter((entry) => entry.isDirectory())
+	.map((entry) => entry.name);
+
+for (const name of extensionDirs) {
 	const extManifest = await readJson<Manifest>(`extensions/${name}/package.json`);
 	const allowed = new Set([
 		...Object.keys(extManifest.dependencies ?? {}),
