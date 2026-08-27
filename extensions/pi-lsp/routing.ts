@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { parseJson } from "../lib/json.ts";
 
 export interface ServerConfig {
 	name: string;
@@ -287,8 +288,8 @@ function resolveConfigPath(input: string, root: string) {
 	return path.isAbsolute(expanded) ? expanded : path.resolve(root, expanded);
 }
 
-function readJson(file: string) {
-	return JSON.parse(readFileSync(file, "utf8")) as unknown;
+function readJson(file: string): unknown {
+	return parseJson(readFileSync(file, "utf8"));
 }
 
 function splitCommand(input: string) {

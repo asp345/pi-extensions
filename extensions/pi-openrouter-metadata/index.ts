@@ -4,6 +4,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { Model, Provider, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { parseJson } from "../lib/json.ts";
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_TTL_MS = 5 * 60_000;
@@ -237,7 +238,7 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 
 function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undefined {
 	try {
-		return parseCacheEntry(JSON.parse(readFileSync(join(getAgentDir(), CACHE_FILE), "utf8")) as unknown);
+		return parseCacheEntry(parseJson(readFileSync(join(getAgentDir(), CACHE_FILE), "utf8")));
 	} catch {
 		return undefined;
 	}
@@ -245,7 +246,7 @@ function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undefined {
 
 export function readPiOpenRouterModels(): OpenRouterModel[] {
 	try {
-		const root = record(JSON.parse(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")) as unknown);
+		const root = record(parseJson(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")));
 		const openrouter = record(root?.openrouter);
 		if (!Array.isArray(openrouter?.models)) return [];
 		return openrouter.models.flatMap((value) => {
@@ -321,7 +322,7 @@ export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenR
 	return {
 		read: async () => {
 			try {
-				return parseCacheEntry(JSON.parse(await readFile(path, "utf8")) as unknown);
+				return parseCacheEntry(parseJson(await readFile(path, "utf8")));
 			} catch {
 				return undefined;
 			}
@@ -528,7 +529,7 @@ async function readCatalog(response: Response): Promise<unknown> {
 		await response.body?.cancel();
 		throw new Error("OpenRouter model catalog exceeds the response limit.");
 	}
-	if (!response.body) return JSON.parse(await response.text()) as unknown;
+	if (!response.body) return parseJson(await response.text());
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let bytes = 0;
@@ -552,7 +553,7 @@ async function readCatalog(response: Response): Promise<unknown> {
 		body.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return JSON.parse(new TextDecoder().decode(body)) as unknown;
+	return parseJson(new TextDecoder().decode(body));
 }
 
 function cloneModel(model: OpenRouterModel): OpenRouterModel {
