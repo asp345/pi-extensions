@@ -24,7 +24,7 @@ My personal Pi monorepo.
 - `extensions/pi-question/`
 - `extensions/pi-themes/`
 
-Each extension's details are documented in its own `README.md`. The `pi-themes` extension provides `flatland` and `mono-black`.
+Each extension's details are documented in its own `README.md`. The `pi-themes` extension provides `flatland` and `noir`.
 
 ## Development
 
