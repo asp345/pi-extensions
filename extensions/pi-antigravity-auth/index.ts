@@ -103,7 +103,11 @@ export function requestSessionKey(conversation: string, credential: string): str
 function rememberRefresh(access: string, refresh: string): void {
 	if (!access) return;
 	refreshByAccessToken.delete(access);
-	while (refreshByAccessToken.size >= 4) refreshByAccessToken.delete(refreshByAccessToken.keys().next().value!);
+	while (refreshByAccessToken.size >= 4) {
+		const oldest = refreshByAccessToken.keys().next().value;
+		if (!oldest) break;
+		refreshByAccessToken.delete(oldest);
+	}
 	refreshByAccessToken.set(access, refresh);
 }
 

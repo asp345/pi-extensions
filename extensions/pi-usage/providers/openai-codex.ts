@@ -6,25 +6,6 @@ const CODEX_USAGE_PATH = "wham/usage";
 const JWT_AUTH_CLAIM = "https://api.openai.com/auth";
 const JWT_PROFILE_CLAIM = "https://api.openai.com/profile";
 
-interface CodexUsageWindowPayload {
-	used_percent?: number;
-	limit_window_seconds?: number;
-	reset_after_seconds?: number;
-	reset_at?: number;
-}
-
-interface CodexUsageRateLimitPayload {
-	allowed?: boolean;
-	limit_reached?: boolean;
-	primary_window?: CodexUsageWindowPayload | null;
-	secondary_window?: CodexUsageWindowPayload | null;
-}
-
-interface CodexUsagePayload {
-	plan_type?: string;
-	rate_limit?: CodexUsageRateLimitPayload | null;
-}
-
 interface ParsedUsageWindow {
 	usedPercent?: number;
 	limitWindowSeconds?: number;
@@ -68,8 +49,10 @@ function base64UrlDecode(input: string): string {
 function parseJwt(token: string): JwtPayload | null {
 	const parts = token.split(".");
 	if (parts.length !== 3) return null;
+	const payload = parts[1];
+	if (!payload) return null;
 	try {
-		return JSON.parse(base64UrlDecode(parts[1]!)) as JwtPayload;
+		return JSON.parse(base64UrlDecode(payload)) as JwtPayload;
 	} catch {
 		return null;
 	}

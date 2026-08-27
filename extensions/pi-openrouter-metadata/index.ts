@@ -424,7 +424,8 @@ function cachedThinkingLevelMap(value: unknown): ThinkingLevelMap | undefined {
 
 function cacheId(value: unknown): string | undefined {
 	const id = string(value);
-	return id && id.length <= 512 && !/[\u0000-\u001f\u007f-\u009f]/u.test(id) ? id : undefined;
+	const controlPattern = String.raw`[\u0000-\u001f\u007f-\u009f]`;
+	return id && id.length <= 512 && !new RegExp(controlPattern, "u").test(id) ? id : undefined;
 }
 
 function finiteTimestamp(value: unknown): number | undefined {

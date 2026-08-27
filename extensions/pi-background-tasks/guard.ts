@@ -20,7 +20,9 @@ function literalSeconds(text: string): number | null {
 	if (text === "inf" || text === "infinity") return Infinity;
 	const match = DURATION_RE.exec(text);
 	if (!match) return null;
-	return parseFloat(match[1]!) * (SUFFIX_SECONDS[match[2] ?? "s"] ?? 1);
+	const num = match[1];
+	if (!num) return null;
+	return parseFloat(num) * (SUFFIX_SECONDS[match[2] ?? "s"] ?? 1);
 }
 
 function formatSeconds(seconds: number): string {
@@ -39,7 +41,9 @@ function regexInspection(command: string): SleepInspection {
 	for (const match of unquoted.matchAll(FALLBACK_RE)) {
 		const args = (match[1] ?? "").trim().split(/\s+/).filter(Boolean);
 		if (args.length === 0 || args[0] === "--") continue;
-		const first = literalSeconds(args[0]!);
+		const raw = args[0];
+		if (!raw) continue;
+		const first = literalSeconds(raw);
 		if (first === null) continue;
 		let total = first;
 		for (const arg of args.slice(1)) {
@@ -80,7 +84,7 @@ export function inspectSleep(command: string): SleepInspection {
 	};
 	const visited = new WeakSet<object>();
 	const checkCommand = (node: Command): void => {
-		if (!node.name || node.name.value !== "sleep") return;
+		if (node.name?.value !== "sleep") return;
 		if (node.suffix[0]?.value === "--") return;
 		let total = 0;
 		for (const arg of node.suffix) {

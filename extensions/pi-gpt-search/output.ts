@@ -43,13 +43,14 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 		}
 
 		if (refToEntryMap.has(cleanInner)) {
-			const entry = refToEntryMap.get(cleanInner)!;
+			const entry = refToEntryMap.get(cleanInner);
+			if (!entry) return `[${cleanInner}]`;
 			const label = `[${entry.num}]`;
 			return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
 		}
 
 		const matchedResult = results.find((r) => r.ref_id === cleanInner);
-		if (matchedResult && matchedResult.url) {
+		if (matchedResult?.url) {
 			const title = matchedResult.title ? matchedResult.title : matchedResult.url;
 			return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
 		}
@@ -70,7 +71,8 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 		const refs = inner.split(",").map((s: string) => s.trim());
 		const formattedRefs = refs.map((ref) => {
 			if (refToEntryMap.has(ref)) {
-				const entry = refToEntryMap.get(ref)!;
+				const entry = refToEntryMap.get(ref);
+				if (!entry) return `[${ref}]`;
 				const label = `[${entry.num}]`;
 				return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
 			}
@@ -126,7 +128,7 @@ export function formatWebToolResult(
 			const refLabel = item.ref_id && item.url ? formatTerminalHyperlink(item.url, item.ref_id) : (item.ref_id ?? "");
 			const refLine = refLabel ? `   Ref: [${num}] (${refLabel})\n` : "";
 			const snippetLine = item.snippet ? cleanCitationMarkers(item.snippet, response.results, refIndex) : "";
-			return `[${num}] ${title}\n${refLine}${urlLine}${snippetLine ? "   " + snippetLine : ""}`.trim();
+			return `[${num}] ${title}\n${refLine}${urlLine}${snippetLine ? `   ${snippetLine}` : ""}`.trim();
 		});
 		primaryText = `Web Search Results:\n\n${formatted.join("\n\n")}`;
 	} else {

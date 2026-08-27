@@ -276,12 +276,17 @@ export class BackgroundRuntime {
 	}
 
 	private kill(task: ManagedTask, signal: NodeJS.Signals): void {
-		if (!task.info.pid) return this.finish(task, null);
+		if (!task.info.pid) {
+			this.finish(task, null);
+			return;
+		}
 		try {
 			process.kill(process.platform === "win32" ? task.info.pid : -task.info.pid, signal);
 		} catch {
 			try {
-				if (!task.child.kill(signal)) this.finish(task, null);
+				if (!task.child.kill(signal)) {
+					this.finish(task, null);
+				}
 			} catch {
 				this.finish(task, null);
 			}

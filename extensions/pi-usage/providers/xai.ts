@@ -236,7 +236,7 @@ function parseMonthlyBillingConfig(raw: Record<string, unknown>): MonthlyBilling
 function buildOnDemandLimit(
 	onDemandCap: number | undefined,
 	onDemandUsed: number | undefined,
-	accountId: string | undefined,
+	_accountId: string | undefined,
 ): UsageLimit | undefined {
 	if (onDemandCap === undefined || onDemandCap <= 0 || onDemandUsed === undefined) return undefined;
 	const usedFraction = Math.min(onDemandUsed / onDemandCap, 1);

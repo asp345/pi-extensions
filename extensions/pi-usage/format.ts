@@ -78,7 +78,7 @@ function formatUsed(fraction: number | undefined, limit: UsageLimit): string {
 	return `${percent}%`;
 }
 
-function formatWindow(limit: UsageLimit, fg: (color: string, text: string) => string): string {
+function formatWindow(limit: UsageLimit, _fg: (color: string, text: string) => string): string {
 	if (!limit.window) return "";
 	const parts: string[] = [];
 	if (limit.window.label) parts.push(limit.window.label);

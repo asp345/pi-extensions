@@ -18,7 +18,6 @@ import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
 import { fetchWithAgyCliTransport } from "./transport.ts";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
 const ACTIVE_FETCH_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_EXPIRY_BUFFER_MS = 60_000;
 

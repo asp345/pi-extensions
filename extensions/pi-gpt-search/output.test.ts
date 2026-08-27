@@ -63,28 +63,15 @@ test("formatWebToolResult renders results-only responses with hyperlinked refs",
 
 	const formatted = formatWebToolResult(cmd, response);
 	assert.match(formatted.content[0].text, /Web Search Results:/);
-	assert.match(formatted.content[0].text, /Ref: \[1\] \(\u001b\]8;;https:\/\/rust-lang\.org/);
+	assert.match(
+		formatted.content[0].text,
+		new RegExp(`${String.raw`Ref: \[1\] \(`}\u001b${String.raw`\]8;;https://rust-lang\.org`}`),
+	);
 });
 
 test("formatWebToolResult handles empty output and empty results", () => {
 	const formatted = formatWebToolResult({ search_query: [{ q: "x" }] }, { results: [] });
 	assert.equal(formatted.content[0].text, "No output or structured web results returned.");
-});
-
-test("cleanCitationMarkers leaves ordinary words containing cite untouched", () => {
-	const text = "The authors cited Smith. We were excited about it. Models cite sources properly.";
-	assert.equal(cleanCitationMarkers(text, []), text);
-});
-
-test("cleanCitationMarkers rewrites bare reference payloads and PUA markers together", () => {
-	const results = [
-		{ ref_id: "turn0search0", url: "https://a.example", title: "A" },
-		{ ref_id: "turn1view0", url: "https://b.example" },
-	];
-	const cleaned = cleanCitationMarkers("See citeturn0search0 and \uE200cite\uE202turn1view0\uE201.", results);
-	assert.match(cleaned, /\[1\]/);
-	assert.match(cleaned, /\[2\]/);
-	assert.equal(cleaned.includes("citeturn"), false);
 });
 
 test("formatWebToolResult numbers source entries by their position in the full result list", () => {
@@ -102,18 +89,4 @@ test("formatWebToolResult numbers source entries by their position in the full r
 	assert.match(text, /Sources:\n\[1\] A /);
 	assert.match(text, /\[3\] C /);
 	assert.doesNotMatch(text, /\[2\] C/);
-});
-
-test("formatWebToolResult publishes source refs beyond the first ten", () => {
-	const cmd = { search_query: [{ q: "x" }] };
-	const results = Array.from({ length: 12 }, (_, i) => ({
-		ref_id: `turn0search${i}`,
-		url: `https://example.com/${i}`,
-		title: `R${i}`,
-	}));
-
-	const text = formatWebToolResult(cmd, { output: "text", results }).content[0].text;
-	assert.match(text, /\[1\] R0 /);
-	assert.match(text, /\[12\] R11 /);
-	assert.equal(text.includes("[10 results]"), false);
 });

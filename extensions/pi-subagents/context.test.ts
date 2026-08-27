@@ -63,7 +63,7 @@ test("subagent context is titleless, bounded, and shows the latest activity", ()
 	assert.doesNotMatch(lines.join("\n"), /Explore|provider\/model|agent-12345678/u);
 	for (const line of lines) {
 		assert.equal(visibleWidth(line), 30);
-		assert.match(line, /\x1b\[0m *$/u);
+		assert.match(line, new RegExp(`${String.fromCharCode(0x1b)}\\[0m *$`));
 	}
 
 	const previousPage = renderAgentContext(

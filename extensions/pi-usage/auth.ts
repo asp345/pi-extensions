@@ -19,7 +19,7 @@ async function readStoredCredential(providerId: string): Promise<StoredOAuthCred
 		const raw = await readFile(join(getAgentDir(), "auth.json"), "utf8");
 		const all = JSON.parse(raw) as Record<string, StoredCredential>;
 		const entry = all[providerId];
-		if (!entry || entry.type !== "oauth" || typeof entry.access !== "string" || !entry.access) return undefined;
+		if (entry?.type !== "oauth" || typeof entry.access !== "string" || !entry.access) return undefined;
 		return entry as StoredOAuthCredential;
 	} catch {
 		return undefined;
@@ -57,7 +57,7 @@ export async function resolveCredential(
 		| undefined;
 
 	const resolved = await registry?.getProviderAuth?.(providerId);
-	const headerAuth = resolved?.auth.headers?.["Authorization"];
+	const headerAuth = resolved?.auth.headers?.Authorization;
 	const accessToken =
 		resolved?.auth.apiKey ?? (typeof headerAuth === "string" ? headerAuth.replace(/^Bearer\s+/i, "") : undefined);
 

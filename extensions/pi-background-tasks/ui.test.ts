@@ -46,5 +46,7 @@ test("task exits are delivered immediately as steering messages", async () => {
 
 	assert.equal(deliveries.length, 1);
 	assert.deepEqual(deliveries[0]?.options, { deliverAs: "steer", triggerTurn: true });
-	assert.match(String((deliveries[0]?.message as { content?: unknown }).content), /Background task bg-1 finished/u);
+	const delivered = deliveries[0];
+	assert.ok(delivered);
+	assert.match(String((delivered.message as { content?: unknown }).content), /Background task bg-1 finished/u);
 });

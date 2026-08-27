@@ -123,7 +123,11 @@ export class LspClient {
 			const response = await this.request("textDocument/diagnostic", { textDocument: { uri } });
 			const items =
 				record(response.result) && Array.isArray(response.result.items) ? (response.result.items as Diagnostic[]) : [];
-			if (items.length || this.diagnosticsByUri.has(uri)) return items.length ? items : this.diagnosticsByUri.get(uri)!;
+			if (items.length || this.diagnosticsByUri.has(uri)) {
+				if (items.length) return items;
+				const cached = this.diagnosticsByUri.get(uri);
+				if (cached) return cached;
+			}
 		}
 		return this.waitForDiagnostics(uri);
 	}
@@ -357,8 +361,11 @@ export function offsetAt(text: string, position: Position) {
 	const starts = [0];
 	for (let index = 0; index < text.length; index += 1) if (text[index] === "\n") starts.push(index + 1);
 	if (position.line >= starts.length) throw new Error("LSP edit line is outside the document.");
-	const start = starts[position.line]!;
-	let end = position.line + 1 < starts.length ? starts[position.line + 1]! - 1 : text.length;
+	const startLine = starts[position.line];
+	if (startLine === undefined) throw new Error("LSP edit line is outside the document.");
+	const start = startLine;
+	const nextStart = position.line + 1 < starts.length ? starts[position.line + 1] : undefined;
+	let end = nextStart !== undefined ? nextStart - 1 : text.length;
 	if (end > start && text[end - 1] === "\r") end -= 1;
 	if (position.character > end - start) throw new Error("LSP edit character is outside the line.");
 	return start + position.character;
@@ -373,8 +380,9 @@ export function applyEdits(text: string, edits: TextEdit[]) {
 	});
 	for (let left = 0; left < positioned.length; left += 1) {
 		for (let right = left + 1; right < positioned.length; right += 1) {
-			const a = positioned[left]!;
-			const b = positioned[right]!;
+			const a = positioned[left];
+			const b = positioned[right];
+			if (!a || !b) continue;
 			if (Math.max(a.start, b.start) < Math.min(a.end, b.end)) throw new Error("LSP returned overlapping text edits.");
 		}
 	}

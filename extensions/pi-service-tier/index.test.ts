@@ -134,18 +134,18 @@ test("OpenAI requests apply the selected tier and matching cost multiplier", asy
 		modelRegistry: { getProvider: () => base },
 	} as unknown as ExtensionContext;
 
-	sessionStart!({}, ctx);
+	sessionStart?.({}, ctx);
 	assert.ok(registered);
 
 	// 1. default tier: no service_tier payload or options.serviceTier
-	await command!("default", ctx);
+	await command?.("default", ctx);
 	const defaultResult = await registered.streamSimple(model, { messages: [] }).result();
 	assert.deepEqual(lastPayload, { model: model.id, stream: true });
 	assert.equal(lastServiceTier, undefined);
 	assert.deepEqual(defaultResult.usage.cost, { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, total: 10 });
 
 	// 2. flex tier: service_tier: "flex", multiplier 0.5
-	await command!("flex", ctx);
+	await command?.("flex", ctx);
 	const flexResult = await registered.streamSimple(model, { messages: [] }).result();
 	assert.deepEqual(lastPayload, { model: model.id, stream: true, service_tier: "flex" });
 	assert.equal(lastServiceTier, "flex");

@@ -5,8 +5,9 @@ import { sleepBlockReason } from "./guard.ts";
 const BLOCKED = (command: string): void => {
 	const reason = sleepBlockReason(command);
 	assert.ok(reason !== null, `expected block: ${command}`);
-	assert.match(reason!, /Do not sleep to wait/);
-	assert.match(reason!, /Launch a background task and end the turn/);
+	assert.ok(reason);
+	assert.match(reason, /Do not sleep to wait/);
+	assert.match(reason, /Launch a background task and end the turn/);
 };
 
 const ALLOWED = (command: string): void => {

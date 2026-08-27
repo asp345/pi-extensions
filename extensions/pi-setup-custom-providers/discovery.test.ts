@@ -54,19 +54,18 @@ test("OpenRouter listings expose reasoning objects, effort levels, and modalitie
 	assert.deepEqual(model?.cost, { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 });
 });
 
-test("free models keep zero pricing and variable-pricing sentinels are ignored", () => {
-	const free = parseModelMetadata({ id: "vendor/free", pricing: { prompt: "0", completion: "0" } });
-	assert.deepEqual(free?.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
-
-	const variable = parseModelMetadata({ id: "vendor/auto", pricing: { prompt: "-1", completion: "-1" } });
-	assert.equal(variable?.cost, undefined);
-});
-
 test("capability tokens normalize provider vocabulary", () => {
 	assert.deepEqual(
 		capabilityTokens({ features: ["Function-Calling", "VISION"], supported_parameters: ["reasoning"] }),
 		new Set(["function_calling", "vision", "reasoning"]),
 	);
+});
+
+test("free models and variable-pricing sentinels map correctly", () => {
+	const free = parseModelMetadata({ id: "vendor/free", pricing: { prompt: "0", completion: "0" } });
+	assert.deepEqual(free?.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+	const variable = parseModelMetadata({ id: "vendor/auto", pricing: { prompt: "-1", completion: "-1" } });
+	assert.equal(variable?.cost, undefined);
 });
 
 test("Baseten listings declare reasoning through supported_features", () => {

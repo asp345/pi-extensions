@@ -236,7 +236,8 @@ async function editProviderCompatibility(
 	save: () => Promise<void>,
 ): Promise<void> {
 	for (;;) {
-		const compat = (config.compat ??= {});
+		if (!config.compat) config.compat = {};
+		const compat = config.compat;
 		const action = await pick(ctx, `Compatibility: ${providerId}`, [
 			{ label: `Developer role: ${compat.supportsDeveloperRole ?? "default (system)"}`, value: "developer" },
 			{ label: `reasoning_effort: ${compat.supportsReasoningEffort ?? "auto"}`, value: "effort" },
@@ -278,7 +279,8 @@ async function editThinkingMap(
 ): Promise<void> {
 	model.reasoning = true;
 	for (;;) {
-		const map = (model.thinkingLevelMap ??= {});
+		if (!model.thinkingLevelMap) model.thinkingLevelMap = {};
+		const map = model.thinkingLevelMap;
 		const level = await pick(ctx, `Thinking map: ${model.id}`, [
 			...THINKING_LEVELS.map((item) => ({
 				label: `${item}: ${map[item] === null ? "unsupported" : (map[item] ?? "default")}`,
@@ -374,7 +376,8 @@ async function addModel(ctx: ExtensionContext, config: CustomProviderConfig, sav
 		maxTokens: DEFAULT_MAX_TOKENS,
 		limitSource: "default",
 	};
-	(config.models ??= []).push(model);
+	if (!config.models) config.models = [];
+	config.models.push(model);
 	await save();
 	await editModel(ctx, "", config, model, save);
 }
@@ -406,7 +409,8 @@ async function discoverModels(
 			return;
 		}
 		if (action === "all") {
-			(config.models ??= []).push(...fresh.map(metadataToModel));
+			if (!config.models) config.models = [];
+			config.models.push(...fresh.map(metadataToModel));
 			await save();
 			ctx.ui.notify(`Added ${fresh.length} models`, "info");
 			return;
@@ -425,7 +429,8 @@ async function discoverModels(
 			const index = remaining.findIndex((model) => model.id === selected);
 			const model = remaining[index];
 			if (!model) continue;
-			(config.models ??= []).push(metadataToModel(model));
+			if (!config.models) config.models = [];
+			config.models.push(metadataToModel(model));
 			remaining.splice(index, 1);
 			await save();
 		}

@@ -161,7 +161,9 @@ export function fixRoute(config: LspConfig, root: string, input: string, selecte
 			`Multiple LSP servers support ${input}: ${candidates.map((item) => item.name).join(", ")}. Specify server.`,
 		);
 	}
-	return { server: candidates[0]!, file };
+	const chosen = candidates[0];
+	if (!chosen) throw new Error(`No configured LSP server supports ${input}.`);
+	return { server: chosen, file };
 }
 
 export function commandFor(server: ServerConfig) {

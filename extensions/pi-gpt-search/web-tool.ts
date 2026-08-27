@@ -87,7 +87,7 @@ export function describeCommandStatus(command: WebRunCommand): string {
 		const clicks = command.click.map((c) => `element #${c.id} in ${c.ref_id}`).join(", ");
 		parts.push(`Clicking ${clicks}`);
 	}
-	return parts.length > 0 ? parts.join("; ") + "..." : "Executing web research action...";
+	return parts.length > 0 ? `${parts.join("; ")}...` : "Executing web research action...";
 }
 
 export function createWebTool(provider: WebSearchProvider): ToolDefinition {

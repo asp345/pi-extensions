@@ -20,7 +20,7 @@ export interface OpenAiAuthCredentials {
 
 function readStoredOAuthCredential(): { access: string; accountId?: string } | undefined {
 	const credential = readStoredCredential(PROVIDER_ID);
-	if (!credential || credential.type !== "oauth") return undefined;
+	if (credential?.type !== "oauth") return undefined;
 	const accountId = typeof credential.accountId === "string" && credential.accountId ? credential.accountId : undefined;
 	return { access: credential.access, accountId };
 }
@@ -30,7 +30,7 @@ async function resolveOpenAiAuth(ctx: ExtensionContext): Promise<OpenAiAuthCrede
 	let accessToken: string | undefined;
 	try {
 		const resolved = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID);
-		const headerAuth = resolved?.auth.headers?.["Authorization"];
+		const headerAuth = resolved?.auth.headers?.Authorization;
 		accessToken =
 			resolved?.auth.apiKey ?? (typeof headerAuth === "string" ? headerAuth.replace(/^Bearer\s+/i, "") : undefined);
 	} catch {
@@ -107,7 +107,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 	}
 
 	setSessionId(id: string): void {
-		if (id && id.trim()) {
+		if (id?.trim()) {
 			if (id.trim() !== this.currentSessionId) {
 				this.refIndex.clear();
 			}

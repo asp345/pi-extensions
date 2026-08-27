@@ -210,9 +210,7 @@ function rejectedResult(prefix: string, reason: string, goalId: string) {
 }
 
 function safeText(value: string, limit: number) {
-	const text = value
-		.replace(/[-\u001F\u007F-\u009F]/gu, " ")
-		.replace(/\s+/gu, " ")
-		.trim();
+	const control = String.raw`[-\u001F\u007F-\u009F]`;
+	const text = value.replace(new RegExp(control, "gu"), " ").replace(/\s+/gu, " ").trim();
 	return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
 }

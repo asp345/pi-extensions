@@ -178,7 +178,7 @@ export class AgentManager {
 
 	async steer(id: string, text: string): Promise<boolean> {
 		const record = this.get(id);
-		if (!record || record.status !== "running") return false;
+		if (record?.status !== "running") return false;
 		if (!record.session) {
 			record.pendingSteers.push(text);
 			return true;
@@ -193,7 +193,7 @@ export class AgentManager {
 
 	stop(id: string): boolean {
 		const record = this.get(id);
-		if (!record || record.status !== "running") return false;
+		if (record?.status !== "running") return false;
 		record.status = "stopped";
 		record.completedAt = Date.now();
 		record.abortController.abort();

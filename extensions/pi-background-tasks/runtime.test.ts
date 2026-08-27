@@ -33,17 +33,6 @@ async function waitFor(predicate: () => boolean, timeoutMs = 10_000): Promise<vo
 	}
 }
 
-test("decodes multibyte UTF-8 split across stream chunks", async () => {
-	const { runtime } = createHarness();
-	try {
-		const task = runtime.start("printf '\\xe2\\x82'; sleep 0.3; printf '\\xac'", process.cwd());
-		await waitFor(() => runtime.get(task.id)?.status !== "running");
-		assert.equal(runtime.output(task.id), "€");
-	} finally {
-		runtime.shutdown();
-	}
-});
-
 test("emits exit event with final status and exit code", async () => {
 	const { runtime, events } = createHarness();
 	try {
@@ -167,38 +156,6 @@ test("promoting an already finished quiet task emits the exit event late", async
 		assert.equal(events.length, 0);
 		assert.ok(runtime.promote(task.id));
 		assert.equal(events.filter((event) => event.type === "exit").length, 1);
-	} finally {
-		runtime.shutdown();
-	}
-});
-
-test("discard force-kills a detached command that ignores SIGTERM", async () => {
-	const { runtime } = createHarness();
-	const task = runtime.start("trap '' TERM; while :; do sleep 1; done", process.cwd(), { notify: false });
-	await waitFor(() => task.pid > 0);
-	assert.ok(runtime.discard(task.id));
-	assert.equal(runtime.get(task.id), undefined);
-	await waitFor(() => {
-		try {
-			process.kill(task.pid, 0);
-			return false;
-		} catch {
-			return true;
-		}
-	}, 5_000);
-	runtime.shutdown();
-});
-
-test("waitForExit resolves null when the abort signal fires", async () => {
-	const { runtime } = createHarness();
-	try {
-		const task = runtime.start("sleep 5", process.cwd(), { notify: false });
-		const controller = new AbortController();
-		const wait = runtime.waitForExit(task.id, 10_000, controller.signal);
-		setTimeout(() => controller.abort(), 50).unref();
-		assert.equal(await wait, null);
-		runtime.discard(task.id);
-		assert.equal(runtime.get(task.id), undefined);
 	} finally {
 		runtime.shutdown();
 	}

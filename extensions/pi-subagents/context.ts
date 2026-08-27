@@ -56,7 +56,7 @@ export function clearAgentContextCache(agentId?: string): void {
 function groupMessagesIntoBlocks(messages: readonly unknown[]): MessageBlock[] {
 	const blocks: MessageBlock[] = [];
 	let currentEntries: unknown[] = [];
-	let expectedToolCallIds = new Set<string>();
+	const expectedToolCallIds = new Set<string>();
 	let blockStartIndex = 0;
 
 	for (let i = 0; i < messages.length; i++) {

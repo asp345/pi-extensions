@@ -1,4 +1,4 @@
-import { type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveCredential } from "./auth.ts";
 import { formatReport } from "./format.ts";
 import { anthropicUsageProvider } from "./providers/anthropic.ts";

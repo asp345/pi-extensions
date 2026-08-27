@@ -93,7 +93,7 @@ export class GoalRuntime {
 	}
 
 	async resumeRestored(ctx: GoalContext) {
-		if (!this.goal || this.goal.status !== "active") return;
+		if (this.goal?.status !== "active") return;
 		this.pendingContinuation = this.goal.id;
 		await this.settled(ctx);
 	}
@@ -136,7 +136,7 @@ export class GoalRuntime {
 	finishAgent(messages: readonly unknown[]) {
 		this.currentRunOwnsGoal = false;
 		const goal = this.goal;
-		if (!goal || goal.status !== "active") return;
+		if (goal?.status !== "active") return;
 		const assistant = finalAssistant(messages);
 		if (assistant?.stopReason === "aborted" || assistant?.stopReason === "error") {
 			this.settleFailure = assistant.stopReason;
@@ -162,7 +162,7 @@ export class GoalRuntime {
 
 	async settled(ctx: GoalContext) {
 		const goal = this.goal;
-		if (!goal || goal.status !== "active") return;
+		if (goal?.status !== "active") return;
 		if (this.settleFailure) {
 			const failure = this.settleFailure;
 			this.settleFailure = undefined;
@@ -180,7 +180,7 @@ export class GoalRuntime {
 
 	pause(ctx: GoalContext, reason = "paused by user") {
 		const goal = this.goal;
-		if (!goal || goal.status !== "active") return false;
+		if (goal?.status !== "active") return false;
 		this.cancelContinuation();
 		try {
 			ctx.abort?.();
@@ -194,9 +194,9 @@ export class GoalRuntime {
 		return true;
 	}
 
-	recordAutomaticTurn(ctx: GoalContext, message: unknown) {
+	recordAutomaticTurn(_ctx: GoalContext, message: unknown) {
 		const goal = this.goal;
-		if (!goal || goal.status !== "active" || !this.currentRunAutomatic) return;
+		if (goal?.status !== "active" || !this.currentRunAutomatic) return;
 		if (isRecord(message) && message.role === "assistant" && message.stopReason !== "aborted") {
 			goal.automaticTurns += 1;
 			goal.updatedAt = Date.now();
@@ -234,7 +234,7 @@ export class GoalRuntime {
 
 	private async sendOwnedPrompt(_ctx: GoalContext, kind: "start" | "continue", text: string) {
 		const goal = this.goal;
-		if (!goal || goal.status !== "active") return false;
+		if (goal?.status !== "active") return false;
 		const marker = randomUUID();
 		this.recordOwnedPrompt(marker);
 		// pi.sendUserMessage is fire-and-forget: a failed send surfaces as a

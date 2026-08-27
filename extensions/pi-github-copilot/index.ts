@@ -59,7 +59,7 @@ interface IntentResponse {
 }
 
 function apiForModel(id: string): Api {
-	if (/^claude-(haiku|sonnet|opus)-[45]([.\-]|$)/.test(id)) return "anthropic-messages";
+	if (/^claude-(haiku|sonnet|opus)-[45]([.-]|$)/.test(id)) return "anthropic-messages";
 	if (id.startsWith("gpt-5") || id.startsWith("oswe") || id.startsWith("mai-")) return "openai-responses";
 	return "openai-completions";
 }
@@ -259,7 +259,10 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 		if (!state || state.expiresAt <= Date.now() + 30_000) {
 			state = await createAutoSession(baseUrl, apiKey, options?.signal);
 			sessions.set(key, state);
-			if (sessions.size > 32) sessions.delete(sessions.keys().next().value!);
+			if (sessions.size > 32) {
+				const oldest = sessions.keys().next().value;
+				if (oldest) sessions.delete(oldest);
+			}
 		}
 
 		if (forced) {
@@ -339,7 +342,7 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 			}
 			// pi-coding-agent publishes the returned list through the composed provider;
 			// pi-ai's Provider type declares Promise<void>.
-			return listModels() as unknown as void;
+			return listModels() as unknown as undefined;
 		},
 	};
 	return wrapped;

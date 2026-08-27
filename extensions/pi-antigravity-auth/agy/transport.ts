@@ -135,9 +135,7 @@ async function connectViaProxy(proxyUrl: URL, targetUrl: URL, timeoutMs: number)
 				`${decodeURIComponent(proxyUrl.username)}:${decodeURIComponent(proxyUrl.password)}`,
 			).toString("base64")}\r\n`
 		: "";
-	proxySocket.write(
-		`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n` + `Host: ${targetHost}:${targetPort}\r\n` + auth + "\r\n",
-	);
+	proxySocket.write(`CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}\r\n`);
 	const { head, leftover } = await waitForHead(proxySocket, timeoutMs, () => proxySocket.destroy());
 	if (!/^HTTP\/1\.[01] 2\d\d\b/.test(head)) {
 		proxySocket.destroy();

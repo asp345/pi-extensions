@@ -242,7 +242,7 @@ export default function subagents(pi: ExtensionAPI): void {
 		const records = message.details?.records;
 		if (!records?.length) return undefined;
 		const failed = records.some((record) => record.status !== "completed");
-		const label = records.length === 1 ? records[0]!.type : `${records.length} subagents`;
+		const label = records.length === 1 ? records[0]?.type : `${records.length} subagents`;
 		const stats = records
 			.map(
 				(record) =>

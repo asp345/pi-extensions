@@ -257,9 +257,11 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 			items.push({ type: "function_call_output", call_id: callId, output: toolResultOutput(message, model) });
 
 			const addedTools = Array.isArray(message.addedToolNames)
-				? message.addedToolNames.flatMap((name) =>
-						typeof name === "string" && toolsByName.has(name) ? [toolsByName.get(name)!] : [],
-					)
+				? message.addedToolNames.flatMap((name) => {
+						if (typeof name !== "string") return [];
+						const tool = toolsByName.get(name);
+						return tool ? [tool] : [];
+					})
 				: [];
 			if (addedTools.length > 0) {
 				const searchCallId = `pi_tool_load_${shortHash(`${message.toolCallId}:${addedTools.map((tool) => tool.name).join(",")}`)}`;
@@ -469,7 +471,9 @@ export function extractCodexAccountId(token: string): string {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) throw new Error("Invalid token");
-		const payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8")) as JsonObject;
+		const encoded = parts[1];
+		if (!encoded) throw new Error("Invalid token");
+		const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as JsonObject;
 		const auth = payload["https://api.openai.com/auth"];
 		if (!isJsonObject(auth) || typeof auth.chatgpt_account_id !== "string") throw new Error("Missing account ID");
 		return auth.chatgpt_account_id;
@@ -606,8 +610,8 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 			`OpenAI Codex returned ${compactionItems.length} compaction items; expected exactly one.`,
 		);
 	}
-	const item = compactionItems[0]!;
-	if (typeof item.encrypted_content !== "string") {
+	const item = compactionItems[0];
+	if (!item || typeof item.encrypted_content !== "string") {
 		throw new NonRetryableCompactionError("OpenAI Codex returned a compaction item without encrypted_content.");
 	}
 	return { item, usage };
