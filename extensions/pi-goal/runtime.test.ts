@@ -84,6 +84,20 @@ test("unowned background tasks do not defer automatic continuation", async () =>
 	assert.equal(sent.length, 1);
 });
 
+test("goal-owned task that starts after agent finishes still defers continuation", async () => {
+	const { runtime, ctx, sent } = harness();
+	await runtime.startPrompt(ctx);
+	runtime.beforeAgentStart(sent[0] ?? "");
+	runtime.finishAgent([assistant("waiting for background work")]);
+	// Background task event arrives after finishAgent but before settled (race)
+	await runtime.setRunningBackgroundTasks(["bg-2"], ctx);
+	await runtime.settled(ctx);
+	assert.equal(sent.length, 1);
+
+	await runtime.setRunningBackgroundTasks([], ctx);
+	assert.equal(sent.length, 2);
+});
+
 test("foreign prompts with a forged marker are not treated as owned", () => {
 	const { runtime, ctx } = harness();
 	const goal = runtime.goal;

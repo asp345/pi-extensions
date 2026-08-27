@@ -119,7 +119,7 @@ export class GoalRuntime {
 
 	async setRunningBackgroundTasks(taskIds: readonly string[], ctx?: GoalContext) {
 		const next = new Set(taskIds);
-		if (this.currentRunOwnsGoal && this.goal?.status === "active") {
+		if (this.goal?.status === "active" && (this.currentRunOwnsGoal || this.pendingContinuation === this.goal.id)) {
 			for (const id of next) {
 				if (!this.runningBackgroundTaskIds.has(id)) this.goalBackgroundTaskIds.add(id);
 			}
