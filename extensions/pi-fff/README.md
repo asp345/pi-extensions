@@ -135,7 +135,7 @@ Mode precedence:
 - `--fff-frecency-db <path>` — path to frecency database (also: `FFF_FRECENCY_DB` env). Optional; see [Data](#data) for the default.
 - `--fff-history-db <path>` — path to query history database (also: `FFF_HISTORY_DB` env). Optional; see [Data](#data) for the default.
 - `--fff-enable-root-scan` — allow indexing when launched from `/` (also: `FFF_ENABLE_ROOT_SCAN=1` env). FFF refuses to init at the filesystem root by default.
-- `--fff-enable-home-scan` — index the home directory when launched from `$HOME` (also: `FFF_ENABLE_HOME_SCAN` env). Enabled by default. Disable with `--fff-enable-home-scan=false` or `FFF_ENABLE_HOME_SCAN=0` if your `$HOME` contains huge trees (toolchains, kernel sources, build outputs) that make the background index run for a long time. When launched from `$HOME` with this enabled, pi shows a warning that the whole home tree is being indexed.
+- `--fff-enable-home-scan` — index the home directory when launched from `$HOME` (also: `FFF_ENABLE_HOME_SCAN` env). Disabled by default. Enable with `--fff-enable-home-scan=true` or `FFF_ENABLE_HOME_SCAN=1`. When launched from `$HOME` with this enabled, pi shows a warning that the whole home tree is being indexed.
 
 ## Data
 
