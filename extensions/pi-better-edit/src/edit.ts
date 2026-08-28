@@ -1,10 +1,10 @@
 import { constants } from "node:fs";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
 import { genDiff } from "./edit-diff.ts";
 import {
 	EDIT_DESCRIPTION,
+	editToolSchema,
 	isNormalizedEdit,
 	type NormalizedEditRequest,
 	normReq,
@@ -14,7 +14,6 @@ import { rejectUnknownFields } from "./utils.ts";
 
 void EDIT_DESCRIPTION;
 
-import { EDITS_MAX_ITEMS } from "./constants.ts";
 import {
 	type PipelineOptions,
 	type ProcessedEditFile,
@@ -39,42 +38,6 @@ import { DebouncedPreview } from "./preview-controller.ts";
 import { loadGuide, loadP } from "./prompts.ts";
 import { sessionKeyFor } from "./served-state.ts";
 import { findSnapshotPathsByHashes } from "./snapshot-store.ts";
-
-export const replacementTextSchema = Type.String({
-	description: 'Complete replacement for the range; use "" to delete',
-});
-
-export const removeFromSchema = Type.String({
-	description: "First line to remove (inclusive)",
-});
-
-export const removeToSchema = Type.String({
-	description: "Last line to remove (inclusive)",
-});
-
-const editPathSchema = Type.Union([
-	Type.String({
-		minLength: 1,
-		description: "File path; null infers it from anchors",
-	}),
-	Type.Null(),
-]);
-
-export const editTupleSchema = Type.Tuple([removeFromSchema, removeToSchema, replacementTextSchema], {
-	description: "[remove_from, remove_to, replacement_text]",
-});
-
-export const editToolSchema = Type.Object(
-	{
-		path: editPathSchema,
-		edits: Type.Array(editTupleSchema, {
-			description: "Ordered list of edit tuples",
-			minItems: 1,
-			maxItems: EDITS_MAX_ITEMS,
-		}),
-	},
-	{ additionalProperties: false },
-);
 
 export type EditParams = {
 	remove_from: string;

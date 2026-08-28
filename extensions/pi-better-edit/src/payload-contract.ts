@@ -42,7 +42,12 @@ const editPathSchema = Type.Union([
 	Type.Null(),
 ]);
 
-export const editTupleSchema = Type.Tuple([removeFromSchema, removeToSchema, replacementTextSchema], {
+export const editTupleSchema = Type.Unsafe<readonly [string, string, string]>({
+	type: "array",
+	prefixItems: [removeFromSchema, removeToSchema, replacementTextSchema],
+	items: false,
+	minItems: 3,
+	maxItems: 3,
 	description: "[remove_from, remove_to, replacement_text]",
 });
 
