@@ -313,9 +313,9 @@ export default function fffExtension(pi: ExtensionAPI) {
 	}
 	// Root scanning opt-in: FFF refuses to init at / unless this is set.
 	const enableFsRootScanning = resolveBoolOpt("fff-enable-root-scan", "FFF_ENABLE_ROOT_SCAN");
-	// Home directory scanning requires explicit opt-in because $HOME can contain
-	// large trees that keep the background index active for a long time.
-	const enableHomeDirScanning = resolveBoolOpt("fff-enable-home-scan", "FFF_ENABLE_HOME_SCAN");
+	// Home dir scanning is on by default (launching pi from $HOME is a normal
+	// flow), but configurable so users with huge $HOME trees can opt out.
+	const enableHomeDirScanning = resolveBoolOpt("fff-enable-home-scan", "FFF_ENABLE_HOME_SCAN", true);
 
 	function getMode(): FffMode {
 		return currentMode;
@@ -536,7 +536,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 
 	pi.registerFlag("fff-enable-home-scan", {
 		description:
-			"Index the home dir when launched from $HOME (default false; enable with --fff-enable-home-scan=true or FFF_ENABLE_HOME_SCAN=1)",
+			"Index the home dir when launched from $HOME (default true; disable with --fff-enable-home-scan=false or FFF_ENABLE_HOME_SCAN=0)",
 		type: "boolean",
 	});
 
