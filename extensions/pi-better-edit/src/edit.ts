@@ -1,0 +1,323 @@
+import { constants } from "node:fs";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Markdown, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
+import { genDiff } from "./edit-diff.ts";
+import {
+	EDIT_DESCRIPTION,
+	isNormalizedEdit,
+	type NormalizedEditRequest,
+	normReq,
+	prepareEditArguments,
+} from "./payload-contract.ts";
+import { rejectUnknownFields } from "./utils.ts";
+
+void EDIT_DESCRIPTION;
+
+import { EDITS_MAX_ITEMS } from "./constants.ts";
+import {
+	type PipelineOptions,
+	type ProcessedEditFile,
+	apply as pipelineApply,
+	execEdits as pipelineExecEdits,
+	previewEdits as pipelinePreview,
+} from "./edit-pipeline.ts";
+import {
+	buildAppliedText,
+	fmtCall,
+	fmtResultMd,
+	getPreviewInput,
+	getResultText,
+	isApplied,
+	mkMdTheme,
+	type RPreview,
+	type RRState,
+} from "./edit-render.ts";
+import { type BatchSection, buildBatchResult, type EditDetails } from "./edit-response.ts";
+import { parseHashRef } from "./hashline/index.ts";
+import { DebouncedPreview } from "./preview-controller.ts";
+import { loadGuide, loadP } from "./prompts.ts";
+import { sessionKeyFor } from "./served-state.ts";
+import { findSnapshotPathsByHashes } from "./snapshot-store.ts";
+
+export const replacementTextSchema = Type.String({
+	description: 'Complete replacement for the range; use "" to delete',
+});
+
+export const removeFromSchema = Type.String({
+	description: "First line to remove (inclusive)",
+});
+
+export const removeToSchema = Type.String({
+	description: "Last line to remove (inclusive)",
+});
+
+const editPathSchema = Type.Union([
+	Type.String({
+		minLength: 1,
+		description: "File path; null infers it from anchors",
+	}),
+	Type.Null(),
+]);
+
+export const editTupleSchema = Type.Tuple([removeFromSchema, removeToSchema, replacementTextSchema], {
+	description: "[remove_from, remove_to, replacement_text]",
+});
+
+export const editToolSchema = Type.Object(
+	{
+		path: editPathSchema,
+		edits: Type.Array(editTupleSchema, {
+			description: "Ordered list of edit tuples",
+			minItems: 1,
+			maxItems: EDITS_MAX_ITEMS,
+		}),
+	},
+	{ additionalProperties: false },
+);
+
+export type EditParams = {
+	remove_from: string;
+	remove_to: string;
+	replacement_text: string;
+};
+
+export type EditRequest = NormalizedEditRequest;
+
+const ROOT_KS = new Set(["path", "edits"]);
+
+export function assertReq(request: unknown): asserts request is NormalizedEditRequest {
+	if (!isNormalizedEdit(request)) {
+		throw new Error(
+			"[E_BAD_SHAPE] Edit request must be exactly { path, edits: [[remove_from, remove_to, replacement_text], ...] }.",
+		);
+	}
+
+	rejectUnknownFields(request, ROOT_KS, "Edit request");
+
+	if (request.path !== null && (typeof request.path !== "string" || request.path.length === 0)) {
+		throw new Error("[E_BAD_SHAPE] Edit request path must be a non-empty string or null.");
+	}
+
+	if (!Array.isArray(request.edits) || request.edits.length === 0) {
+		throw new Error('[E_BAD_SHAPE] Edit request requires a non-empty "edits" array.');
+	}
+
+	for (let index = 0; index < request.edits.length; index++) {
+		const item = request.edits[index]!;
+		if (
+			typeof item.remove_from !== "string" ||
+			typeof item.remove_to !== "string" ||
+			typeof item.replacement_text !== "string"
+		) {
+			throw new Error(
+				`[E_BAD_SHAPE] Edit request edits[${index}] must be a three-position array [remove_from, remove_to, replacement_text].`,
+			);
+		}
+	}
+}
+
+export async function resolveMissingPath(
+	request: Record<string, unknown>,
+): Promise<{ path: string; warning: string } | undefined> {
+	if (typeof request.path === "string") return undefined;
+	const from = request.remove_from;
+	const to = request.remove_to;
+	if (typeof from !== "string" || typeof to !== "string") return undefined;
+	const hashes: string[] = [];
+	for (const ref of [from, to]) {
+		try {
+			hashes.push(parseHashRef(ref).hash);
+		} catch {
+			return undefined;
+		}
+	}
+	let matches: string[];
+	try {
+		matches = await findSnapshotPathsByHashes(hashes);
+	} catch {
+		return undefined;
+	}
+	if (matches.length === 1) {
+		return {
+			path: matches[0]!,
+			warning: `[E_BAD_SHAPE] Autocorrected: missing "path" resolved to ${matches[0]} — the only file whose stored hashes contain both anchors.`,
+		};
+	}
+	if (matches.length > 1) {
+		throw new Error(
+			`[E_BAD_SHAPE] Edit request requires a non-empty "path" string; the anchors match multiple known files: ${matches.join(", ")}. Include the intended path.`,
+		);
+	}
+	return undefined;
+}
+
+export type ExecPipelineOptions = PipelineOptions;
+
+export async function execEdits(
+	request: NormalizedEditRequest,
+	cwd: string,
+	options?: ExecPipelineOptions,
+): Promise<ProcessedEditFile> {
+	return pipelineExecEdits(request, cwd, options);
+}
+
+function toSection(file: ProcessedEditFile): BatchSection {
+	return {
+		path: file.path,
+		originalNormalized: file.originalNormalized,
+		result: file.result,
+		originalHashes: file.originalHashes,
+		resultHashes: file.resultHashes,
+		warnings: file.warnings,
+		driftNotice: file.driftNotice,
+		appliedCount: file.appliedCount,
+		noopCount: file.noopCount,
+		totalAddedLines: file.totalAddedLines,
+		totalRemovedLines: file.totalRemovedLines,
+	};
+}
+
+export function reuseText(context: any, content: string): Text {
+	const t = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	t.setText(content);
+	return t;
+}
+
+export async function compPreview(request: unknown, cwd: string): Promise<RPreview> {
+	try {
+		const normalized = normReq(request);
+		assertReq(normalized);
+		let pathWarning: string | undefined;
+		if (normalized.path === null) {
+			const resolution = await resolveMissingPath({
+				path: normalized.path,
+				remove_from: normalized.edits[0]!.remove_from,
+				remove_to: normalized.edits[0]!.remove_to,
+			});
+			if (resolution) {
+				normalized.path = resolution.path;
+				pathWarning = resolution.warning;
+			}
+		}
+		assertReq(normalized);
+		const file = await pipelinePreview(normalized, cwd, {
+			accessMode: constants.R_OK,
+		});
+		if (pathWarning) file.warnings.unshift(pathWarning);
+		if (file.originalNormalized === file.result) {
+			return {
+				error: `No changes made to ${file.path}. The edit produced identical content.`,
+			};
+		}
+
+		return {
+			diff: genDiff(file.originalNormalized, file.result, 4, file.resultHashes, file.originalHashes).diff,
+		};
+	} catch (error: unknown) {
+		return { error: error instanceof Error ? error.message : String(error) };
+	}
+}
+
+type ToolDef = ToolDefinition<any, EditDetails, RRState> & {
+	renderShell?: "default" | "self";
+};
+
+export function reuseMarkdown(context: any, content: string, theme: any): Markdown {
+	const m =
+		context.lastComponent instanceof Markdown ? context.lastComponent : new Markdown("", 0, 0, mkMdTheme(theme));
+	m.setText(content);
+	return m;
+}
+
+export function buildToolDef(): ToolDef {
+	const E_DESC = loadP("../prompts/edit.md");
+	const E_SNIPPET = loadP("../prompts/edit-snippet.md");
+	const E_GUIDE = loadGuide("../prompts/edit-guidelines.md");
+
+	const parameters = editToolSchema;
+	const preview = new DebouncedPreview(compPreview);
+	return {
+		name: "edit",
+		label: "Edit",
+		description: E_DESC,
+		parameters,
+		promptSnippet: E_SNIPPET,
+		promptGuidelines: E_GUIDE,
+		prepareArguments: prepareEditArguments,
+		renderShell: "default",
+		renderCall(args, theme, context) {
+			preview.renderCall(context, args);
+			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			text.setText(fmtCall(getPreviewInput(args), context.state as RRState, context.expanded, theme));
+			return text;
+		},
+
+		renderResult(result, { isPartial }, theme, context) {
+			if (isPartial) {
+				return reuseText(context, theme.fg("warning", "Editing..."));
+			}
+
+			const typedResult = result as {
+				content?: Array<{ type: string; text?: string }>;
+				details?: EditDetails;
+			};
+			const renderedText = getResultText(typedResult);
+
+			const renderState = context.state as RRState | undefined;
+			if (renderState) {
+				preview.clearResult(renderState);
+			}
+
+			if (context.isError) {
+				return renderedText ? reuseText(context, `\n${theme.fg("error", renderedText)}`) : new Text("", 0, 0);
+			}
+
+			if (isApplied(typedResult.details)) {
+				const appliedText = buildAppliedText(typedResult.details, theme);
+				return appliedText ? reuseText(context, appliedText) : new Text("", 0, 0);
+			}
+
+			if (!renderedText) return new Text("", 0, 0);
+			return reuseMarkdown(context, fmtResultMd(renderedText), theme);
+		},
+
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const canonical = normReq(params);
+			assertReq(canonical);
+			let pathWarning: string | undefined;
+			if (canonical.path === null) {
+				const resolution = await resolveMissingPath({
+					path: canonical.path,
+					remove_from: canonical.edits[0]!.remove_from,
+					remove_to: canonical.edits[0]!.remove_to,
+				});
+				if (resolution) {
+					canonical.path = resolution.path;
+					pathWarning = resolution.warning;
+				}
+			}
+			assertReq(canonical);
+			if (canonical.path === null) {
+				throw new Error("[E_BAD_SHAPE] Edit request path could not be inferred from anchors.");
+			}
+
+			const sessionKey = sessionKeyFor(ctx);
+			const { toolResult, raw } = await pipelineApply(canonical, ctx.cwd, {
+				accessMode: constants.R_OK | constants.W_OK,
+				signal,
+				sessionKey,
+			});
+			if (pathWarning) {
+				raw.warnings.unshift(pathWarning);
+				const patched = buildBatchResult([toSection(raw)]);
+				return patched;
+			}
+			return toolResult;
+		},
+	};
+}
+
+export function regEdit(pi: ExtensionAPI): void {
+	pi.registerTool(buildToolDef());
+}

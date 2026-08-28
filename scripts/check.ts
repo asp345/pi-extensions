@@ -43,7 +43,8 @@ for (const name of extensionDirs) {
 		const source = await readFile(resolve(root, "extensions", name, path), "utf8");
 		for (const match of source.matchAll(/(?:from\s+|import\s*\()(["'])([^"']+)\1/g)) {
 			const specifier = match[2];
-			if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:")) continue;
+			if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:") || specifier.startsWith("bun:"))
+				continue;
 			const dep = packageName(specifier);
 			if (!dep || !allowed.has(dep)) fail(`Undeclared import in ${name}/${path}: ${specifier}`);
 		}

@@ -8,7 +8,7 @@
 		"allowImportingTsExtensions": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
-		"types": ["node"]
+		"types": ["node", "bun-types/sqlite"]
 	},
 	"include": ["extensions/**/*.ts", "scripts/**/*.ts"]
 }

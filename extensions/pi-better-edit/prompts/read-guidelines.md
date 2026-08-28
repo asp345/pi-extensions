@@ -1,0 +1,1 @@
+- read: call only when you need information the tool never served you — a page you never saw, content past the auto-read diff.
