@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerCodexCompaction from "./codex.ts";
 import { type CompactionConfig, loadCompactionConfig } from "./config.ts";
+import registerNativeMaterialization from "./native-materialize.ts";
 import registerTextCompaction from "./text.ts";
 
 export default function compaction(pi: ExtensionAPI): void {
@@ -23,5 +24,6 @@ export default function compaction(pi: ExtensionAPI): void {
 	});
 
 	registerTextCompaction(pi, getConfig);
+	registerNativeMaterialization(pi, getConfig);
 	registerCodexCompaction(pi, getConfig);
 }

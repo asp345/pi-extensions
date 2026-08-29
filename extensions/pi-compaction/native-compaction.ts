@@ -42,6 +42,10 @@ export type RemoteCompactionResult = {
 	usage?: Usage;
 };
 
+export type RemoteMaterializationResult = {
+	text: string;
+	usage?: Usage;
+};
 export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -187,8 +191,14 @@ function responseTool(tool: ToolInfo, deferLoading = false): JsonObject {
 	};
 }
 
-function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: ToolInfo[]): ResponseItem[] {
+export function messagesToResponseItems(
+	model: Model<Api>,
+	messages: Message[],
+	tools: ToolInfo[],
+	options?: { includeReasoning?: boolean },
+): ResponseItem[] {
 	const items: ResponseItem[] = [];
+	const includeReasoning = options?.includeReasoning ?? true;
 	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
 	const pendingToolCalls = new Map<string, string>();
 	const flushOrphanedToolCalls = () => {
@@ -209,6 +219,7 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 			for (const block of message.content) {
 				if (!isJsonObject(block)) continue;
 				if (block.type === "thinking" && typeof block.thinkingSignature === "string") {
+					if (!includeReasoning) continue;
 					try {
 						const reasoning = JSON.parse(block.thinkingSignature);
 						if (isJsonObject(reasoning) && reasoning.type === "reasoning") items.push(cloneItem(reasoning));
@@ -445,6 +456,26 @@ export function buildCompactionRequestBody(params: {
 	return body;
 }
 
+export function buildMaterializationRequestBody(params: {
+	model: Model<Api>;
+	input: ResponseItem[];
+	instructions: string;
+	prompt: string;
+	sessionId: string;
+}): JsonObject {
+	return {
+		model: params.model.id,
+		store: false,
+		stream: true,
+		instructions: params.instructions,
+		input: [...params.input.map(cloneItem), { role: "user", content: [{ type: "input_text", text: params.prompt }] }],
+		include: ["reasoning.encrypted_content"],
+		reasoning: { effort: "none", summary: "auto" },
+		text: { verbosity: "low" },
+		prompt_cache_key: params.sessionId,
+	};
+}
+
 export function resolveCodexResponsesUrl(baseUrl?: string): string {
 	const normalized = (baseUrl?.trim() || DEFAULT_CODEX_BASE_URL).replace(/\/+$/, "");
 	if (normalized.endsWith("/codex/responses")) return normalized;
@@ -602,11 +633,83 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 	return { item, usage };
 }
 
+async function parseMaterializationSseResponse(response: Response): Promise<{ text: string; usage?: unknown }> {
+	if (!response.body) throw new Error("OpenAI Codex returned an empty materialization stream.");
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+	let completed = false;
+	let usage: unknown;
+	let deltaText = "";
+	let finalText = "";
+
+	const processBlock = (block: string) => {
+		const data = block
+			.split("\n")
+			.filter((line) => line.startsWith("data:"))
+			.map((line) => line.slice(5).trimStart())
+			.join("\n")
+			.trim();
+		if (!data || data === "[DONE]") return;
+		let event: unknown;
+		try {
+			event = JSON.parse(data);
+		} catch {
+			throw new NonRetryableCompactionError("OpenAI Codex returned malformed materialization SSE data.");
+		}
+		if (!isJsonObject(event)) return;
+		if (event.type === "error") {
+			if (typeof event.message !== "string" || !event.message.trim()) {
+				throw new RetryableCompactionStreamError("OpenAI Codex materialization failed.");
+			}
+			throw new NonRetryableCompactionError(event.message);
+		}
+		if (event.type === "response.failed") {
+			throw new NonRetryableCompactionError("OpenAI Codex materialization ended with response.failed.");
+		}
+		if (event.type === "response.incomplete") {
+			throw new RetryableCompactionStreamError("OpenAI Codex materialization ended with response.incomplete.");
+		}
+		if (event.type === "response.output_text.delta" && typeof event.delta === "string") {
+			deltaText += event.delta;
+		}
+		if (event.type === "response.output_item.done" && isResponseItem(event.item)) {
+			finalText += responseItemText(event.item);
+		}
+		if (event.type === "response.completed" || event.type === "response.done") {
+			completed = true;
+			usage = isJsonObject(event.response) ? event.response.usage : undefined;
+		}
+	};
+
+	while (true) {
+		const { done, value } = await reader.read();
+		buffer += decoder.decode(value, { stream: !done });
+		buffer = buffer.replace(/\r\n/g, "\n");
+		let boundary = buffer.indexOf("\n\n");
+		while (boundary >= 0) {
+			processBlock(buffer.slice(0, boundary));
+			buffer = buffer.slice(boundary + 2);
+			boundary = buffer.indexOf("\n\n");
+		}
+		if (done) break;
+	}
+	if (buffer.trim()) processBlock(buffer);
+	if (!completed) {
+		throw new RetryableCompactionStreamError("OpenAI Codex materialization stream closed before response.completed.");
+	}
+	const text = deltaText || finalText;
+	if (!text) throw new NonRetryableCompactionError("OpenAI Codex materialization returned no text.");
+	return { text, usage };
+}
+
 function usageFromResponse(model: Model<Api>, value: unknown): Usage | undefined {
 	if (!isJsonObject(value)) return undefined;
 	const inputTokens = typeof value.input_tokens === "number" ? value.input_tokens : 0;
 	const outputTokens = typeof value.output_tokens === "number" ? value.output_tokens : 0;
 	const details = isJsonObject(value.input_tokens_details) ? value.input_tokens_details : undefined;
+	const outputDetails = isJsonObject(value.output_tokens_details) ? value.output_tokens_details : undefined;
+	const reasoning = typeof outputDetails?.reasoning_tokens === "number" ? outputDetails.reasoning_tokens : undefined;
 	const cacheRead = typeof details?.cached_tokens === "number" ? details.cached_tokens : 0;
 	const cacheWrite = typeof details?.cache_write_tokens === "number" ? details.cache_write_tokens : 0;
 	const usage: Usage = {
@@ -615,20 +718,27 @@ function usageFromResponse(model: Model<Api>, value: unknown): Usage | undefined
 		cacheRead,
 		cacheWrite,
 		totalTokens: typeof value.total_tokens === "number" ? value.total_tokens : inputTokens + outputTokens,
+		...(reasoning !== undefined ? { reasoning } : {}),
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
 	calculateCost(model, usage);
 	return usage;
 }
 
-export async function callRemoteCompaction(params: {
+type RemoteRequestParams = {
 	url: string;
 	headers: Headers;
 	body: JsonObject;
 	model: Model<Api>;
 	signal?: AbortSignal;
 	fetchImpl?: typeof fetch;
-}): Promise<RemoteCompactionResult> {
+};
+
+async function callRemoteSse<T>(
+	params: RemoteRequestParams,
+	operation: string,
+	parse: (response: Response) => Promise<T>,
+): Promise<T> {
 	const fetchImpl = params.fetchImpl ?? fetch;
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= MAX_REMOTE_RETRIES; attempt++) {
@@ -641,7 +751,7 @@ export async function callRemoteCompaction(params: {
 			});
 			if (!response.ok) {
 				const body = await response.text().catch(() => "");
-				const message = `OpenAI Codex compaction failed (${response.status}): ${body || response.statusText}`;
+				const message = `OpenAI Codex ${operation} failed (${response.status}): ${body || response.statusText}`;
 				if (!isRetryableStatus(response.status)) throw new NonRetryableCompactionError(message);
 				const error = new Error(message);
 				if (attempt === MAX_REMOTE_RETRIES) throw error;
@@ -649,8 +759,7 @@ export async function callRemoteCompaction(params: {
 				await delay(parseRetryDelay(response) ?? 1000 * 2 ** attempt, params.signal);
 				continue;
 			}
-			const parsed = await parseSseResponse(response);
-			return { compactionItem: parsed.item, usage: usageFromResponse(params.model, parsed.usage) };
+			return await parse(response);
 		} catch (error) {
 			if (params.signal?.aborted || error instanceof NonRetryableCompactionError) throw error;
 			lastError = error;
@@ -658,7 +767,17 @@ export async function callRemoteCompaction(params: {
 			await delay(1000 * 2 ** attempt, params.signal);
 		}
 	}
-	throw lastError instanceof Error ? lastError : new Error("OpenAI Codex compaction failed.");
+	throw lastError instanceof Error ? lastError : new Error(`OpenAI Codex ${operation} failed.`);
+}
+
+export async function callRemoteCompaction(params: RemoteRequestParams): Promise<RemoteCompactionResult> {
+	const parsed = await callRemoteSse(params, "compaction", parseSseResponse);
+	return { compactionItem: parsed.item, usage: usageFromResponse(params.model, parsed.usage) };
+}
+
+export async function callRemoteMaterialization(params: RemoteRequestParams): Promise<RemoteMaterializationResult> {
+	const parsed = await callRemoteSse(params, "materialization", parseMaterializationSseResponse);
+	return { text: parsed.text, usage: usageFromResponse(params.model, parsed.usage) };
 }
 
 export function stripInputFromPayload(payload: JsonObject): JsonObject {
