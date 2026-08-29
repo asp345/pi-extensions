@@ -132,16 +132,13 @@ function normalizedItemId(value: string | undefined): string | undefined {
 	return sanitized.startsWith("fc_") ? sanitized : `fc_${sanitized}`.slice(0, 64);
 }
 
-function textSignature(value: unknown): { id?: string; phase?: "commentary" | "final_answer" } {
-	if (typeof value !== "string" || !value) return {};
+function textPhase(value: unknown): "commentary" | "final_answer" | undefined {
+	if (typeof value !== "string" || !value) return undefined;
 	try {
 		const parsed = JSON.parse(value) as JsonObject;
-		return {
-			id: typeof parsed.id === "string" ? parsed.id : undefined,
-			phase: parsed.phase === "commentary" || parsed.phase === "final_answer" ? parsed.phase : undefined,
-		};
+		return parsed.phase === "commentary" || parsed.phase === "final_answer" ? parsed.phase : undefined;
 	} catch {
-		return { id: value };
+		return undefined;
 	}
 }
 
@@ -200,7 +197,6 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 		}
 		pendingToolCalls.clear();
 	};
-	let messageIndex = 0;
 
 	for (const message of messages as unknown as JsonObject[]) {
 		if (message.role === "user") {
@@ -209,11 +205,7 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 			if (content.length > 0) items.push({ role: "user", content });
 		} else if (message.role === "assistant" && Array.isArray(message.content)) {
 			flushOrphanedToolCalls();
-			if (message.stopReason === "error" || message.stopReason === "aborted") {
-				messageIndex++;
-				continue;
-			}
-			let textIndex = 0;
+			if (message.stopReason === "error" || message.stopReason === "aborted") continue;
 			for (const block of message.content) {
 				if (!isJsonObject(block)) continue;
 				if (block.type === "thinking" && typeof block.thinkingSignature === "string") {
@@ -224,18 +216,12 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 					continue;
 				}
 				if (block.type === "text" && typeof block.text === "string") {
-					const signature = textSignature(block.textSignature);
-					const fallbackId = textIndex === 0 ? `msg_pi_${messageIndex}` : `msg_pi_${messageIndex}_${textIndex}`;
-					textIndex++;
-					const rawId = signature.id || fallbackId;
-					const id = rawId.length <= 64 ? rawId : `msg_${shortHash(rawId)}`;
+					const phase = textPhase(block.textSignature);
 					items.push({
 						type: "message",
 						role: "assistant",
-						id,
-						status: "completed",
 						content: [{ type: "output_text", text: block.text, annotations: [] }],
-						...(signature.phase ? { phase: signature.phase } : {}),
+						...(phase ? { phase } : {}),
 					});
 					continue;
 				}
@@ -281,7 +267,6 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 				});
 			}
 		}
-		messageIndex++;
 	}
 	flushOrphanedToolCalls();
 
