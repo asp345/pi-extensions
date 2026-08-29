@@ -22,7 +22,6 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 			}
 
 			const config = getConfig();
-			if (config.textMode !== "prompt") return;
 			if (config.nativeCodex && isOpenAICodexModel(activeModel)) return;
 
 			const model = config.textModel

@@ -7,22 +7,19 @@ test("parses native and text compaction selection", () => {
 		parseCompactionConfig(
 			{
 				nativeCodex: false,
-				textMode: "native-materialize",
 				textModel: { provider: "openai-codex", id: "gpt-5.6-luna" },
 			},
 			"config",
 		),
 		{
 			nativeCodex: false,
-			textMode: "native-materialize",
 			textModel: { provider: "openai-codex", id: "gpt-5.6-luna" },
 		},
 	);
 });
 
-test("rejects unsupported settings and invalid text compaction settings", () => {
+test("rejects unsupported settings and invalid text model selectors", () => {
 	assert.throws(() => parseCompactionConfig({ autoCompact: false }, "config"), /unsupported setting/u);
-	assert.throws(() => parseCompactionConfig({ textMode: "exact" }, "config"), /textMode/u);
 	assert.throws(
 		() => parseCompactionConfig({ textModel: { provider: "openai-codex", id: "" } }, "config"),
 		/textModel\.id/u,

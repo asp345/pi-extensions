@@ -7,17 +7,13 @@ export interface TextCompactionModel {
 	id: string;
 }
 
-export type TextCompactionMode = "prompt" | "native-materialize";
-
 export interface CompactionConfig {
 	nativeCodex: boolean;
-	textMode: TextCompactionMode;
 	textModel?: TextCompactionModel;
 }
 
 const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
-	textMode: "prompt",
 	textModel: { provider: "antigravity", id: "gemini-3.7-flash" },
 };
 
@@ -32,21 +28,13 @@ function nonEmptyString(value: unknown, label: string): string {
 
 export function parseCompactionConfig(value: unknown, source: string): Partial<CompactionConfig> {
 	if (!isRecord(value)) throw new Error(`${source} must contain a JSON object.`);
-	const unsupported = Object.keys(value).filter(
-		(key) => key !== "nativeCodex" && key !== "textMode" && key !== "textModel",
-	);
+	const unsupported = Object.keys(value).filter((key) => key !== "nativeCodex" && key !== "textModel");
 	if (unsupported.length > 0) throw new Error(`${source}: unsupported setting ${unsupported.join(", ")}.`);
 
 	const config: Partial<CompactionConfig> = {};
 	if (value.nativeCodex !== undefined) {
 		if (typeof value.nativeCodex !== "boolean") throw new Error(`${source}: nativeCodex must be a boolean.`);
 		config.nativeCodex = value.nativeCodex;
-	}
-	if (value.textMode !== undefined) {
-		if (value.textMode !== "prompt" && value.textMode !== "native-materialize") {
-			throw new Error(`${source}: textMode must be "prompt" or "native-materialize".`);
-		}
-		config.textMode = value.textMode;
 	}
 	if (value.textModel !== undefined) {
 		if (!isRecord(value.textModel)) throw new Error(`${source}: textModel must be an object.`);

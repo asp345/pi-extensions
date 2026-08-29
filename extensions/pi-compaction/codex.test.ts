@@ -18,7 +18,7 @@ test("native compaction resumes through a custom continuation", () => {
 			sent = { message, options };
 		},
 	} as unknown as ExtensionAPI;
-	registerCodexCompaction(pi, () => ({ nativeCodex: true, textMode: "prompt" }));
+	registerCodexCompaction(pi, () => ({ nativeCodex: true }));
 
 	const ctx = {
 		model: { provider: "openai-codex", api: "openai-codex-responses" },
