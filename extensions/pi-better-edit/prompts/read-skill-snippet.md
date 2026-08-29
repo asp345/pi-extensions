@@ -1,1 +1,1 @@
-Read a file as plain text without hash anchors; use for skill content
+Load skill content without edit anchors

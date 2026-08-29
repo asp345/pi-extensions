@@ -623,19 +623,17 @@ export default function fffExtension(pi: ExtensionAPI) {
 		path: Type.Optional(
 			Type.String({
 				description:
-					"Path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path. Absolute, ~/, and ../ paths outside the workspace are also supported and searched with a separate index.",
+					"Include constraint on the full repo-relative path: directory prefix, filename, or glob. Absolute and outside-workspace paths use a separate index.",
 			}),
 		),
 		exclude: Type.Optional(
 			Type.Union([Type.String(), Type.Array(Type.String())], {
-				description:
-					"Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+				description: "Path constraints to exclude; string or array, e.g. 'test/,*.min.js'.",
 			}),
 		),
 		caseSensitive: Type.Optional(
 			Type.Boolean({
-				description:
-					"Force case-sensitive matching. Default uses smart-case (case-insensitive when pattern is all lowercase).",
+				description: "Force case-sensitive matching; lowercase patterns otherwise use smart-case.",
 			}),
 		),
 		context: Type.Optional(
@@ -654,13 +652,12 @@ export default function fffExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: toolNames.grep,
 		label: toolNames.grep,
-		description: `Grep file contents. Smart-case, auto-detects regex vs literal, git-aware. Results are ranked by frecency (most-accessed files first); matches within a file stay in source order. Default limit ${DEFAULT_GREP_LIMIT}.`,
+		description: `Search file contents using literal or regex matching, with git-aware frecency ranking. Default limit ${DEFAULT_GREP_LIMIT}.`,
 		promptSnippet: "Grep contents",
 		promptGuidelines: [
-			`${toolNames.grep}: prefer bare identifiers as patterns. Literal queries are most efficient.`,
-			`${toolNames.grep}: use path for include ('src/', '*.ts') and exclude for noise ('test/,*.min.js').`,
-			`${toolNames.grep}: caseSensitive: true when you need exact case (smart-case otherwise).`,
-			`${toolNames.grep}: after 1-2 greps, read the top match instead of more greps.`,
+			`${toolNames.grep}: prefer a bare identifier or literal; use caseSensitive only when exact case matters.`,
+			`${toolNames.grep}: narrow results with path and exclude, then read a relevant match after 1-2 searches.`,
+			`${toolNames.grep}: use a concrete pattern rather than a wildcard that matches every line.`,
 		],
 		parameters: grepSchema,
 
@@ -806,19 +803,17 @@ export default function fffExtension(pi: ExtensionAPI) {
 
 	const findSchema = Type.Object({
 		pattern: Type.String({
-			description:
-				"Fuzzy filename search and glob search. Frecency-ranked, git-aware. Multi-word = narrower (AND) not bound to order, use for multi word related concept search. Prefer this over ls/find/bash as the first exploration step whenever the user names a concept, feature, or symbol — it surfaces the relevant files in one call. Only use ls/read on a directory when you specifically need the alphabetical layout of an unknown repo, or when a concept search returned nothing.",
+			description: "Fuzzy filename terms or a glob; multiple terms are combined with AND.",
 		}),
 		path: Type.Optional(
 			Type.String({
 				description:
-					"Path constraint. Directory prefix (src/ or src/foo/), bare filename with extension (main.rs), or glob (*.ts, src/**/*.cc, {src,lib}/**). Applied to the full repo-relative path. Absolute, ~/, and ../ paths outside the workspace are also supported and searched with a separate index.",
+					"Include constraint on the full repo-relative path: directory prefix, filename, or glob. Absolute and outside-workspace paths use a separate index.",
 			}),
 		),
 		exclude: Type.Optional(
 			Type.Union([Type.String(), Type.Array(Type.String())], {
-				description:
-					"Exclude paths (comma/space-separated or array). Same syntax as path: directory prefix ('test/'), filename with extension ('config.json'), or glob ('*.min.js', '**/*.{rs,go}'). A leading '!' is optional and ignored — both 'test/' and '!test/' work. Example: 'test/,*.min.js,!vendor/'.",
+				description: "Path constraints to exclude; string or array, e.g. 'test/,*.min.js'.",
 			}),
 		),
 		limit: Type.Optional(
@@ -832,15 +827,13 @@ export default function fffExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: toolNames.find,
 		label: toolNames.find,
-		description: `Fuzzy path search and glob search. Matches against the whole repo-relative path, not just the filename. Frecency-ranked, git-aware. Multi-word = narrower (AND). Default limit ${DEFAULT_FIND_LIMIT}.`,
+		description: `Find files by fuzzy path terms or glob, ranked by git-aware frecency. Default limit ${DEFAULT_FIND_LIMIT}.`,
 		promptSnippet: "Find files by path or glob",
 		promptGuidelines: [
-			`${toolNames.find}: matches the WHOLE path, not just the filename — \`profile\` hits \`chrome/browser/profiles/x.cc\` too.`,
-			`${toolNames.find}: keep queries to 1-2 terms; extra words narrow.`,
-			`${toolNames.find}: use for paths, not content. Use ${toolNames.grep} for content.`,
-			`${toolNames.find}: for exact path matches use a glob in \`path\` — e.g. path: '**/profile.h' for exact filename, or path: 'src/**/profile.h' scoped to a subtree. Bare patterns are fuzzy.`,
-			`${toolNames.find}: to list everything inside a directory, pass path: 'dir/**' with an empty or wildcard pattern instead of using pattern alone.`,
-			`${toolNames.find}: use exclude: 'test/,*.min.js' to cut noise in large repos.`,
+			`${toolNames.find}: searches the whole relative path; keep fuzzy queries to 1-2 terms.`,
+			`${toolNames.find}: use path with a glob for exact filenames or scoped directory listings.`,
+			`${toolNames.find}: use ${toolNames.grep} instead when searching file contents.`,
+			`${toolNames.find}: use exclude to remove noisy directories or file types.`,
 		],
 		parameters: findSchema,
 

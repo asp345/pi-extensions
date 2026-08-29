@@ -71,18 +71,15 @@ export const EDIT_TUPLE_HINT =
 	"replacement (an empty string deletes the range).";
 
 export const EDIT_DESCRIPTION =
-	'Edit a range of lines in a text file with the exact payload `{ "path": path, "edits": [[remove_from, remove_to, replacement_text], ...] }`. `path` is a non-empty file path or `null` to infer it from the anchors. Each `edits` item is exactly `[remove_from, remove_to, replacement_text]`: two inclusive bare 3-character HASH anchors from served `HASH│content` rows (for example `"aB3"`), never line content, and the complete replacement text (use `""` to delete). Multiple items in one call are applied in order and atomically to that one file — nothing is written unless every item verifies. After success, reuse anchors from the returned diff (auto-formatting between edits is tolerated — no `read` needed). On failure, follow the error\'s hint: if it echoes `HASH│` rows with \'no read needed\', retry from those; if it says to re-read, call `read` to re-sync.';
+	'Edit verified line ranges in one text file with `{ "path": path, "edits": [[remove_from, remove_to, replacement_text], ...] }`. `path` is a non-empty file path or `null` for anchor-based inference. Each range uses two inclusive bare 3-character HASH anchors from served `HASH│content` rows; `replacement_text` is the complete replacement (`""` deletes). All ranges apply atomically. Errors state whether to retry with echoed anchors or call `read` again.';
 
-export const EDIT_SNIPPET =
-	'Edit lines with `{ "path": path, "edits": [[remove_from, remove_to, replacement_text], ...] }`; `path` `string|null`, two bare 3-char HASHes per range (e.g. `"aB3"`). After success chain from diff anchors (formatter-safe, no `read`); on error obey its hint — \'no read needed\' → retry from echo, \'re-read\' → call `read`.';
+export const EDIT_SNIPPET = "Edit verified HASH-anchored line ranges";
 
 export const EDIT_GUIDELINES: string[] = [
-	'edit: use exactly `{ "path": path, "edits": [[remove_from, remove_to, replacement_text], ...] }`; `path` is a non-empty string or `null`, each range is exactly two inclusive anchors, and replacement_text is complete (use `""` to delete).',
-	"edit: remove_from and remove_to mark the exact lines that are REMOVED; anchor only the first and last line that actually change. Nothing outside the range changes.",
-	"edit: every `\\n` in replacement_text separates lines; mirror trailing blank lines explicitly.",
-	"edit: every range is verified against served rows. On `E_RANGE_STALE`/`E_RANGE_UNSERVED` the error echoes fresh anchors (`HASH│` rows) with 'no read needed' — retry from those. On `E_RANGE_UNVERIFIED`/`E_STALE_ANCHOR`/`E_AMBIGUOUS_ANCHOR` it says to re-read — then call `read`.",
-	"edit: after a successful edit the diff's `HASH│` rows are fresh anchors for the next edit; auto-formatting (prettier/black/eslint) does not invalidate them — no `read` needed.",
-	"edit: one edit per call is the norm; batch several edits to the SAME file only when they are independent — they apply atomically (fail → nothing written).",
+	"edit: remove_from and remove_to identify exactly the lines being replaced; do not include surrounding lines.",
+	"edit: replacement_text is one string; each `\\n` creates a line, and trailing blank lines must be explicit.",
+	"edit: reuse anchors returned by a successful diff. On failure, retry from echoed rows when told 'no read needed'; call `read` only when told to re-read.",
+	"edit: use one range normally; batch only independent ranges in the same file.",
 ];
 
 export function getPayloadPromptFragments(): {
