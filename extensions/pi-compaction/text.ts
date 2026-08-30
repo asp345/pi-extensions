@@ -16,10 +16,7 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 		try {
 			const activeModel = ctx.model;
 			const checkpoint = findNativeCheckpoint(event.branchEntries as SessionEntry[]);
-			if (checkpoint.status !== "none") {
-				if (isOpenAICodexModel(activeModel)) return;
-				throw new Error("An OpenAI Codex native checkpoint requires its original OpenAI Codex model.");
-			}
+			if (checkpoint.status !== "none" && isOpenAICodexModel(activeModel)) return;
 
 			const config = getConfig();
 			if (config.nativeCodex && isOpenAICodexModel(activeModel)) return;

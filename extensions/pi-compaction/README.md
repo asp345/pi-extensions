@@ -35,7 +35,7 @@ The local compaction summary is a unique checkpoint marker required by Pi. The `
 
 Remote compaction is fail-closed. A failed request cancels compaction and retains the existing history. A malformed checkpoint or a checkpoint created by another Codex model blocks the next Codex request.
 
-An existing native checkpoint remains native even after `nativeCodex` is set to `false`, because its `encrypted_content` cannot be converted to text locally. The extension continues replaying and compacting that checkpoint with its matching Codex model. Start a new session to change that session to prompt-based compaction.
+An existing native checkpoint remains native while an `openai-codex` model is active, even after `nativeCodex` is set to `false`, because its `encrypted_content` cannot be converted to text locally. If another model is active, the extension performs prompt-based compaction without replaying the checkpoint. The resulting text compaction supersedes the native checkpoint for subsequent requests; the old encrypted entry remains only in the full JSONL history.
 
 ## Turn-boundary threshold
 
