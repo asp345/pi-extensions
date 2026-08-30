@@ -35,15 +35,7 @@ type CompactionStatus = {
 	error?: string;
 };
 
-type ForcedCompactionState = {
-	sessionId: string;
-	running: boolean;
-};
-
-const AUTO_COMPACTION_THRESHOLD_PERCENT = 90;
 const COMPACTION_STATUS_KIND = "openai-codex-compaction-status";
-const CONTINUATION_KIND = "openai-codex-compaction-continuation";
-const CONTINUATION_PROMPT = "Compaction completed. Continue.";
 
 function localMarker(): string {
 	return `OpenAI Codex native compaction checkpoint (${randomUUID()}).`;
@@ -69,7 +61,6 @@ function setFeatureHeader(headers: Record<string, string | null>): void {
 export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
 	const payloadShapeBySession = new Map<string, CachedPayloadShape>();
 	const nativeCompactionConfigured = () => getConfig().nativeCodex;
-	let forcedCompaction: ForcedCompactionState | undefined;
 
 	pi.registerEntryRenderer<CompactionStatus>(COMPACTION_STATUS_KIND, (entry, _options, theme) => {
 		const data = entry.data;
@@ -147,15 +138,12 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 
 	pi.on("session_start", () => {
 		payloadShapeBySession.clear();
-		forcedCompaction = undefined;
 	});
 	pi.on("session_shutdown", () => {
 		payloadShapeBySession.clear();
-		forcedCompaction = undefined;
 	});
 	pi.on("model_select", (_event, ctx) => {
 		payloadShapeBySession.delete(ctx.sessionManager.getSessionId());
-		forcedCompaction = undefined;
 	});
 
 	pi.on("context", (event, ctx) => {
@@ -246,43 +234,5 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 			}
 			return { cancel: true };
 		}
-	});
-
-	pi.on("turn_end", (_event, ctx) => {
-		if (forcedCompaction || !isOpenAICodexModel(ctx.model) || !nativeCompactionConfigured()) return;
-
-		const usage = ctx.getContextUsage();
-		if (usage?.percent === null || usage?.percent === undefined) return;
-		if (usage.percent < AUTO_COMPACTION_THRESHOLD_PERCENT) return;
-
-		forcedCompaction = { sessionId: ctx.sessionManager.getSessionId(), running: false };
-		if (ctx.hasUI) {
-			ctx.ui.notify(`OpenAI Codex context reached ${usage.percent.toFixed(1)}%; stopping for compaction.`, "warning");
-		}
-		ctx.abort();
-	});
-
-	pi.on("agent_settled", (_event, ctx) => {
-		const state = forcedCompaction;
-		if (!state || state.running || state.sessionId !== ctx.sessionManager.getSessionId()) return;
-
-		const running = { ...state, running: true };
-		forcedCompaction = running;
-		ctx.compact({
-			onComplete: () => {
-				if (forcedCompaction !== running) return;
-				forcedCompaction = undefined;
-				if (ctx.hasPendingMessages()) return;
-				pi.sendMessage(
-					{ customType: CONTINUATION_KIND, content: CONTINUATION_PROMPT, display: true },
-					{ triggerTurn: true, deliverAs: "followUp" },
-				);
-			},
-			onError: (error) => {
-				if (forcedCompaction !== running) return;
-				forcedCompaction = undefined;
-				if (ctx.hasUI) ctx.ui.notify(`OpenAI Codex compaction failed: ${error.message}`, "error");
-			},
-		});
 	});
 }

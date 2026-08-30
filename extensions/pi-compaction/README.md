@@ -37,11 +37,9 @@ Remote compaction is fail-closed. A failed request cancels compaction and retain
 
 An existing native checkpoint remains native while an `openai-codex` model is active, including after switching Codex models or setting `nativeCodex` to `false`, because its `encrypted_content` cannot be converted to text locally. If a non-Codex model is active, the extension performs prompt-based compaction without replaying the checkpoint. The resulting text compaction supersedes the native checkpoint for subsequent requests; the old encrypted entry remains only in the full JSONL history.
 
-## Turn-boundary threshold
+## Automatic compaction
 
-When native compaction is enabled, the extension checks Pi's reported context usage after every `turn_end`. At 90% it stops the current run at the turn boundary and compacts after the agent settles. If no user message is pending, a custom continuation starts the next run through Pi's `sendMessage` API.
-
-Using a custom message avoids the asynchronous input processing performed by `sendUserMessage`, so Pi marks the continuation run active before later steering, follow-up, or Esc input is handled. Esc aborts the active compaction through Pi's compaction controller. Pi's `compaction.reserveTokens` setting independently controls Pi's own threshold.
+The extension does not stop or resume agent runs. Pi controls the compaction threshold through its standard `compaction.reserveTokens` setting and handles provider-neutral continuation after automatic compaction. The `session_before_compact` hook replaces Pi's text summary with a native checkpoint when native Codex compaction is selected.
 
 ## Prompt-based behavior
 
