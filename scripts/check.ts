@@ -24,6 +24,15 @@ const rootDeps = new Set([
 const packageName = (specifier: string): string =>
 	specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/", 1)[0];
 
+function importSpecifiers(source: string): string[] {
+	const patterns = [
+		/^\s*import\s+[^;]*?\bfrom\s*(["'])([^"']+)\1/gm,
+		/^\s*export\s+(?:type\s+)?(?:\*|\{)[^;]*?\bfrom\s*(["'])([^"']+)\1/gm,
+		/\bimport\s*\(\s*(["'])([^"']+)\1\s*\)/g,
+	];
+	return patterns.flatMap((pattern) => [...source.matchAll(pattern)].map((match) => match[2]).filter(Boolean));
+}
+
 const extensionDirs = (await readdir(resolve(root, "extensions"), { withFileTypes: true }))
 	.filter((entry) => entry.isDirectory())
 	.map((entry) => entry.name);
@@ -41,10 +50,8 @@ for (const name of extensionDirs) {
 	);
 	for (const path of sourceFiles) {
 		const source = await readFile(resolve(root, "extensions", name, path), "utf8");
-		for (const match of source.matchAll(/(?:from\s+|import\s*\()(["'])([^"']+)\1/g)) {
-			const specifier = match[2];
-			if (!specifier || specifier.startsWith(".") || specifier.startsWith("node:") || specifier.startsWith("bun:"))
-				continue;
+		for (const specifier of importSpecifiers(source)) {
+			if (specifier.startsWith(".") || specifier.startsWith("node:") || specifier.startsWith("bun:")) continue;
 			const dep = packageName(specifier);
 			if (!dep || !allowed.has(dep)) fail(`Undeclared import in ${name}/${path}: ${specifier}`);
 		}

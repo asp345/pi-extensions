@@ -35,6 +35,7 @@ const GREP_PAGE_SIZE_MAX = 50;
 const GREP_CONTEXT_MAX = 20;
 const GREP_MAX_LINE_LENGTH = 500;
 const MENTION_MAX_RESULTS = 20;
+const MAX_TOOL_OUTPUT_CHARS = 20_000;
 
 // If we exceed 10 seconds for indexed grep - something is definitely off
 const GREP_TIME_BUDGET_MS = 10_000;
@@ -134,6 +135,10 @@ function clampContext(context: number | undefined): number {
 	return Math.min(Math.floor(context), GREP_CONTEXT_MAX);
 }
 
+function boundToolOutput(output: string): string {
+	if (output.length <= MAX_TOOL_OUTPUT_CHARS) return output;
+	return `${output.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n\n[Output truncated to 20,000 characters.]`;
+}
 const HOT_FRECENCY = 25;
 const WARM_FRECENCY = 20;
 
@@ -769,6 +774,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 
 			if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
 			if (fuzzyNotice) output = `[${fuzzyNotice}]\n${output}`;
+			output = boundToolOutput(output);
 
 			return {
 				content: [{ type: "text", text: output }],
@@ -901,6 +907,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 			}
 
 			if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
+			output = boundToolOutput(output);
 			return {
 				content: [{ type: "text", text: output }],
 				details: {
@@ -998,6 +1005,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 				if (result.nextCursor) notices.push(`More available. cursor="${storeCursor(result.nextCursor)}" to continue`);
 
 				if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
+				output = boundToolOutput(output);
 
 				return {
 					content: [{ type: "text", text: output }],

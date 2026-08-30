@@ -1,6 +1,6 @@
 # pi-lsp
 
-Language Server Protocol integration for Pi. Tools `lsp_diagnostics` and `lsp_fix`.
+Language Server Protocol integration for Pi. Tools `lsp_diagnostics` and `lsp_fix` are active only when at least one configured LSP command resolves at session start. Availability remains fixed for that session.
 
 ## Routing
 

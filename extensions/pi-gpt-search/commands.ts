@@ -27,7 +27,7 @@ export const FindOperationSchema = Type.Object({
 export type FindOperation = Static<typeof FindOperationSchema>;
 
 export const ResponseLengthSchema = Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long")], {
-	description: "Desired length of returned content output",
+	description: "Desired output length; defaults to medium",
 });
 export type ResponseLength = Static<typeof ResponseLengthSchema>;
 

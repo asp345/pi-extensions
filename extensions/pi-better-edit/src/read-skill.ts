@@ -3,7 +3,7 @@ import { createReadTool, createReadToolDefinition } from "@earendil-works/pi-cod
 import { Type } from "typebox";
 import { toCwd } from "./paths.ts";
 import { loadP } from "./prompts.ts";
-import { abortIf, isRec, normalizeFilePath } from "./utils.ts";
+import { abortIf } from "./utils.ts";
 import { valAccess } from "./validation.ts";
 
 const RS_DESC = loadP("../prompts/read-skill.md");
@@ -21,12 +21,6 @@ export function regReadSkill(pi: ExtensionAPI): void {
 		promptSnippet: RS_SNIPPET,
 		renderCall: builtinRenderCall,
 		renderResult: builtinRenderResult,
-		prepareArguments: (args: unknown) => {
-			if (!isRec(args)) return args as any;
-			const record = { ...args };
-			normalizeFilePath(record);
-			return record;
-		},
 		parameters: Type.Object({
 			path: Type.String({
 				description: "Path to the skill file to read (relative or absolute)",

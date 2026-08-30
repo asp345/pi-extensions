@@ -480,7 +480,7 @@ function storeRecord(record: AgentRecord): StoredAgentState {
 		completedAt: record.completedAt,
 		turns: record.turns,
 		toolUses: record.toolUses,
-		result: record.result ? bounded(record.result, RESULT_BYTES, RESULT_LINES).text : undefined,
+		result: record.result,
 		error: record.error,
 		model: record.model,
 		models: record.models,
@@ -590,7 +590,7 @@ function assertParentTools(pi: ExtensionAPI, requested: string[], path: string):
 }
 
 function result(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
-	return { content: [{ type: "text", text: bounded(text, RESULT_BYTES, RESULT_LINES).text }], details };
+	return { content: [{ type: "text", text }], details };
 }
 
 function metadata(record: AgentRecord): Record<string, unknown> {
@@ -637,10 +637,10 @@ function formatMetadata(record: AgentRecord): string {
 function pageText(value: string, offset: number, limit: number) {
 	const bytes = Buffer.from(value, "utf8");
 	const start = Math.min(offset, bytes.length);
-	const end = Math.min(bytes.length, start + Math.min(limit, RESULT_BYTES));
+	const end = Math.min(bytes.length, start + limit);
 	let text = bytes.subarray(start, end).toString("utf8");
 	if (text.endsWith("�") && end < bytes.length) text = text.slice(0, -1);
-	text = bounded(text, RESULT_BYTES, RESULT_LINES).text;
+	text = text.split("\n").slice(0, RESULT_LINES).join("\n");
 	const consumed = Buffer.byteLength(text, "utf8");
 	return {
 		text,

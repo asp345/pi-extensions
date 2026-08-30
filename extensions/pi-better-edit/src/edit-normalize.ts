@@ -14,7 +14,6 @@ export {
 	itemFromTuple,
 	type NormalizedEditRequest,
 	normalizedEdit,
-	normalizeFilePathRecord,
 	normReq,
 	prepareEditArguments,
 	removeFromSchema,

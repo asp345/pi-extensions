@@ -4,13 +4,37 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { type ExtensionAPI, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { applyEdits, type Diagnostic, LspClient, type TextEdit, type WorkspaceEdit } from "./protocol.ts";
-import { diagnosticRoutes, fixRoute, inside, languageId, loadConfig, type ServerConfig } from "./routing.ts";
+import {
+	commandFor,
+	diagnosticRoutes,
+	fixRoute,
+	inside,
+	languageId,
+	loadConfig,
+	resolveCommand,
+	type ServerConfig,
+} from "./routing.ts";
 
 const STATUS = "lsp";
 const MAX_OUTPUT_BYTES = 30_000;
 const MAX_OUTPUT_LINES = 500;
+const LSP_TOOL_NAMES = new Set(["lsp_diagnostics", "lsp_fix"]);
 
 export default function lspExtension(pi: ExtensionAPI) {
+	pi.on("session_start", (_event, ctx) => {
+		let available = false;
+		try {
+			const root = workspaceRoot(ctx.cwd);
+			const config = loadConfig(root, ctx.isProjectTrusted());
+			available = config.servers.some(
+				(server) => resolveCommand(commandFor(server)[0] ?? "", root, server.env) !== undefined,
+			);
+		} finally {
+			if (!available) {
+				pi.setActiveTools(pi.getActiveTools().filter((name) => !LSP_TOOL_NAMES.has(name)));
+			}
+		}
+	});
 	pi.registerTool({
 		name: "lsp_diagnostics",
 		label: "LSP Diagnostics",

@@ -11,7 +11,7 @@ import { toCwd } from "./paths.ts";
 import { loadGuide, loadP } from "./prompts.ts";
 import { upsertSnapshotFor } from "./snapshot-store.ts";
 import { readUndo, removeUndo, type UndoRecord, writeUndo } from "./undo-store.ts";
-import { cntDiff, errCode, isRec, normalizeFilePath, splitLines, visLines } from "./utils.ts";
+import { cntDiff, errCode, splitLines, visLines } from "./utils.ts";
 export interface UndoEntry {
 	content: string;
 	bom: string;
@@ -88,12 +88,6 @@ export function regEditUndo(pi: ExtensionAPI): void {
 		description: loadP("../prompts/undo-last-edit.md"),
 		promptSnippet: loadP("../prompts/undo-last-edit-snippet.md"),
 		promptGuidelines: loadGuide("../prompts/undo-last-edit-guidelines.md"),
-		prepareArguments: (args: unknown) => {
-			if (!isRec(args)) return args as any;
-			const record = { ...args };
-			normalizeFilePath(record);
-			return record;
-		},
 		parameters: Type.Object({
 			path: Type.String({
 				description: "Path to the file to undo",

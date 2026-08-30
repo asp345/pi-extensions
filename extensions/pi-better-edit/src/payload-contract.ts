@@ -99,35 +99,6 @@ export function getPayloadPromptFragments(): {
 	};
 }
 
-function emitFilePathDeprecationWarning(filePathValue: unknown, context: string = "payload"): void {
-	console.warn(
-		`[DEPRECATED] "file_path" is deprecated, use "path" instead (${context}). Received file_path=${JSON.stringify(filePathValue)}. This alias will be removed in a future version.`,
-	);
-}
-
-export function normalizeFilePathRecord(record: Record<string, unknown>, context: string = "payload"): boolean {
-	if (typeof record.path !== "string" && typeof record.file_path === "string") {
-		const fp = record.file_path as string;
-		emitFilePathDeprecationWarning(fp, context);
-		record.path = fp;
-		delete record.file_path;
-		return true;
-	}
-	if (typeof record.file_path === "string") {
-		emitFilePathDeprecationWarning(record.file_path, context);
-		delete record.file_path;
-		return true;
-	}
-	if ("file_path" in record) {
-		if (record.file_path !== undefined) {
-			emitFilePathDeprecationWarning(record.file_path, context);
-		}
-		delete record.file_path;
-		return true;
-	}
-	return false;
-}
-
 export function itemFromTuple(value: unknown): EditItem | undefined {
 	if (!Array.isArray(value) || value.length !== 3) return undefined;
 	const [remove_from, remove_to, replacement_text] = value;
@@ -140,29 +111,8 @@ export function itemFromTuple(value: unknown): EditItem | undefined {
 export function editRequestFrom(input: unknown): NormalizedEditRequest | undefined {
 	if (!isRec(input)) return undefined;
 	const rec = input as Record<string, unknown>;
-	const hasFilePath = "file_path" in rec;
-	const hasPath = "path" in rec;
-	if (hasFilePath) {
-		emitFilePathDeprecationWarning(rec.file_path, "edit payload");
-	}
-	let effectivePath: unknown;
-	if (hasPath) {
-		effectivePath = rec.path;
-		if (
-			(typeof effectivePath !== "string" && effectivePath !== null) ||
-			(effectivePath === undefined && typeof rec.file_path === "string")
-		) {
-			if (typeof rec.file_path === "string") {
-				effectivePath = rec.file_path;
-			}
-		}
-	} else if (hasFilePath) {
-		effectivePath = rec.file_path;
-	} else {
-		return undefined;
-	}
-
-	if (!("edits" in rec)) return undefined;
+	if (!("path" in rec) || !("edits" in rec)) return undefined;
+	const effectivePath = rec.path;
 	const edits = rec.edits;
 
 	if (effectivePath !== null && (typeof effectivePath !== "string" || (effectivePath as string).length === 0)) {

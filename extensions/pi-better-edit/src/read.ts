@@ -16,7 +16,7 @@ import type { ServedRow } from "./hashline/served.ts";
 import { toCwd } from "./paths.ts";
 import { loadGuide, loadP } from "./prompts.ts";
 import { clearDriftReported, recordServedTruncated, sessionKeyFor } from "./served-state.ts";
-import { abortIf, isRec, normalizeFilePath, visLines } from "./utils.ts";
+import { abortIf, visLines } from "./utils.ts";
 import { valAccess } from "./validation.ts";
 
 const R_DESC = loadP("../prompts/read.md");
@@ -186,12 +186,6 @@ export function regRead(pi: ExtensionAPI): void {
 		description: R_DESC,
 		promptSnippet: R_SNIPPET,
 		promptGuidelines: readGuide(),
-		prepareArguments: (args: unknown) => {
-			if (!isRec(args)) return args as any;
-			const record = { ...args };
-			normalizeFilePath(record);
-			return record;
-		},
 		parameters: Type.Object({
 			path: Type.String({
 				description: "Path to the file to read (relative or absolute)",
