@@ -299,9 +299,6 @@ export function effectiveInputForBranch(params: {
 		throw new Error("The latest OpenAI Codex native compaction checkpoint is malformed.");
 	}
 	if (checkpoint.status === "valid") {
-		if (checkpoint.checkpoint.details.modelKey !== modelKey(params.model)) {
-			throw new Error("The latest OpenAI Codex native compaction checkpoint belongs to a different model.");
-		}
 		const tail = branch.slice(checkpoint.checkpoint.entryIndex + 1);
 		return [
 			...checkpoint.checkpoint.details.replacementHistory.map(cloneItem),

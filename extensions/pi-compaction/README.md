@@ -33,9 +33,9 @@ When native compaction is selected, the extension:
 
 The local compaction summary is a unique checkpoint marker required by Pi. The `context` and provider request handlers exclude this marker from requests to OpenAI.
 
-Remote compaction is fail-closed. A failed request cancels compaction and retains the existing history. A malformed checkpoint or a checkpoint created by another Codex model blocks the next Codex request.
+Remote compaction is fail-closed. A failed request cancels compaction and retains the existing history. A malformed checkpoint blocks the next Codex request.
 
-An existing native checkpoint remains native while an `openai-codex` model is active, even after `nativeCodex` is set to `false`, because its `encrypted_content` cannot be converted to text locally. If another model is active, the extension performs prompt-based compaction without replaying the checkpoint. The resulting text compaction supersedes the native checkpoint for subsequent requests; the old encrypted entry remains only in the full JSONL history.
+An existing native checkpoint remains native while an `openai-codex` model is active, including after switching Codex models or setting `nativeCodex` to `false`, because its `encrypted_content` cannot be converted to text locally. If a non-Codex model is active, the extension performs prompt-based compaction without replaying the checkpoint. The resulting text compaction supersedes the native checkpoint for subsequent requests; the old encrypted entry remains only in the full JSONL history.
 
 ## Turn-boundary threshold
 
@@ -53,7 +53,7 @@ Prompt-based compaction uses Pi's text summarizer. Its additional instructions p
 
 ## Data handling
 
-Native compaction sends the current Codex conversation to the ChatGPT Codex Responses endpoint. OpenAI returns `encrypted_content`, which is persisted in the local session JSONL and replayed only to the matching Codex model.
+Native compaction sends the current Codex conversation to the ChatGPT Codex Responses endpoint. OpenAI returns `encrypted_content`, which is persisted in the local session JSONL and replayed to OpenAI Codex models.
 
 Prompt-based compaction sends the text selected by Pi's compaction preparation to `textModel`. Its plaintext summary is persisted in the session JSONL.
 
