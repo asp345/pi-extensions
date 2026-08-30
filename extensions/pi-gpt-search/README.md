@@ -93,6 +93,30 @@ And pattern matching within opened documents:
   ]
 }
 ```
+### Inspecting a User-Provided URL
+
+When a user provides a URL, search for that exact URL first. Verify that a returned result's `url` matches the requested URL, then use that result's `ref_id` to inspect the page:
+
+```json
+{
+  "search_query": [
+    { "q": "https://example.com/page" }
+  ]
+}
+```
+
+Then open the matching result:
+
+```json
+{
+  "open": [
+    { "ref_id": "turn0search0" }
+  ]
+}
+```
+
+`ref_id` is an opaque result identifier. Never put the URL itself in `ref_id` or pass a raw URL to `open`. If no result has the requested URL, this extension cannot directly fetch that URL.
+
 
 ---
 

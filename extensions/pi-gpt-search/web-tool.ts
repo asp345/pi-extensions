@@ -9,6 +9,7 @@ export const BROWSING_GUIDELINES = [
 	"BROWSE WHEN: user asks to search/browse/verify, info could have changed (versions, releases, docs), topic is niche/uncertain, or precise primary sources are needed.",
 	"SEARCH WORKFLOW:",
 	"1. Execute initial search with web({ search_query: [{ q: '...' }] }).",
+	"URL LOOKUP: When the user provides a URL, first search for that exact URL with web({ search_query: [{ q: 'https://...' }] }). If a result's url matches, open it with that result's ref_id. Never put the URL itself in ref_id or pass a raw URL to open; open accepts only a returned ref_id. Do not invent a ref_id or substitute a different result if no matching URL is returned.",
 	"2. Prefer authoritative/primary sources (official docs, GitHub repos, standards, vendor docs).",
 	"3. Inspect promising search results using open({ open: [{ ref_id: 'turn0search0' }] }).",
 	"4. Use find({ find: [{ ref_id: '...', pattern: '...' }] }) to locate key sections in long documents.",
