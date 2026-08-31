@@ -31,7 +31,7 @@ function relative(timestamp: number, now = Date.now()): string {
 function taskStatus(task: TaskSnapshot): string {
 	if (task.timedOut) return "timed out";
 	if (task.status === "running") return "running";
-	if (task.status === "stopped") return "stopped";
+	if (task.status === "stopped") return "stopped by user";
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }
 

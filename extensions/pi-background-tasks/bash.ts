@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { constants } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
 import { delimiter, join } from "node:path";
@@ -14,42 +13,22 @@ import {
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
-const DEFAULT_HANDOFF_MS = 30_000;
-const MAX_HANDOFF_MS = 90_000;
-const handoffStore = new AsyncLocalStorage<number | undefined>();
+const HANDOFF_MS = 10 * 60_000;
+const HANDOFF_SHORTCUT = "alt+h";
 
 const HANDOFF_GUIDELINE =
 	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait. Never use the timeout shell command.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Foreground wait (handoff) is 30s by default (must be 1-90). After that wait the command keeps running as a background task. timeout, if set, is the background-task timeout in seconds after handoff; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to 10 minutes, then continue as a background task. Press ${HANDOFF_SHORTCUT} to move the most recent foreground command to the background immediately. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
-	handoff: Type.Optional(
-		Type.Number({
-			minimum: 1,
-			maximum: 90,
-			description: "Foreground wait in seconds before handoff to a background task. Default 30. Must be 1-90.",
-		}),
-	),
 	timeout: Type.Optional(
 		Type.Number({
-			description: "Background-task timeout in seconds after handoff. Optional. No default timeout.",
+			description: "Total command timeout in seconds across foreground and background execution. Optional.",
 		}),
 	),
 });
-
-function resolveHandoffMs(handoff: number | undefined): number {
-	if (handoff === undefined) return DEFAULT_HANDOFF_MS;
-	if (!Number.isFinite(handoff) || handoff <= 0) {
-		throw new Error("Invalid handoff: must be a finite number of seconds");
-	}
-	const handoffMs = handoff * 1000;
-	if (handoffMs > MAX_HANDOFF_MS) {
-		throw new Error(`Invalid handoff: maximum is ${MAX_HANDOFF_MS / 1000} seconds`);
-	}
-	return handoffMs;
-}
 
 /** Session env for spawned commands: pi's managed bin dir on PATH plus PI_* session metadata. */
 export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
@@ -78,8 +57,7 @@ export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
 	if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
 	return env;
 }
-
-function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
+function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, foreground: Map<string, AbortController>) {
 	const operations: BashOperations = {
 		async exec(command, execCwd, { onData, signal, timeout, env }) {
 			try {
@@ -87,16 +65,18 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 			} catch {
 				throw new Error(`Working directory does not exist: ${execCwd}\nCannot execute bash commands.`);
 			}
-			const windowMs = resolveHandoffMs(handoffStore.getStore());
 			const task = runtime.start(command, execCwd, {
 				notify: false,
 				env,
 				onOutputRaw: onData,
 				timeout,
 			});
-			const done = await runtime.waitForExit(task.id, windowMs, signal);
+			const handoff = new AbortController();
+			foreground.set(task.id, handoff);
+			const done = await runtime.waitForExit(task.id, HANDOFF_MS, signal, handoff.signal);
+			foreground.delete(task.id);
 			if (!done) {
-				if (signal?.aborted) {
+				if (!handoff.signal.aborted && signal?.aborted) {
 					runtime.discard(task.id);
 					throw new Error("aborted");
 				}
@@ -105,10 +85,13 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 					runtime.discard(task.id);
 					return { exitCode: snapshot?.exitCode ?? null };
 				}
-				const timeoutNote = timeout === undefined ? "" : ` timeout ${timeout}s after handoff.`;
+				const timeoutNote = timeout === undefined ? "" : ` timeout ${timeout}s from command start.`;
+				const reason = handoff.signal.aborted
+					? `Handoff requested with ${HANDOFF_SHORTCUT}`
+					: "Command still running after 10 minutes";
 				onData(
 					Buffer.from(
-						`\n\nCommand still running after ${Math.round(windowMs / 1000)}s; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
+						`\n\n${reason}; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
 					),
 				);
 				return { exitCode: null };
@@ -124,15 +107,29 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime) {
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
-		execute(...args: Parameters<typeof definition.execute>) {
-			const handoff = (args[1] as { handoff?: number }).handoff;
-			return handoffStore.run(handoff, () => definition.execute(...args));
-		},
 	};
 }
 
 export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime): void {
+	const foreground = new Map<string, AbortController>();
+
 	pi.on("session_start", (_event, ctx) => {
-		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime));
+		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime, foreground));
+	});
+
+	pi.registerShortcut(HANDOFF_SHORTCUT, {
+		description: "Move the most recent foreground bash command to the background",
+		handler: async (ctx) => {
+			for (const [id, controller] of [...foreground.entries()].reverse()) {
+				if (controller.signal.aborted || runtime.get(id)?.status !== "running") {
+					foreground.delete(id);
+					continue;
+				}
+				controller.abort();
+				ctx.ui.notify(`Moving ${id} to the background.`, "info");
+				return;
+			}
+			ctx.ui.notify("No foreground bash command is running.", "warning");
+		},
 	});
 }

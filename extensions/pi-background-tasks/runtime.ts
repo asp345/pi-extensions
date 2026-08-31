@@ -212,8 +212,8 @@ export class BackgroundRuntime {
 		child.on("close", (code) => this.finish(task, typeof code === "number" ? code : null));
 		task.heartbeatTimer = setInterval(() => this.heartbeat(task), task.info.heartbeatMs);
 		task.heartbeatTimer.unref?.();
+		this.armTimeout(task);
 		if (task.info.notify) {
-			this.armTimeout(task);
 			this.reportState();
 		}
 		this.update();
@@ -381,11 +381,16 @@ export class BackgroundRuntime {
 		return true;
 	}
 
-	waitForExit(id: string | undefined, ms: number, signal?: AbortSignal): Promise<WaitResult | null> {
+	waitForExit(
+		id: string | undefined,
+		ms: number,
+		signal?: AbortSignal,
+		handoffSignal?: AbortSignal,
+	): Promise<WaitResult | null> {
 		const task = this.find(id);
 		if (!task) return Promise.resolve(null);
 		if (task.closed) return Promise.resolve({ task: snapshot(task), output: task.output });
-		if (signal?.aborted) return Promise.resolve(null);
+		if (signal?.aborted || handoffSignal?.aborted) return Promise.resolve(null);
 		return new Promise((resolve) => {
 			let settled = false;
 			const settle = (value: WaitResult | null): void => {
@@ -393,13 +398,16 @@ export class BackgroundRuntime {
 				settled = true;
 				clearTimeout(timer);
 				signal?.removeEventListener("abort", onAbort);
+				handoffSignal?.removeEventListener("abort", onHandoff);
 				task.waiters.delete(waiter);
 				resolve(value);
 			};
 			const waiter = (result: WaitResult): void => settle(result);
 			const onAbort = (): void => settle(null);
+			const onHandoff = (): void => settle(null);
 			const timer = setTimeout(() => settle(null), ms);
 			signal?.addEventListener("abort", onAbort, { once: true });
+			handoffSignal?.addEventListener("abort", onHandoff, { once: true });
 			task.waiters.add(waiter);
 		});
 	}

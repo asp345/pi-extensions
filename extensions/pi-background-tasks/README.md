@@ -4,8 +4,8 @@ Background shell tasks for Pi without blocking the turn. Completion is delivered
 
 ## Tools
 
-* `background_task` with `action: start|list|read|stop|clear`, optional `command`, `id`, `heartbeat` (minutes, default 30), `timeout` (seconds)
-* `bash` hybrid - `registerHybridBash` starts a background task and ends the turn; `guard.ts` blocks `sleep >=10s` or unknown durations
+* `background_task` with `action: start|list|read|stop|clear`, optional `command`, `id`, `heartbeat` (minutes, default 30), `timeout` (total runtime in seconds)
+* `bash` hybrid - commands remain in the foreground for up to 10 minutes, `alt+h` hands off the most recent foreground command immediately, and `timeout` covers total foreground and background runtime; `guard.ts` blocks `sleep >=10s` or unknown durations
 
 ## Runtime
 
