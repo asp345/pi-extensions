@@ -57,14 +57,8 @@ export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
 	if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
 	return env;
 }
-const HANDOFF_STATUS = "pi-background-tasks-handoff";
 
-function createHybridBashDefinition(
-	cwd: string,
-	ctx: ExtensionContext,
-	runtime: BackgroundRuntime,
-	foreground: Map<string, AbortController>,
-) {
+function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, foreground: Map<string, AbortController>) {
 	const operations: BashOperations = {
 		async exec(command, execCwd, { onData, signal, timeout, env }) {
 			try {
@@ -80,11 +74,8 @@ function createHybridBashDefinition(
 			});
 			const handoff = new AbortController();
 			foreground.set(task.id, handoff);
-			ctx.ui.setStatus(HANDOFF_STATUS, ctx.ui.theme.fg("muted", `${HANDOFF_SHORTCUT} to run in background`));
-			const done = await runtime.waitForExit(task.id, HANDOFF_MS, signal, handoff.signal).finally(() => {
-				foreground.delete(task.id);
-				if (foreground.size === 0) ctx.ui.setStatus(HANDOFF_STATUS, undefined);
-			});
+			const done = await runtime.waitForExit(task.id, HANDOFF_MS, signal, handoff.signal);
+			foreground.delete(task.id);
 			if (!done) {
 				if (!handoff.signal.aborted && signal?.aborted) {
 					runtime.discard(task.id);
@@ -112,10 +103,26 @@ function createHybridBashDefinition(
 	};
 
 	const definition = createBashToolDefinition(cwd, { operations });
+	const renderResult = definition.renderResult;
+	if (!renderResult) throw new Error("Bash tool result renderer is unavailable");
+	const renderHandoffResult: typeof renderResult = (result, options, theme, context) => {
+		const displayResult =
+			options.isPartial && (context.args.timeout ?? 0) >= 60
+				? {
+						...result,
+						content: [
+							...result.content,
+							{ type: "text" as const, text: `\n[${HANDOFF_SHORTCUT} to run in background]` },
+						],
+					}
+				: result;
+		return renderResult(displayResult, options, theme, context);
+	};
 	return {
 		...definition,
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
+		renderResult: renderHandoffResult,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
 	};
 }
@@ -124,7 +131,7 @@ export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime)
 	const foreground = new Map<string, AbortController>();
 
 	pi.on("session_start", (_event, ctx) => {
-		pi.registerTool(createHybridBashDefinition(ctx.cwd, ctx, runtime, foreground));
+		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime, foreground));
 	});
 
 	pi.registerShortcut(HANDOFF_SHORTCUT, {

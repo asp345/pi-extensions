@@ -66,8 +66,7 @@
  * gap (e.g., edits at lines 2 and 10 → union 2..10 excludes lines
  * 3..9 from drift). Fix: pipeline tracks per-edit ResolvedRange[]
  * (editedIntervals). Drift is documented as single-edit norm —
- * batch drift uses union and gaps are not reported as drift; a
- * warning is emitted when disjoint intervals are detected. A
+ * batch drift uses union and gaps are not reported as drift. A
  * per-interval drift (drift per-edit) would require mapping each
  * drifted line against any interval served span and per-position
  * delta (not just total delta); that is left as future work.
@@ -494,19 +493,6 @@ async function runMutations(
 
 	let driftNotice: string | undefined;
 	if (!isPreview && unionStartLine !== Infinity) {
-		const sorted = [...editedIntervals].sort((a, b) => a.startLine - b.startLine);
-		let hasGap = false;
-		for (let i = 1; i < sorted.length; i++) {
-			if (sorted[i]!.startLine > sorted[i - 1]!.endLine + 1) {
-				hasGap = true;
-				break;
-			}
-		}
-		if (hasGap && editedIntervals.length > 1) {
-			warnings.push(
-				`Batch drift note: edits are disjoint — drift inside the gap between edited intervals is not reported. For accurate gap drift, use sequential single-edit calls.`,
-			);
-		}
 		const resultLines = splitLines(result);
 		const originalLines = splitLines(originalNormalized);
 		try {
