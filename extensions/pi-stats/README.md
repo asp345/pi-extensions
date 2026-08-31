@@ -1,6 +1,6 @@
 # pi-stats
 
-A single Pi footer and `/stats` command for token metrics, timing, persisted summaries, and provider quotas.
+A Pi footer and `/stats` command for token metrics, timing, and provider quotas.
 
 ## Metrics
 
@@ -9,10 +9,9 @@ A single Pi footer and `/stats` command for token metrics, timing, persisted sum
 - Context-window usage
 - Cache hit rate
 - Average and rolling token throughput
-- First-token latency
-- Current task and run duration
+- Current request duration in the working message
 
-Statistics are stored under the Pi agent directory at `extensions/pi-stats/logs/`. Use `/stats` with `day`, `hour`, `week`, or `month` to inspect summaries. Use `/stats config` to configure the footer.
+Configuration is stored as `pi-stats.json` in the Pi agent directory. Use `/stats config` to configure the footer. The extension does not persist usage logs.
 
 ## Provider quotas
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ExtensionAPI, type ExtensionContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 
@@ -9,8 +9,8 @@ interface ThinkingProfilesConfig {
 	levels: Record<string, ThinkingLevel>;
 }
 
-const CONFIG_DIR = join(getAgentDir(), "extensions", "pi-model-thinking");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const CONFIG_FILE = join(getAgentDir(), "pi-model-thinking.json");
+const LEGACY_CONFIG_FILE = join(getAgentDir(), "extensions", "pi-model-thinking", "config.json");
 const MODEL_SWITCH_WINDOW_MS = 200;
 const APPLY_WINDOW_MS = 100;
 const VALID_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
@@ -18,25 +18,32 @@ const DEFAULT_CONFIG: ThinkingProfilesConfig = { enabled: true, levels: {} };
 
 function loadConfig(): ThinkingProfilesConfig {
 	try {
-		if (!existsSync(CONFIG_FILE)) return { ...DEFAULT_CONFIG, levels: {} };
-		const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) as unknown;
+		const file = existsSync(CONFIG_FILE) ? CONFIG_FILE : existsSync(LEGACY_CONFIG_FILE) ? LEGACY_CONFIG_FILE : null;
+		if (!file) return { ...DEFAULT_CONFIG, levels: {} };
+		const raw = JSON.parse(readFileSync(file, "utf-8")) as unknown;
 		const saved = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
 		const levels: Record<string, ThinkingLevel> = {};
 		if (saved.levels && typeof saved.levels === "object" && !Array.isArray(saved.levels)) {
 			for (const [modelKey, level] of Object.entries(saved.levels)) {
-				if (typeof level === "string" && VALID_LEVELS.has(level as ThinkingLevel)) {
+				if (typeof level === "string" && VALID_LEVELS.has(level as ThinkingLevel))
 					levels[modelKey] = level as ThinkingLevel;
-				}
 			}
 		}
-		return { enabled: saved.enabled !== false, levels };
+		const config = { enabled: saved.enabled !== false, levels };
+		if (file === LEGACY_CONFIG_FILE) {
+			try {
+				saveConfig(config);
+			} catch {
+				// Keep the migrated values in memory when the new file cannot be written.
+			}
+		}
+		return config;
 	} catch {
 		return { ...DEFAULT_CONFIG, levels: {} };
 	}
 }
 
 function saveConfig(config: ThinkingProfilesConfig): void {
-	mkdirSync(CONFIG_DIR, { recursive: true });
 	writeFileSync(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
 }
 

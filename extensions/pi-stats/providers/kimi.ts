@@ -63,11 +63,12 @@ export const kimiQuotaPlan: TokenPlan = {
 			}
 		}
 		if (intervalRemaining >= 100 && weeklyRemaining >= 100) {
-			return { modelPrefix: "", display: "No data", color: "err" as const };
+			return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 		}
+		const formatted = formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset);
 		return {
 			modelPrefix: "",
-			display: formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset),
+			...formatted,
 			color:
 				intervalRemaining < 20 || weeklyRemaining < 20
 					? ("err" as const)

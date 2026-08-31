@@ -1,5 +1,5 @@
 import type { QuotaFetchExtra, TokenPlan } from "../quota.ts";
-import { formatTokenPlanDisplay } from "../quota.ts";
+import { formatQuotaSegments, formatTokenPlanDisplay, type QuotaSegments } from "../quota.ts";
 
 interface GlmQuotaEntry {
 	type?: unknown;
@@ -52,7 +52,7 @@ export const glmQuotaPlan: TokenPlan = {
 			return value === "tokens_limit" || value === "credit_limit";
 		};
 		const entries = limits.filter((entry) => isQuota(entry.type));
-		if (entries.length === 0) return { modelPrefix: "", display: "No data", color: "err" as const };
+		if (entries.length === 0) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 
 		// Classify windows by unit rather than array order, matching cc-switch's Zhipu tier parser:
 		// unit 3 is the rolling 5h window; unit 6 is the weekly window.
@@ -85,14 +85,15 @@ export const glmQuotaPlan: TokenPlan = {
 			.filter((time): time is number => typeof time === "number" && time > now);
 		const nearestReset = resets.length > 0 ? Math.min(...resets) : null;
 
-		const display =
-			intervalRemaining !== null && weeklyRemaining !== null
-				? formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset)
-				: intervalRemaining !== null
-					? `5h: ${Math.round(intervalRemaining)}%`
-					: weeklyRemaining !== null
-						? `W: ${Math.round(weeklyRemaining)}%`
-						: "No data";
+		let formatted: { display: string; segments: QuotaSegments };
+		if (intervalRemaining !== null && weeklyRemaining !== null) {
+			formatted = formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset);
+		} else {
+			const segments: QuotaSegments = {};
+			if (intervalRemaining !== null) segments.fiveHour = `5h: ${Math.round(intervalRemaining)}%`;
+			if (weeklyRemaining !== null) segments.week = `W: ${Math.round(weeklyRemaining)}%`;
+			formatted = { display: formatQuotaSegments(segments) || "No data", segments };
+		}
 		const low = (value: number | null) => value !== null && value < 20;
 		const mid = (value: number | null) => value !== null && value < 50;
 		const color =
@@ -101,6 +102,6 @@ export const glmQuotaPlan: TokenPlan = {
 				: mid(intervalRemaining) || mid(weeklyRemaining)
 					? ("warn" as const)
 					: ("ok" as const);
-		return { modelPrefix: "", display, color };
+		return { modelPrefix: "", ...formatted, color };
 	},
 };

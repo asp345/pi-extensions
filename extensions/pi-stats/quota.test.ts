@@ -8,5 +8,8 @@ test("formats reset durations", () => {
 });
 
 test("formats five-hour and weekly quota", () => {
-	assert.equal(formatTokenPlanDisplay(75.4, 42.1), "5h: 75% W: 42%");
+	assert.deepEqual(formatTokenPlanDisplay(75.4, 42.1), {
+		display: "5h: 75% W: 42%",
+		segments: { fiveHour: "5h: 75%", week: "W: 42%" },
+	});
 });

@@ -1,4 +1,4 @@
-import { formatDuration, type TokenPlan } from "../quota.ts";
+import { formatDuration, formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
 
 interface CommandCodeWindow {
 	cap?: unknown;
@@ -129,20 +129,16 @@ export const commandCodeQuotaPlan: TokenPlan = {
 		}
 		const nearestReset = resets.length > 0 ? Math.min(...resets) : null;
 
-		const parts: string[] = [];
-		if (intervalRemaining !== null) parts.push(`5h: ${Math.round(intervalRemaining)}%`);
-		if (weeklyRemaining !== null) parts.push(`W: ${Math.round(weeklyRemaining)}%`);
-		if (monthlyPercent !== null) parts.push(`M: ${Math.round(monthlyPercent)}%`);
+		const segments: QuotaSegments = {};
+		if (intervalRemaining !== null) segments.fiveHour = `5h: ${Math.round(intervalRemaining)}%`;
+		if (weeklyRemaining !== null) segments.week = `W: ${Math.round(weeklyRemaining)}%`;
+		if (monthlyPercent !== null) segments.month = `M: ${Math.round(monthlyPercent)}%`;
 		if (monthlyPercent === null && Number.isFinite(monthlyRemaining)) {
-			parts.push(`$${monthlyRemaining.toFixed(0)}`);
+			segments.balance = `$${monthlyRemaining.toFixed(0)}`;
 		}
-		let display = parts.join(" ");
-		if (!display) display = "No quota data";
 		if (nearestReset) {
 			const diff = nearestReset - now;
-			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) {
-				display += ` ⏱ ${formatDuration(diff)}`;
-			}
+			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(diff);
 		}
 		const low = (value: number | null) => value !== null && value < 20;
 		const mid = (value: number | null) => value !== null && value < 50;
@@ -152,7 +148,8 @@ export const commandCodeQuotaPlan: TokenPlan = {
 				: mid(intervalRemaining) || mid(weeklyRemaining) || mid(monthlyPercent)
 					? ("warn" as const)
 					: ("ok" as const);
-		return { modelPrefix: "", display, color };
+		const display = formatQuotaSegments(segments) || "No quota data";
+		return { modelPrefix: "", display, segments, color };
 	},
 };
 

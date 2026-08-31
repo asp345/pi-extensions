@@ -1,331 +1,30 @@
-import { existsSync, readFileSync } from "node:fs";
-import { appendFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { getAgentDir, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
-import { Markdown } from "@earendil-works/pi-tui";
-import { resolveTokenPlan, TOKEN_PLANS } from "./plans.ts";
-import type { TeamCredential, TokenPlan } from "./quota.ts";
+import {
+	type ContextStyle,
+	DEFAULT_CONFIG,
+	DEFAULT_DISPLAY_CONFIG,
+	type DisplayConfig,
+	type DisplayKey,
+	loadConfig,
+	type PiStatsConfig,
+	type SpeedStyle,
+	saveConfig,
+} from "./config.ts";
+import { formatTokenSpeed, formatTokens } from "./format.ts";
+import { ActiveTokenSpeed } from "./live-speed.ts";
+import { TOKEN_PLANS } from "./plans.ts";
+import { QuotaController } from "./quota-controller.ts";
 
 export interface SharedState {
 	/** Whether the session is active. Set by session_start and session_shutdown. */
 	sessionActive: boolean;
 	/** Footer render callback, cleared when the footer or session closes. */
 	requestRender: (() => void) | null;
-	/** Reads token totals for one run from agent_start through agent_settled. */
-	getRunStats?: () => RunTokenStats | null;
 }
 
-/** Token totals for one run, used by the step-timer summary. */
-export interface RunTokenStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	turns: number;
-	/** Average output rate in tokens per second for the run. */
-	tokensPerSec: number;
-	/** Cache hit rate as a percentage. */
-	cacheHitRate: number;
-	/** Whether the run completed at least one message_end event. */
-	hasData: boolean;
-}
-
-const DATA_DIR = join(getAgentDir(), "extensions", "pi-stats");
-const LOGS_DIR = join(DATA_DIR, "logs");
-const RAW_DIR = join(LOGS_DIR, "raw");
-const HOURLY_DIR = join(LOGS_DIR, "hourly");
-const DAILY_FILE = join(LOGS_DIR, "daily", "daily.jsonl");
-
-const TOKEN_CONFIG_DIR = DATA_DIR;
-const TOKEN_CONFIG_FILE = join(TOKEN_CONFIG_DIR, "config.json");
-const QUOTA_CACHE_FILE = join(LOGS_DIR, "quota-cache.json");
-const DISPLAY_CONFIG_FILE = join(TOKEN_CONFIG_DIR, "display-config.json");
-
-const LIVE_TOKEN_SPEED_ROLLING_WINDOW_MS = 2000;
+const LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS = 1_000;
 const MAX_REASONABLE_TOKEN_SPEED = 1000;
-
-interface TurnStats {
-	input: number;
-	output: number;
-	cacheRead: number;
-	cacheWrite: number;
-	tokensPerSec: number;
-	cacheHitRate: number;
-	model: string;
-	firstTokenLatency: number; // First-token latency in milliseconds
-	wordCount: number; // Output word count: CJK characters plus words for other scripts
-	cost: number; // Cost of this turn in USD
-	liveTokenSpeed: number | null; // Streaming rolling-window speed
-}
-
-interface RawRecord extends TurnStats {
-	ts: string;
-	session: string;
-}
-
-interface HourlyRecord {
-	date: string;
-	hour: number;
-	count: number;
-	sumInput: number;
-	sumOutput: number;
-	sumCacheRead: number;
-	sumCacheWrite: number;
-	sumTokensPerSec: number;
-	avgCacheHitRate: number;
-}
-
-interface DailyRecord {
-	date: string;
-	count: number;
-	sumInput: number;
-	sumOutput: number;
-	sumCacheRead: number;
-	sumCacheWrite: number;
-	sumTokensPerSec: number;
-	avgCacheHitRate: number;
-}
-
-interface TokenConfig {
-	providerPlans: Record<string, string | null>;
-	/** Optional GLM team credentials configured and persisted through /stats. */
-	teamCredential?: { organization: string; project: string };
-	ttl: number;
-}
-
-interface QuotaCache {
-	[planId: string]: {
-		fetchedAt: number;
-		ttl: number;
-		data: unknown;
-	};
-}
-
-export type ContextStyle = "pct-window" | "used-window" | "pct" | "used" | "bar";
-export type SpeedStyle = "t/s" | "tok/s" | "T/s" | "liveAt";
-
-export type DisplayKey =
-	| "input"
-	| "output"
-	| "totalTokens"
-	| "cost"
-	| "cacheHit"
-	| "speed"
-	| "context"
-	| "quota5h"
-	| "quotaDay"
-	| "quotaWeek"
-	| "quotaMonth"
-	| "quotaBalance"
-	| "quotaClock";
-export interface DisplayConfig {
-	items: Record<DisplayKey, boolean>;
-	contextStyle: ContextStyle;
-	speedStyle: SpeedStyle;
-}
-
-interface LiveTokenSample {
-	timestampMs: number;
-	tokens: number;
-}
-
-interface QuotaDisplayState {
-	planId: string;
-	display: string;
-	modelPrefix: string;
-	color: "ok" | "warn" | "err" | "muted";
-	/** State belongs to this provider and is stale when it differs from ctx.model.provider. */
-	provider: string;
-	/** Fetch timestamp, used for freshness diagnostics. */
-	fetchedAt: number;
-	/** Detailed error for missing keys, API or network failures, or empty data. */
-	error?: QuotaError;
-}
-
-type QuotaError =
-	| { kind: "no_plan" }
-	| { kind: "key_missing"; envVar: string; provider: string }
-	| { kind: "api_error"; message: string }
-	| { kind: "network_error"; message: string }
-	| { kind: "no_data" };
-
-/** Format token counts consistently with the token utility. */
-export function formatTokens(count: number): string {
-	if (count < 1000) return count.toFixed(1);
-	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-	if (count < 1000000) return `${Math.round(count / 1000)}k`;
-	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-	return `${Math.round(count / 1000000)}M`;
-}
-
-export function formatTokenSpeed(tokensPerSecond: number): string {
-	if (tokensPerSecond < 100) {
-		if (tokensPerSecond >= 10) return tokensPerSecond.toFixed(1);
-		return tokensPerSecond.toFixed(2);
-	}
-	if (tokensPerSecond < 1000) return Math.round(tokensPerSecond).toString();
-	if (tokensPerSecond < 10000) return `${(tokensPerSecond / 1000).toFixed(1)}k`;
-	if (tokensPerSecond < 1000000) return `${Math.round(tokensPerSecond / 1000)}k`;
-	if (tokensPerSecond < 10000000) return `${(tokensPerSecond / 1000000).toFixed(1)}M`;
-	return `${Math.round(tokensPerSecond / 1000000)}M`;
-}
-
-/**
- * Build GitHub-style markdown table source.
- *
- * `aligns` controls column alignment; `totalRow` adds a final total row.
- */
-function renderTable(
-	headers: string[],
-	rows: string[][],
-	opts?: {
-		aligns?: Array<"left" | "right" | "center">;
-		totalRow?: string[];
-	},
-): string[] {
-	const aligns = opts?.aligns ?? [];
-	// Escape cell pipes and newlines so the table structure remains valid.
-	const esc = (s: string) => s.replace(/\|/g, "\\|").replace(/\n/g, " ");
-	const alignMark = (i: number) => {
-		const a = aligns[i] ?? "left";
-		return a === "right" ? "---:" : a === "center" ? ":---:" : "---";
-	};
-
-	const lines = [
-		`| ${headers.map(esc).join(" | ")} |`,
-		`| ${headers.map((_, i) => alignMark(i)).join(" | ")} |`,
-		...rows.map((r) => `| ${r.map(esc).join(" | ")} |`),
-	];
-	if (opts?.totalRow) {
-		lines.push(`| ${opts.totalRow.map(esc).join(" | ")} |`);
-	}
-	return lines;
-}
-
-/** Read raw records for the given dates. */
-async function readRawRecordsForDates(dates: string[]): Promise<RawRecord[]> {
-	const out: RawRecord[] = [];
-	for (const d of dates) {
-		try {
-			const content = await readFile(join(RAW_DIR, `${d}.jsonl`), "utf-8");
-			for (const line of content.trim().split("\n")) {
-				if (line) out.push(JSON.parse(line));
-			}
-		} catch {}
-	}
-	return out;
-}
-
-/** Read raw records for the inclusive date range. */
-async function readRawRecordsInRange(startDate: string, endDate: string): Promise<RawRecord[]> {
-	const dates: string[] = [];
-	try {
-		const files = await readdir(RAW_DIR);
-		for (const f of files) {
-			if (!f.endsWith(".jsonl")) continue;
-			const d = f.slice(0, 10);
-			if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d >= startDate && d <= endDate) {
-				dates.push(d);
-			}
-		}
-	} catch {}
-	return readRawRecordsForDates(dates);
-}
-
-interface ModelAgg {
-	count: number;
-	input: number;
-	cacheRead: number;
-	cacheWrite: number;
-	output: number;
-	tokensPerSecSum: number;
-	hitRateSum: number;
-}
-
-/** Render a per-model usage table sorted by total tokens. */
-function renderModelBreakdown(records: RawRecord[]): string[] {
-	if (records.length === 0) return ["", "> By model: no detail data in this range"];
-
-	const byModel = new Map<string, ModelAgg>();
-	for (const r of records) {
-		const key = r.model || "unknown";
-		const agg = byModel.get(key) ?? {
-			count: 0,
-			input: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			output: 0,
-			tokensPerSecSum: 0,
-			hitRateSum: 0,
-		};
-		agg.count++;
-		agg.input += r.input;
-		agg.cacheRead += r.cacheRead;
-		agg.cacheWrite += r.cacheWrite;
-		agg.output += r.output;
-		agg.tokensPerSecSum += r.tokensPerSec;
-		agg.hitRateSum += r.cacheHitRate;
-		byModel.set(key, agg);
-	}
-
-	// Keep total-token accounting aligned with the summary: new input plus cached input.
-	const totalTokensOf = (a: ModelAgg) => a.input + a.cacheRead + a.cacheWrite;
-	const rows = [...byModel.entries()].sort((a, b) => totalTokensOf(b[1]) - totalTokensOf(a[1]));
-
-	const total: ModelAgg = {
-		count: 0,
-		input: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		output: 0,
-		tokensPerSecSum: 0,
-		hitRateSum: 0,
-	};
-	const body: string[][] = rows.map(([model, agg]) => {
-		total.count += agg.count;
-		total.input += agg.input;
-		total.cacheRead += agg.cacheRead;
-		total.cacheWrite += agg.cacheWrite;
-		total.output += agg.output;
-		total.tokensPerSecSum += agg.tokensPerSecSum;
-		total.hitRateSum += agg.hitRateSum;
-		return [
-			model,
-			String(agg.count),
-			formatTokens(agg.input),
-			formatTokens(agg.cacheRead),
-			formatTokens(agg.output),
-			formatTokens(totalTokensOf(agg)),
-			`${(agg.count > 0 ? agg.hitRateSum / agg.count : 0).toFixed(1)}%`,
-			`${(agg.count > 0 ? agg.tokensPerSecSum / agg.count : 0).toFixed(1)}`,
-		];
-	});
-
-	return [
-		"",
-		"**" + "By model" + "**",
-		...renderTable(
-			["Model", "Count", "New input", "Cached input", "Output", "Total tokens", "Hit rate", "Speed"],
-			body,
-			{
-				aligns: ["left", "right", "right", "right", "right", "right", "right", "right"],
-				totalRow: [
-					"Total",
-					String(total.count),
-					formatTokens(total.input),
-					formatTokens(total.cacheRead),
-					formatTokens(total.output),
-					formatTokens(total.input + total.cacheRead + total.cacheWrite),
-					`${(total.count > 0 ? total.hitRateSum / total.count : 0).toFixed(1)}%`,
-					`${(total.count > 0 ? total.tokensPerSecSum / total.count : 0).toFixed(1)}`,
-				],
-			},
-		),
-	];
-}
 
 function isReasonableTokenSpeed(tokensPerSecond: number): boolean {
 	return Number.isFinite(tokensPerSecond) && tokensPerSecond > 0 && tokensPerSecond <= MAX_REASONABLE_TOKEN_SPEED;
@@ -334,75 +33,6 @@ function isReasonableTokenSpeed(tokensPerSecond: number): boolean {
 function estimateTokens(textLen: number): number {
 	return Math.round(textLen / 4);
 }
-
-/** Extract plain text, including thinking blocks, from a message content array. */
-function extractTextContent(content: unknown): string {
-	if (!Array.isArray(content)) return "";
-	let text = "";
-	for (const block of content as unknown[]) {
-		if (typeof block !== "object" || block === null || Array.isArray(block)) continue;
-		const blockRecord = block as Record<string, unknown>;
-		if (blockRecord.type === "text" && typeof blockRecord.text === "string") {
-			text += blockRecord.text;
-		} else if (blockRecord.type === "thinking" && typeof blockRecord.thinking === "string") {
-			text += blockRecord.thinking;
-		}
-	}
-	return text;
-}
-
-/** Count CJK characters and whitespace-delimited words for other scripts. */
-function countWords(text: string): number {
-	if (!text) return 0;
-	const pattern =
-		/[a-zA-Z0-9_\u0392-\u03c9\u00c0-\u00ff\u0600-\u06ff\u0400-\u04ff]+|[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\uac00-\ud7af]+/g;
-	const m = text.match(pattern);
-	if (!m) return 0;
-	let count = 0;
-	for (let i = 0; i < m.length; i++) {
-		if (m[i].charCodeAt(0) >= 0x4e00) {
-			count += m[i].length;
-		} else {
-			count += 1;
-		}
-	}
-	return count;
-}
-
-function getDateStr(ts = Date.now()): string {
-	return new Date(ts).toISOString().slice(0, 10);
-}
-
-function getISO(ts = Date.now()): string {
-	return new Date(ts).toISOString();
-}
-
-export function formatUserPath(cwd: string): string {
-	const home = homedir();
-	return cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
-}
-
-const DEFAULT_TOKEN_CONFIG: TokenConfig = { providerPlans: {}, ttl: 60 };
-
-const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
-	items: {
-		input: true,
-		output: true,
-		totalTokens: false,
-		cost: true,
-		cacheHit: true,
-		speed: true,
-		context: true,
-		quota5h: true,
-		quotaDay: true,
-		quotaWeek: true,
-		quotaMonth: true,
-		quotaBalance: true,
-		quotaClock: true,
-	},
-	contextStyle: "pct-window",
-	speedStyle: "t/s",
-};
 
 export interface TokenStatsHandle {
 	/** Status-bar metrics excluding run timing, which index.ts appends. */
@@ -416,96 +46,45 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		totalCacheRead: 0,
 		totalCacheWrite: 0,
 		totalCost: 0,
-		turnCount: 0,
 		turnStartTime: 0,
-		firstTokenTime: 0,
 		streaming: false,
-		totalCacheHitRateSum: 0,
-		lastInput: 0,
-		lastOutput: 0,
-		lastCacheRead: 0,
-		lastCacheWrite: 0,
-		lastCost: 0,
-		lastCacheHitRate: 0,
 		lastTokensPerSec: 0, // Average output rate
 		lastLiveTokenSpeed: null as number | null, // Rolling-window speed
-		lastFirstTokenLatency: 0, // First-token latency in milliseconds
-		lastWordCount: 0, // Output word count
+		displayedLiveTokenSpeed: null as number | null,
+		lastSpeedDisplayAt: 0,
+		lastSpeedRenderRequestAt: 0,
 		liveOutputChars: 0,
 		liveEstimatedTokens: 0,
 		liveUsageOutputTokens: 0,
-		liveTokenSamples: [] as LiveTokenSample[],
 		// Deduplicate message_end and turn_end usage records.
 		accountedUsageKeys: new Set<string>(),
 	};
+	const speedTracker = new ActiveTokenSpeed();
 
-	let quotaState: QuotaDisplayState | null = null;
-	let quotaTimerId: ReturnType<typeof setInterval> | null = null;
-	let tokenConfig: TokenConfig | null = null;
-	let lastQuotaProvider: string | null = null;
-
-	let runStats = {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		turns: 0,
-	};
-	let runStartMs = 0;
-	let runLastMsgMs = 0;
-
-	function resetRunStats(): void {
-		runStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, turns: 0 };
-		runStartMs = Date.now();
-		runLastMsgMs = 0;
-	}
-
-	/** Read the current run totals; hasData is false when no turn completed. */
-	function getRunStats(): RunTokenStats {
-		if (runStats.turns === 0) {
-			return { ...runStats, tokensPerSec: 0, cacheHitRate: 0, hasData: false };
-		}
-		const totalMs = runLastMsgMs - runStartMs;
-		const tokensPerSec = totalMs >= 50 ? runStats.output / (totalMs / 1000) : 0;
-		const totalPrompt = runStats.input + runStats.cacheRead + runStats.cacheWrite;
-		const cacheHitRate = totalPrompt > 0 ? (runStats.cacheRead / totalPrompt) * 100 : 0;
-		return { ...runStats, tokensPerSec, cacheHitRate, hasData: true };
-	}
-
-	shared.getRunStats = getRunStats;
+	let tokenConfig: PiStatsConfig | null = null;
 
 	let displayConfig: DisplayConfig = {
 		...DEFAULT_DISPLAY_CONFIG,
 		items: { ...DEFAULT_DISPLAY_CONFIG.items },
 	};
-
+	const quota = new QuotaController({
+		getConfig: () => tokenConfig ?? { ...DEFAULT_CONFIG, display: displayConfig },
+		isSessionActive: () => shared.sessionActive,
+		requestRender: () => shared.requestRender?.(),
+	});
 	function progressBar(pct: number, width = 8): string {
 		const filled = Math.round((Math.min(pct, 100) / 100) * width);
 		return `[${"█".repeat(filled)}${"░".repeat(width - filled)}]`;
-	}
-
-	function getRollingLiveTokenSpeed(nowMs: number = Date.now()): number | null {
-		const cutoffMs = nowMs - LIVE_TOKEN_SPEED_ROLLING_WINDOW_MS;
-		stats.liveTokenSamples = stats.liveTokenSamples.filter((s) => s.timestampMs >= cutoffMs);
-		if (stats.liveTokenSamples.length === 0) return null;
-
-		const firstSample = stats.liveTokenSamples[0];
-		if (!firstSample) return null;
-		const firstSampleMs = firstSample.timestampMs;
-		const windowStartMs = Math.max(stats.turnStartTime || firstSampleMs, cutoffMs);
-		const elapsedSeconds = (nowMs - windowStartMs) / 1000;
-		if (elapsedSeconds <= 0) return null;
-
-		const tokens = stats.liveTokenSamples.reduce((sum, s) => sum + s.tokens, 0);
-		const speed = tokens / elapsedSeconds;
-		return isReasonableTokenSpeed(speed) ? speed : null;
 	}
 
 	function resetLiveState() {
 		stats.liveOutputChars = 0;
 		stats.liveEstimatedTokens = 0;
 		stats.liveUsageOutputTokens = 0;
-		stats.liveTokenSamples = [];
+		speedTracker.reset();
+		stats.displayedLiveTokenSpeed = null;
+		stats.lastSpeedDisplayAt = 0;
+		stats.lastSpeedRenderRequestAt = 0;
 	}
 
 	function getMetricParts(theme: Theme, ctx: ExtensionContext): string[] {
@@ -536,8 +115,15 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		}
 
 		if (cfg.speed) {
-			const liveSpeed = getRollingLiveTokenSpeed();
-			const displaySpeed = liveSpeed !== null ? liveSpeed : stats.lastTokensPerSec;
+			let liveSpeed = stats.displayedLiveTokenSpeed;
+			const nowMs = Date.now();
+			if (stats.streaming && nowMs - stats.lastSpeedDisplayAt >= LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS) {
+				const sampledSpeed = speedTracker.getSpeed();
+				if (sampledSpeed !== null) stats.displayedLiveTokenSpeed = sampledSpeed;
+				stats.lastSpeedDisplayAt = nowMs;
+				liveSpeed = stats.displayedLiveTokenSpeed;
+			}
+			const displaySpeed = liveSpeed ?? stats.lastLiveTokenSpeed ?? stats.lastTokensPerSec;
 			const speedNum = formatTokenSpeed(displaySpeed);
 			const speedStyle = displayConfig.speedStyle ?? "t/s";
 			switch (speedStyle) {
@@ -591,15 +177,11 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 				}
 				const ctxColor =
 					ctxPercent !== null && ctxWindow > 0
-						? ctxPercent < 50
-							? ok
-							: ctxPercent < 65
-								? (s: string) => theme.fg("accent", s)
-								: ctxPercent < 75
-									? muted
-									: ctxPercent < 85
-										? warn
-										: (s: string) => theme.fg("error", s)
+						? ctxPercent < 75
+							? dim
+							: ctxPercent < 85
+								? warn
+								: (s: string) => theme.fg("error", s)
 						: dim;
 				parts.push(ctxColor(ctxStr));
 			} catch {
@@ -607,21 +189,8 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			}
 		}
 
-		const curProvider = ctx.model?.provider ?? null;
-		if (curProvider !== lastQuotaProvider) {
-			// Provider changes force a refresh and bypass the quota cache.
-			if (lastQuotaProvider !== null || curProvider !== null) {
-				setTimeout(() => {
-					if (!shared.sessionActive) return;
-					refreshQuota(ctx, true)
-						.then(() => shared.requestRender?.())
-						.catch(() => {
-							/* Ignore stale session contexts. */
-						});
-				}, 0);
-			}
-			lastQuotaProvider = curProvider;
-		}
+		quota.handleProviderChange(ctx);
+		const quotaState = quota.state;
 		if (quotaState?.display) {
 			const qColor =
 				quotaState.color === "ok"
@@ -633,151 +202,22 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 							: muted;
 			const prefix = quotaState.modelPrefix ? `${quotaState.modelPrefix} ` : "";
 
-			// Show the error text instead of hiding a failed quota state.
 			if (quotaState.error) {
 				parts.push(qColor(prefix + quotaState.display));
 			} else {
-				// Filter the normal display by the enabled quota items.
-				const fullDisplay = quotaState.display;
-				const filteredParts: string[] = [];
-				if (cfg.quota5h) {
-					const match = fullDisplay.match(/\b5h:\s+\d+%/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (cfg.quotaDay) {
-					const match = fullDisplay.match(/\bD:\s+\d+%/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (cfg.quotaWeek) {
-					const match = fullDisplay.match(/\bW:\s+\d+%/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (cfg.quotaMonth) {
-					const match = fullDisplay.match(/\bM:\s+\d+%/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (cfg.quotaBalance) {
-					const match = fullDisplay.match(/(?:\bB:\s*)?[¥$]\d+(?:\.\d+)?/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (cfg.quotaClock) {
-					const match = fullDisplay.match(/⏱\s*\d+[wdhm](?:\s+\d+[dhm])?/);
-					if (match) filteredParts.push(match[0]);
-				}
-				if (filteredParts.length > 0) {
-					parts.push(qColor(prefix + filteredParts.join(" ")));
-				}
+				const enabledSegments = [
+					cfg.quota5h ? quotaState.segments.fiveHour : undefined,
+					cfg.quotaDay ? quotaState.segments.day : undefined,
+					cfg.quotaWeek ? quotaState.segments.week : undefined,
+					cfg.quotaMonth ? quotaState.segments.month : undefined,
+					cfg.quotaBalance ? quotaState.segments.balance : undefined,
+					cfg.quotaClock ? quotaState.segments.reset : undefined,
+				].filter((segment): segment is string => Boolean(segment));
+				if (enabledSegments.length > 0) parts.push(qColor(prefix + enabledSegments.join(" ")));
 			}
 		}
 
 		return parts.map((part) => theme.fg("dim", part));
-	}
-
-	async function ensureDir(dir: string) {
-		await mkdir(dir, { recursive: true });
-	}
-
-	async function appendRaw(record: RawRecord) {
-		await ensureDir(RAW_DIR);
-		const file = join(RAW_DIR, `${record.ts.slice(0, 10)}.jsonl`);
-		await appendFile(file, `${JSON.stringify(record)}\n`, "utf-8");
-	}
-
-	async function updateHourly(record: RawRecord) {
-		await ensureDir(HOURLY_DIR);
-		const date = record.ts.slice(0, 10);
-		const hour = new Date(record.ts).getHours();
-		const file = join(HOURLY_DIR, `${date}.jsonl`);
-
-		let lines: string[] = [];
-		try {
-			lines = (await readFile(file, "utf-8")).trim().split("\n").filter(Boolean);
-		} catch {}
-
-		const records: HourlyRecord[] = lines.map((l) => JSON.parse(l));
-		const idx = records.findIndex((r) => r.date === date && r.hour === hour);
-
-		if (idx >= 0) {
-			const r = records[idx];
-			const newCount = r.count + 1;
-			records[idx] = {
-				date,
-				hour,
-				count: newCount,
-				sumInput: r.sumInput + record.input,
-				sumOutput: r.sumOutput + record.output,
-				sumCacheRead: r.sumCacheRead + record.cacheRead,
-				sumCacheWrite: r.sumCacheWrite + record.cacheWrite,
-				sumTokensPerSec: r.sumTokensPerSec + record.tokensPerSec,
-				avgCacheHitRate: (r.avgCacheHitRate * r.count + record.cacheHitRate) / newCount,
-			};
-		} else {
-			records.push({
-				date,
-				hour,
-				count: 1,
-				sumInput: record.input,
-				sumOutput: record.output,
-				sumCacheRead: record.cacheRead,
-				sumCacheWrite: record.cacheWrite,
-				sumTokensPerSec: record.tokensPerSec,
-				avgCacheHitRate: record.cacheHitRate,
-			});
-		}
-
-		await writeFile(file, `${records.map((r) => JSON.stringify(r)).join("\n")}\n`, "utf-8");
-	}
-
-	async function updateDaily(record: RawRecord) {
-		await ensureDir(join(LOGS_DIR, "daily"));
-		const date = record.ts.slice(0, 10);
-
-		let lines: string[] = [];
-		try {
-			lines = (await readFile(DAILY_FILE, "utf-8")).trim().split("\n").filter(Boolean);
-		} catch {}
-
-		const records: DailyRecord[] = lines.map((l) => JSON.parse(l));
-		const idx = records.findIndex((r) => r.date === date);
-
-		if (idx >= 0) {
-			const r = records[idx];
-			const newCount = r.count + 1;
-			records[idx] = {
-				date,
-				count: newCount,
-				sumInput: r.sumInput + record.input,
-				sumOutput: r.sumOutput + record.output,
-				sumCacheRead: r.sumCacheRead + record.cacheRead,
-				sumCacheWrite: r.sumCacheWrite + record.cacheWrite,
-				sumTokensPerSec: r.sumTokensPerSec + record.tokensPerSec,
-				avgCacheHitRate: (r.avgCacheHitRate * r.count + record.cacheHitRate) / newCount,
-			};
-		} else {
-			records.push({
-				date,
-				count: 1,
-				sumInput: record.input,
-				sumOutput: record.output,
-				sumCacheRead: record.cacheRead,
-				sumCacheWrite: record.cacheWrite,
-				sumTokensPerSec: record.tokensPerSec,
-				avgCacheHitRate: record.cacheHitRate,
-			});
-		}
-
-		await writeFile(DAILY_FILE, `${records.map((r) => JSON.stringify(r)).join("\n")}\n`, "utf-8");
-	}
-
-	async function persistTurn(record: TurnStats, sessionId: string) {
-		const raw: RawRecord = {
-			...record,
-			ts: getISO(),
-			session: sessionId,
-		};
-		await appendRaw(raw);
-		await updateHourly(raw);
-		await updateDaily(raw);
 	}
 
 	function normalizeTimestampMs(timestamp: number): number {
@@ -806,8 +246,6 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		stats.totalCacheRead = 0;
 		stats.totalCacheWrite = 0;
 		stats.totalCost = 0;
-		stats.totalCacheHitRateSum = 0;
-		stats.turnCount = 0;
 		stats.accountedUsageKeys = new Set();
 		stats.lastTokensPerSec = 0;
 
@@ -824,11 +262,6 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			stats.totalCacheRead += msg.usage.cacheRead ?? 0;
 			stats.totalCacheWrite += msg.usage.cacheWrite ?? 0;
 			stats.totalCost += msg.usage.cost?.total ?? 0;
-
-			const promptTokens = (msg.usage.input ?? 0) + (msg.usage.cacheRead ?? 0) + (msg.usage.cacheWrite ?? 0);
-			const chRate = promptTokens > 0 ? ((msg.usage.cacheRead ?? 0) / promptTokens) * 100 : 0;
-			stats.totalCacheHitRateSum += chRate;
-			stats.turnCount++;
 
 			// Estimate speed from the preceding non-assistant message.
 			if ((msg.usage.output ?? 0) <= 0) continue;
@@ -864,243 +297,20 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		}
 	}
 
-	async function loadTokenConfig(): Promise<TokenConfig> {
-		try {
-			if (existsSync(TOKEN_CONFIG_FILE)) {
-				const raw = await readFile(TOKEN_CONFIG_FILE, "utf-8");
-				return { ...DEFAULT_TOKEN_CONFIG, ...JSON.parse(raw) };
-			}
-		} catch {}
-		return { ...DEFAULT_TOKEN_CONFIG };
+	async function saveTokenConfig(config: PiStatsConfig): Promise<void> {
+		tokenConfig = { ...config, display: displayConfig };
+		await saveConfig(tokenConfig);
 	}
 
-	async function saveTokenConfig(cfg: TokenConfig) {
-		await mkdir(TOKEN_CONFIG_DIR, { recursive: true });
-		await writeFile(TOKEN_CONFIG_FILE, JSON.stringify(cfg, null, 2), "utf-8");
-	}
-
-	function isContextStyle(v: unknown): v is ContextStyle {
-		return typeof v === "string" && ["pct-window", "used-window", "pct", "used", "bar"].includes(v);
-	}
-	function isSpeedStyle(v: unknown): v is SpeedStyle {
-		return typeof v === "string" && ["t/s", "tok/s", "T/s", "liveAt"].includes(v);
-	}
-
-	async function loadDisplayConfig(): Promise<DisplayConfig> {
-		try {
-			if (existsSync(DISPLAY_CONFIG_FILE)) {
-				const raw = await readFile(DISPLAY_CONFIG_FILE, "utf-8");
-				const saved = JSON.parse(raw) as DisplayConfig;
-				// Merge with defaults so newly added display items remain enabled.
-				const merged: DisplayConfig = {
-					...DEFAULT_DISPLAY_CONFIG,
-					items: { ...DEFAULT_DISPLAY_CONFIG.items },
-				};
-				if (saved.items) {
-					for (const key of Object.keys(merged.items) as DisplayKey[]) {
-						if (typeof saved.items[key] === "boolean") merged.items[key] = saved.items[key];
-					}
-				}
-				if (isContextStyle(saved.contextStyle)) merged.contextStyle = saved.contextStyle;
-				if (isSpeedStyle(saved.speedStyle)) merged.speedStyle = saved.speedStyle;
-				return merged;
-			}
-		} catch {}
-		return { ...DEFAULT_DISPLAY_CONFIG, items: { ...DEFAULT_DISPLAY_CONFIG.items } };
-	}
-
-	async function saveDisplayConfig(cfg: DisplayConfig) {
-		await mkdir(TOKEN_CONFIG_DIR, { recursive: true });
-		await writeFile(DISPLAY_CONFIG_FILE, JSON.stringify(cfg, null, 2), "utf-8");
-	}
-
-	async function readQuotaCache(): Promise<QuotaCache> {
-		try {
-			if (existsSync(QUOTA_CACHE_FILE)) {
-				const raw = await readFile(QUOTA_CACHE_FILE, "utf-8");
-				return JSON.parse(raw);
-			}
-		} catch {}
-		return {};
-	}
-
-	async function writeQuotaCache(cache: QuotaCache) {
-		await ensureDir(LOGS_DIR);
-		await writeFile(QUOTA_CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
-	}
-
-	function resolveActivePlan(provider?: string): TokenPlan | null {
-		if (!tokenConfig || !provider) return null;
-		return resolveTokenPlan(provider, tokenConfig.providerPlans[provider]);
-	}
-
-	function resolveApiKey(plan: TokenPlan): string | null {
-		if (plan.apiKeyEnv && process.env[plan.apiKeyEnv]) return process.env[plan.apiKeyEnv] ?? null;
-		try {
-			const authPath = join(getAgentDir(), "auth.json");
-			if (!existsSync(authPath)) return null;
-			const auth = JSON.parse(readFileSync(authPath, "utf-8")) as Record<string, { key?: string; access?: string }>;
-			for (const providerId of plan.matchProviders) {
-				const entry = auth[providerId];
-				const credential = entry?.key ?? entry?.access;
-				if (credential) return credential;
-			}
-		} catch {}
-		return null;
-	}
-
-	/**
-	 * Return complete GLM team credentials, or null to use the personal query.
-	 * Both organization and project IDs are required.
-	 */
-	function resolveTeamCredential(plan: TokenPlan): TeamCredential | null {
-		if (plan.id !== "glm") return null;
-		const tc = tokenConfig?.teamCredential;
-		const organization = tc?.organization?.trim() ?? "";
-		const project = tc?.project?.trim() ?? "";
-		if (organization && project) return { organization, project };
-		return null;
-	}
-
-	/** Detect a provider change and clear stale quota state. */
-	function detectAndHandleProviderChange(ctx: ExtensionContext): boolean {
-		const curProvider = ctx.model?.provider ?? null;
-		if (!curProvider) {
-			// No provider means no quota state and no refresh.
-			if (quotaState) quotaState = null;
-			lastQuotaProvider = null;
-			return false;
-		}
-		if (curProvider === lastQuotaProvider) return false;
-		// Record the new provider before clearing the old state.
-		lastQuotaProvider = curProvider;
-		quotaState = null;
-		return true;
-	}
-
-	function buildErrorState(provider: string, planId: string, error: QuotaError): QuotaDisplayState {
-		let display = "No quota data";
-		if (error.kind === "key_missing") {
-			display = `❌ ${error.envVar} is not configured`;
-		} else if (error.kind === "api_error") {
-			display = `❌ ${truncateText(error.message, 24)}`;
-		} else if (error.kind === "network_error") {
-			display = "❌ Network timeout";
-		} else if (error.kind === "no_plan") {
-			display = "Disabled";
-		}
-		return {
-			planId,
-			provider,
-			display,
-			modelPrefix: "",
-			color: "err",
-			error,
-			fetchedAt: Date.now(),
-		};
-	}
-
-	function truncateText(s: string, max: number): string {
-		if (s.length <= max) return s;
-		return `${s.slice(0, max - 1)}…`;
-	}
-
-	/** Format a quota error for user-facing status messages. */
-	function formatQuotaError(state: QuotaDisplayState | null | undefined): string {
-		if (!state?.error) return "Unknown error";
-		const e = state.error;
-		switch (e.kind) {
-			case "no_plan":
-				return "No quota plan configured for this provider";
-			case "key_missing":
-				return `Missing env var ${e.envVar} or credentials for ${e.provider} in ${join(getAgentDir(), "auth.json")}`;
-			case "api_error":
-				return `API ${"error"}: ${e.message}`;
-			case "network_error":
-				return `${"Network timeout"}: ${e.message}`;
-			case "no_data":
-				return "API returned no data";
-		}
-	}
-
-	async function refreshQuota(ctx: ExtensionContext, force = false): Promise<void> {
-		detectAndHandleProviderChange(ctx);
-
-		const curProvider = ctx.model?.provider;
-		if (!curProvider) return;
-		const plan = resolveActivePlan(curProvider);
-		if (!plan) {
-			quotaState = null;
-			return;
-		}
-		const key = plan.fetchQuotaWithContext ? null : resolveApiKey(plan);
-		if (!plan.fetchQuotaWithContext && !key) {
-			quotaState = buildErrorState(curProvider, plan.id, {
-				kind: "key_missing",
-				envVar: plan.apiKeyEnv || "API_KEY",
-				provider: curProvider,
-			});
-			return;
-		}
-		// Read the cache unless force is set.
-		const cache = await readQuotaCache();
-		const cached = cache[plan.id];
-		const ttlMs = (tokenConfig?.ttl || 60) * 1000;
-		if (!force && cached && Date.now() - cached.fetchedAt < cached.ttl) {
-			const fmt = plan.format(cached.data);
-			quotaState = {
-				planId: plan.id,
-				provider: curProvider,
-				display: fmt.display,
-				modelPrefix: fmt.modelPrefix,
-				color: fmt.color,
-				fetchedAt: cached.fetchedAt,
-			};
-			shared.requestRender?.();
-			return;
-		}
-
-		try {
-			const data = plan.fetchQuotaWithContext
-				? await plan.fetchQuotaWithContext(ctx)
-				: await plan.fetchQuota(plan, key ?? "", { team: resolveTeamCredential(plan) });
-			cache[plan.id] = { fetchedAt: Date.now(), ttl: ttlMs, data };
-			await writeQuotaCache(cache);
-			const fmt = plan.format(data);
-			if (fmt.color === "err" && fmt.display === "No quota data") {
-				quotaState = buildErrorState(curProvider, plan.id, { kind: "no_data" });
-				quotaState.display = fmt.display;
-				quotaState.modelPrefix = fmt.modelPrefix;
-				return;
-			}
-			quotaState = {
-				planId: plan.id,
-				provider: curProvider,
-				display: fmt.display,
-				modelPrefix: fmt.modelPrefix,
-				color: fmt.color,
-				fetchedAt: Date.now(),
-			};
-		} catch (error: unknown) {
-			const msg = error instanceof Error ? error.message : String(error);
-			const isNetwork = /timeout|abort|fetch failed|network|econnreset|enotfound/i.test(msg);
-			quotaState = buildErrorState(
-				curProvider,
-				plan.id,
-				isNetwork ? { kind: "network_error", message: msg } : { kind: "api_error", message: msg },
-			);
-		}
-		shared.requestRender?.();
-	}
-
-	async function forceRefreshQuota(ctx: ExtensionContext) {
-		await refreshQuota(ctx, true);
-		shared.requestRender?.();
+	async function saveDisplayConfig(config: DisplayConfig): Promise<void> {
+		displayConfig = config;
+		tokenConfig = { ...(tokenConfig ?? DEFAULT_CONFIG), display: config };
+		await saveConfig(tokenConfig);
 	}
 
 	/** Return the base config shape when no config has been loaded. */
-	function baseTokenConfig(): TokenConfig {
-		return { ...(tokenConfig ?? { providerPlans: {}, ttl: 60 }) };
+	function baseTokenConfig(): PiStatsConfig {
+		return { ...(tokenConfig ?? DEFAULT_CONFIG), display: displayConfig };
 	}
 
 	/**
@@ -1116,10 +326,10 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			prompts,
 		);
 		if (!choice || choice === prompts[1]) {
-			await forceRefreshQuota(ctx);
-			const errMsg = quotaState?.error ? formatQuotaError(quotaState) : "";
+			await quota.forceRefresh(ctx);
+			const errMsg = quota.state?.error ? quota.formatError() : "";
 			ctx.ui.notify(
-				quotaState?.error ? `GLM quota query failed: ${errMsg}` : "GLM quota enabled (personal query)",
+				quota.state?.error ? `GLM quota query failed: ${errMsg}` : "GLM quota enabled (personal query)",
 				"info",
 			);
 			return;
@@ -1140,285 +350,21 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		};
 		await saveTokenConfig(tokenConfig);
 
-		await forceRefreshQuota(ctx);
-		const errMsg = quotaState?.error ? formatQuotaError(quotaState) : "";
-		ctx.ui.notify(quotaState?.error ? `GLM team quota query failed: ${errMsg}` : "GLM team quota enabled", "info");
+		await quota.forceRefresh(ctx);
+		const errMsg = quota.state?.error ? quota.formatError() : "";
+		ctx.ui.notify(quota.state?.error ? `GLM team quota query failed: ${errMsg}` : "GLM team quota enabled", "info");
 	}
 
-	/** Clear all quota caches at session_start to avoid cross-session reuse. */
-	async function invalidateAllQuotaCache() {
-		try {
-			if (existsSync(QUOTA_CACHE_FILE)) {
-				await writeFile(QUOTA_CACHE_FILE, "{}", "utf-8");
-			}
-		} catch {
-			/* ignore */
-		}
-	}
-
-	function weightedCacheHitRate(d: { sumInput: number; sumCacheRead: number; sumCacheWrite: number }): number {
-		const total = d.sumInput + d.sumCacheRead + d.sumCacheWrite;
-		return total > 0 ? (d.sumCacheRead / total) * 100 : 0;
-	}
-
-	function renderDaySummary(daily: DailyRecord): string[] {
-		const d = daily;
-		const avgInput = d.count > 0 ? d.sumInput / d.count : 0;
-		const avgOutput = d.count > 0 ? d.sumOutput / d.count : 0;
-		const totalPrompt = d.sumInput + d.sumCacheRead + d.sumCacheWrite;
-		const cacheHitRate = weightedCacheHitRate(d);
-
-		return renderTable(
-			["Metric", "Value"],
-			[
-				["Sessions", String(d.count)],
-				["New input", `${formatTokens(d.sumInput)} (avg ${formatTokens(avgInput)}/turn, uncached)`],
-				["Cached input", formatTokens(d.sumCacheRead)],
-				["Total output", `${formatTokens(d.sumOutput)} (avg ${formatTokens(avgOutput)}/turn)`],
-				["Total tokens", `${formatTokens(totalPrompt)} (new + cached)`],
-				["Cache hit rate", `${cacheHitRate.toFixed(1)}%`],
-				["Avg speed", `${(d.sumTokensPerSec / d.count).toFixed(1)} t/s`],
-			],
-		);
-	}
-
-	async function showStats(lines: string[], title: string, _ctx: ExtensionContext) {
-		const text = `## ${title}\n\n${lines.join("\n")}`;
-		pi.sendMessage({
-			customType: "token-stats",
-			content: text,
-			display: true,
-			details: {},
-		});
-	}
-
-	async function showDay(date: string, ctx: ExtensionContext) {
-		let records: DailyRecord[] = [];
-		try {
-			records = (await readFile(DAILY_FILE, "utf-8"))
-				.trim()
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => JSON.parse(l));
-		} catch {
-			// nothing
-		}
-		const daily = records.find((r) => r.date === date) || null;
-
-		if (!daily) {
-			ctx.ui.notify(`No stats for ${date}`, "info");
-			return;
-		}
-
-		await showStats(
-			[...renderDaySummary(daily), ...renderModelBreakdown(await readRawRecordsForDates([date]))],
-			`Token stats  |  ${date}`,
-			ctx,
-		);
-	}
-
-	async function showHourly(date: string, ctx: ExtensionContext) {
-		const file = join(HOURLY_DIR, `${date}.jsonl`);
-		let records: HourlyRecord[] = [];
-		try {
-			records = (await readFile(file, "utf-8"))
-				.trim()
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => JSON.parse(l));
-		} catch {
-			// nothing
-		}
-
-		if (records.length === 0) {
-			ctx.ui.notify(`No hourly stats for ${date}`, "info");
-			return;
-		}
-
-		records.sort((a, b) => a.hour - b.hour);
-
-		const lines = renderTable(
-			["Time", "Count", "New input", "Cached input", "Output", "Total tokens", "Hit rate", "Speed"],
-			records.map((r) => {
-				const totalPrompt = r.sumInput + r.sumCacheRead + r.sumCacheWrite;
-				return [
-					String(r.hour).padStart(2, "0"),
-					String(r.count),
-					formatTokens(r.sumInput),
-					formatTokens(r.sumCacheRead),
-					formatTokens(r.sumOutput),
-					formatTokens(totalPrompt),
-					`${weightedCacheHitRate(r).toFixed(1)}%`,
-					`${(r.sumTokensPerSec / r.count).toFixed(1)}`,
-				];
-			}),
-			{
-				aligns: ["left", "right", "right", "right", "right", "right", "right", "right"],
-			},
-		);
-
-		await showStats(lines, `By hour  |  ${date}`, ctx);
-	}
-
-	async function showWeek(ctx: ExtensionContext) {
-		let records: DailyRecord[] = [];
-		try {
-			records = (await readFile(DAILY_FILE, "utf-8"))
-				.trim()
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => JSON.parse(l));
-		} catch {
-			// nothing
-		}
-
-		// Include the most recent seven days.
-		const today = getDateStr();
-		const sevenDaysAgo = getDateStr(Date.now() - 7 * 24 * 60 * 60 * 1000);
-		const weekRecords = records
-			.filter((r) => r.date >= sevenDaysAgo && r.date <= today)
-			.sort((a, b) => a.date.localeCompare(b.date));
-
-		if (weekRecords.length === 0) {
-			ctx.ui.notify("No stats for this week", "info");
-			return;
-		}
-
-		const lines = renderTable(
-			["Date", "Count", "New input", "Cached input", "Output", "Total tokens", "Hit rate", "Speed"],
-			weekRecords.map((r) => {
-				const totalPrompt = r.sumInput + r.sumCacheRead + r.sumCacheWrite;
-				return [
-					r.date,
-					String(r.count),
-					formatTokens(r.sumInput),
-					formatTokens(r.sumCacheRead),
-					formatTokens(r.sumOutput),
-					formatTokens(totalPrompt),
-					`${weightedCacheHitRate(r).toFixed(1)}%`,
-					`${(r.sumTokensPerSec / r.count).toFixed(1)}`,
-				];
-			}),
-			{
-				aligns: ["left", "right", "right", "right", "right", "right", "right", "right"],
-			},
-		);
-
-		await showStats(
-			[...lines, ...renderModelBreakdown(await readRawRecordsInRange(sevenDaysAgo, today))],
-			"Week summary by day",
-			ctx,
-		);
-	}
-
-	function getMonthStr(date: Date = new Date()): string {
-		const y = date.getFullYear();
-		const m = String(date.getMonth() + 1).padStart(2, "0");
-		return `${y}-${m}`;
-	}
-
-	async function showMonth(month: string, ctx: ExtensionContext) {
-		let records: DailyRecord[] = [];
-		try {
-			records = (await readFile(DAILY_FILE, "utf-8"))
-				.trim()
-				.split("\n")
-				.filter(Boolean)
-				.map((l) => JSON.parse(l));
-		} catch {
-			// nothing
-		}
-
-		const monthRecords = records.filter((r) => r.date.startsWith(month)).sort((a, b) => a.date.localeCompare(b.date));
-
-		if (monthRecords.length === 0) {
-			ctx.ui.notify(`No stats for ${month}`, "info");
-			return;
-		}
-
-		const total = monthRecords.reduce(
-			(acc, r) => {
-				acc.count += r.count;
-				acc.sumInput += r.sumInput;
-				acc.sumCacheRead += r.sumCacheRead;
-				acc.sumCacheWrite += r.sumCacheWrite;
-				acc.sumOutput += r.sumOutput;
-				acc.sumTokensPerSec += r.sumTokensPerSec;
-				return acc;
-			},
-			{ count: 0, sumInput: 0, sumCacheRead: 0, sumCacheWrite: 0, sumOutput: 0, sumTokensPerSec: 0 },
-		);
-		const totalPrompt = total.sumInput + total.sumCacheRead + total.sumCacheWrite;
-		const cacheHitRate = weightedCacheHitRate(total);
-
-		const lines = renderTable(
-			["Date", "Count", "New input", "Cached input", "Output", "Total tokens", "Hit rate", "Speed"],
-			monthRecords.map((r) => {
-				const tp = r.sumInput + r.sumCacheRead + r.sumCacheWrite;
-				return [
-					r.date,
-					String(r.count),
-					formatTokens(r.sumInput),
-					formatTokens(r.sumCacheRead),
-					formatTokens(r.sumOutput),
-					formatTokens(tp),
-					`${weightedCacheHitRate(r).toFixed(1)}%`,
-					`${(r.sumTokensPerSec / r.count).toFixed(1)}`,
-				];
-			}),
-			{
-				aligns: ["left", "right", "right", "right", "right", "right", "right", "right"],
-				totalRow: [
-					"Total",
-					String(total.count),
-					formatTokens(total.sumInput),
-					formatTokens(total.sumCacheRead),
-					formatTokens(total.sumOutput),
-					formatTokens(totalPrompt),
-					`${cacheHitRate.toFixed(1)}%`,
-					`${(total.sumTokensPerSec / total.count).toFixed(1)}`,
-				],
-			},
-		);
-
-		const monthDates = monthRecords.map((r) => r.date).sort();
-		await showStats(
-			[
-				...lines,
-				...renderModelBreakdown(await readRawRecordsInRange(monthDates[0], monthDates[monthDates.length - 1])),
-			],
-			`${month} summary`,
-			ctx,
-		);
-	}
-
-	pi.registerMessageRenderer("token-stats", (message, _options, theme) => {
-		const content = typeof message.content === "string" ? message.content : "";
-		return new Markdown(content, 0, 0, getMarkdownTheme(), {
-			color: (text) => theme.fg("dim", text),
-		});
-	});
-
-	pi.on("agent_start", (_event, _ctx) => {
-		resetRunStats();
-	});
-
-	pi.on("turn_start", async (_event, ctx) => {
+	pi.on("turn_start", (_event, ctx) => {
 		stats.turnStartTime = Date.now();
-		stats.firstTokenTime = 0;
 		stats.streaming = false;
 
-		if (ctx.model?.provider !== lastQuotaProvider) {
-			lastQuotaProvider = ctx.model?.provider ?? null;
-			quotaState = null;
-			await refreshQuota(ctx, true);
-			shared.requestRender?.();
-		}
+		quota.handleProviderChange(ctx);
 
 		shared.requestRender?.();
 	});
 
-	pi.on("message_update", async (event, _ctx) => {
+	pi.on("message_update", (event, _ctx) => {
 		if (event.message.role !== "assistant") return;
 		const content = event.message.content;
 		if (!Array.isArray(content)) return;
@@ -1437,12 +383,10 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			streamEvent?.type !== "thinking_delta" &&
 			streamEvent?.type !== "toolcall_delta"
 		) {
-			if (stats.firstTokenTime === 0) stats.firstTokenTime = Date.now();
 			stats.streaming = true;
 			return;
 		}
 
-		if (stats.firstTokenTime === 0) stats.firstTokenTime = Date.now();
 		stats.streaming = true;
 
 		const nowMs = Date.now();
@@ -1461,13 +405,16 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		}
 
 		if (newTokens > 0) {
-			stats.liveTokenSamples.push({ timestampMs: nowMs, tokens: newTokens });
+			speedTracker.add(newTokens, nowMs);
 		}
 
-		shared.requestRender?.();
+		if (nowMs - stats.lastSpeedRenderRequestAt >= LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS) {
+			stats.lastSpeedRenderRequestAt = nowMs;
+			shared.requestRender?.();
+		}
 	});
 
-	pi.on("message_end", async (event, ctx) => {
+	pi.on("message_end", (event, _ctx) => {
 		if (event.message.role !== "assistant") return;
 		const assistantMsg = event.message as AssistantMessage;
 		const usage = assistantMsg.usage;
@@ -1481,24 +428,11 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 
 		const totalElapsed = stats.turnStartTime > 0 ? (Date.now() - stats.turnStartTime) / 1000 : 0;
 		const tokensPerSec = totalElapsed >= 0.05 ? usage.output / totalElapsed : 0;
-		const liveSpeed = getRollingLiveTokenSpeed();
-		const firstTokenLatency =
-			stats.firstTokenTime > 0 && stats.turnStartTime > 0 ? stats.firstTokenTime - stats.turnStartTime : 0;
-		const wordCount = countWords(extractTextContent(event.message.content));
-		const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-		const cacheHitRate = promptTokens > 0 ? (usage.cacheRead / promptTokens) * 100 : 0;
+		const liveSpeed = speedTracker.getSpeed();
 		const cost = usage.cost?.total ?? 0;
 
-		stats.lastInput = usage.input;
-		stats.lastOutput = usage.output;
-		stats.lastCacheRead = usage.cacheRead;
-		stats.lastCacheWrite = usage.cacheWrite;
-		stats.lastCost = cost;
-		stats.lastCacheHitRate = cacheHitRate;
 		stats.lastTokensPerSec = tokensPerSec;
-		stats.lastLiveTokenSpeed = liveSpeed;
-		stats.lastFirstTokenLatency = firstTokenLatency;
-		stats.lastWordCount = wordCount;
+		stats.lastLiveTokenSpeed = liveSpeed ?? stats.lastLiveTokenSpeed;
 		stats.streaming = false;
 
 		stats.totalInput += usage.input;
@@ -1506,97 +440,38 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		stats.totalCacheRead += usage.cacheRead;
 		stats.totalCacheWrite += usage.cacheWrite;
 		stats.totalCost += cost;
-		stats.totalCacheHitRateSum += cacheHitRate;
-		stats.turnCount++;
-
-		runStats.input += usage.input;
-		runStats.output += usage.output;
-		runStats.cacheRead += usage.cacheRead;
-		runStats.cacheWrite += usage.cacheWrite;
-		runStats.turns++;
-		runLastMsgMs = Date.now();
 
 		shared.requestRender?.();
-
-		const sessionId = ctx.sessionManager.getSessionId?.() ?? "unknown";
-		const model = `${event.message.provider}/${event.message.model}`;
-		await persistTurn(
-			{
-				input: usage.input,
-				output: usage.output,
-				cacheRead: usage.cacheRead,
-				cacheWrite: usage.cacheWrite,
-				tokensPerSec,
-				cacheHitRate,
-				model,
-				firstTokenLatency,
-				wordCount,
-				cost,
-				liveTokenSpeed: liveSpeed,
-			},
-			sessionId,
-		);
 
 		resetLiveState();
 	});
 
-	pi.on("agent_end", async (_event, _ctx) => {
+	pi.on("agent_end", (_event, _ctx) => {
 		stats.streaming = false;
 		resetLiveState();
 		shared.requestRender?.();
 	});
 
-	pi.on("session_shutdown", async (_event, _ctx) => {
+	pi.on("session_shutdown", (_event, _ctx) => {
 		// Clear timers and captured contexts before Pi invalidates the session context.
 		shared.sessionActive = false;
-		if (quotaTimerId) {
-			clearInterval(quotaTimerId);
-			quotaTimerId = null;
-		}
+		quota.stop();
 		shared.requestRender = null;
-		lastQuotaProvider = null;
-		quotaState = null;
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		shared.sessionActive = true;
 		rebuildFromHistory(ctx);
 
-		tokenConfig = await loadTokenConfig();
-		displayConfig = await loadDisplayConfig();
-		lastQuotaProvider = null;
-		quotaState = null;
-		await invalidateAllQuotaCache();
-		if (quotaTimerId) clearInterval(quotaTimerId);
-		// Start with cached quota data and refresh expired entries without blocking session startup.
-		void refreshQuota(ctx, false).catch(() => {});
-		quotaTimerId = setInterval(
-			async () => {
-				if (!shared.sessionActive) return;
-				try {
-					if (ctx.model?.provider !== lastQuotaProvider) {
-						await refreshQuota(ctx, true);
-					} else {
-						await refreshQuota(ctx, false);
-					}
-				} catch {
-					// Ignore callbacks holding a stale session context.
-				}
-				shared.requestRender?.();
-			},
-			(tokenConfig?.ttl || 60) * 1000,
-		);
+		tokenConfig = await loadConfig();
+		displayConfig = tokenConfig.display;
+		quota.start(ctx);
 	});
 
 	pi.registerCommand("stats", {
-		description: "Token stats: day | hour | week | month | config | limit",
+		description: "Token stats settings and provider quota selection",
 		handler: async (args, ctx) => {
-			const arg = args.trim();
-
-			if (!arg) {
-				await showDay(getDateStr(), ctx);
-				return;
-			}
+			const arg = args.trim() || "config";
 
 			if (arg === "limit") {
 				const provider = ctx.model?.provider;
@@ -1607,28 +482,14 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 				const options = ["Off", ...TOKEN_PLANS.map((plan) => plan.name)];
 				const choice = await ctx.ui.select(`Select quota plan to show for ${provider} (select to exit)`, options);
 
-				const defaults: TokenConfig = { providerPlans: {}, ttl: 60 };
-
+				const defaults = baseTokenConfig();
 				if (!choice || choice === options[0]) {
 					tokenConfig = tokenConfig
 						? { ...tokenConfig, providerPlans: { ...tokenConfig.providerPlans, [provider]: null } }
 						: { ...defaults, providerPlans: { [provider]: null } };
 					await saveTokenConfig(tokenConfig);
-					lastQuotaProvider = provider;
-					quotaState = null;
-					if (quotaTimerId) clearInterval(quotaTimerId);
-					quotaTimerId = setInterval(
-						async () => {
-							if (!shared.sessionActive) return;
-							try {
-								await refreshQuota(ctx);
-							} catch {
-								// Ignore callbacks holding a stale session context.
-							}
-							shared.requestRender?.();
-						},
-						(tokenConfig?.ttl || 60) * 1000,
-					);
+					await quota.forceRefresh(ctx);
+					quota.restartTimer(ctx);
 					shared.requestRender?.();
 					ctx.ui.notify(`Quota display for ${provider} is off`, "info");
 					return;
@@ -1639,27 +500,14 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 						? { ...tokenConfig, providerPlans: { ...tokenConfig.providerPlans, [provider]: plan.id } }
 						: { ...defaults, providerPlans: { [provider]: plan.id } };
 					await saveTokenConfig(tokenConfig);
-					lastQuotaProvider = provider;
-					await forceRefreshQuota(ctx);
-					if (quotaTimerId) clearInterval(quotaTimerId);
-					quotaTimerId = setInterval(
-						async () => {
-							if (!shared.sessionActive) return;
-							try {
-								await refreshQuota(ctx);
-							} catch {
-								// Ignore callbacks holding a stale session context.
-							}
-							shared.requestRender?.();
-						},
-						(tokenConfig?.ttl || 60) * 1000,
-					);
+					await quota.forceRefresh(ctx);
+					quota.restartTimer(ctx);
 					if (plan.id === "glm") {
 						await promptGlmTeamConfig(ctx);
 						return;
 					}
-					if (quotaState?.error) {
-						const errMsg = formatQuotaError(quotaState);
+					if (quota.state?.error) {
+						const errMsg = quota.formatError();
 						ctx.ui.notify(`${plan.name} quota query failed: ${errMsg}`, "info");
 					} else {
 						ctx.ui.notify(`${plan.name} quota enabled`, "info");
@@ -1690,7 +538,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 							teamCredential: { organization: "", project: "" },
 						};
 						await saveTokenConfig(tokenConfig);
-						await forceRefreshQuota(ctx);
+						await quota.forceRefresh(ctx);
 						ctx.ui.notify("GLM team credentials cleared (back to personal query)", "info");
 					} else {
 						const organization = await ctx.ui.input("Organization ID", cur?.organization ?? "");
@@ -1706,9 +554,9 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 							teamCredential: { organization: org, project: proj },
 						};
 						await saveTokenConfig(tokenConfig);
-						await forceRefreshQuota(ctx);
-						const errMsg = quotaState?.error ? formatQuotaError(quotaState) : "";
-						if (quotaState?.error) {
+						await quota.forceRefresh(ctx);
+						const errMsg = quota.state?.error ? quota.formatError() : "";
+						if (quota.state?.error) {
 							ctx.ui.notify(`GLM team quota query failed: ${errMsg}`, "info");
 						} else {
 							ctx.ui.notify("GLM team credentials saved (team query active)", "info");
@@ -1822,18 +670,9 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 						if (Number.isNaN(sec) || sec < 10) {
 							ctx.ui.notify("Refresh interval must be >= 10s", "warning");
 						} else {
-							tokenConfig = tokenConfig ? { ...tokenConfig, ttl: sec } : { providerPlans: {}, ttl: sec };
+							tokenConfig = { ...baseTokenConfig(), ttl: sec };
 							await saveTokenConfig(tokenConfig);
-							if (quotaTimerId) clearInterval(quotaTimerId);
-							quotaTimerId = setInterval(async () => {
-								if (!shared.sessionActive) return;
-								try {
-									await refreshQuota(ctx);
-								} catch {
-									// Ignore callbacks holding a stale session context.
-								}
-								shared.requestRender?.();
-							}, sec * 1000);
+							quota.restartTimer(ctx);
 							ctx.ui.notify(`Refresh interval set to ${sec}s`, "info");
 						}
 					}
@@ -1841,38 +680,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 				return;
 			}
 
-			if (arg === "today" || arg === "day") {
-				await showDay(getDateStr(), ctx);
-			} else if (arg.startsWith("day ")) {
-				const date = arg.slice(4).trim();
-				if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-					await showDay(date, ctx);
-				} else {
-					ctx.ui.notify("Usage: /stats day YYYY-MM-DD", "warning");
-				}
-			} else if (arg === "hour") {
-				await showHourly(getDateStr(), ctx);
-			} else if (arg.startsWith("hour ")) {
-				const date = arg.slice(5).trim();
-				if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-					await showHourly(date, ctx);
-				} else {
-					ctx.ui.notify("Usage: /stats hour YYYY-MM-DD", "warning");
-				}
-			} else if (arg === "week") {
-				await showWeek(ctx);
-			} else if (arg === "month") {
-				await showMonth(getMonthStr(), ctx);
-			} else if (arg.startsWith("month ")) {
-				const ms = arg.slice(6).trim();
-				if (/^\d{4}-\d{2}$/.test(ms)) {
-					await showMonth(ms, ctx);
-				} else {
-					ctx.ui.notify("Usage: /stats month YYYY-MM", "warning");
-				}
-			} else {
-				ctx.ui.notify("Usage: /stats [day [date] | hour [date] | week | month [YYYY-MM] | config]", "warning");
-			}
+			ctx.ui.notify("Usage: /stats [config | limit]", "warning");
 		},
 	});
 

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resolveCredential } from "../auth.ts";
-import type { TokenPlan } from "../quota.ts";
+import { formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageProvider, UsageReport } from "../types.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -59,17 +59,21 @@ export function formatProviderQuota(report: UsageReport) {
 		windows.set(key, Math.min(windows.get(key) ?? 100, remaining));
 	}
 
-	const parts = (["5h", "D", "W", "M"] as const)
-		.map((key) => (windows.has(key) ? `${key}: ${windows.get(key)}%` : undefined))
-		.filter((value): value is string => value !== undefined);
+	const segments: QuotaSegments = {};
+	for (const [key, value] of windows) {
+		const segmentKey = key === "5h" ? "fiveHour" : key === "D" ? "day" : key === "W" ? "week" : "month";
+		segments[segmentKey] = `${key}: ${value}%`;
+	}
 	const reset = resetLabel(report.limits);
-	if (reset) parts.push(`⏱ ${reset}`);
-	if (parts.length === 0) return { modelPrefix: "", display: "No quota data", color: "err" as const };
+	if (reset) segments.reset = reset;
+	const display = formatQuotaSegments(segments);
+	if (!display) return { modelPrefix: "", display: "No quota data", segments: {}, color: "err" as const };
 
 	const minimum = Math.min(...windows.values());
 	return {
 		modelPrefix: "",
-		display: parts.join(" "),
+		display,
+		segments,
 		color: minimum < 20 ? ("err" as const) : minimum < 50 ? ("warn" as const) : ("ok" as const),
 	};
 }

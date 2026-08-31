@@ -51,7 +51,7 @@ export const minimaxQuotaPlan: TokenPlan = {
 			models.find((model) => model.model_name === "general") ||
 			models.find((model) => typeof model.model_name === "string" && model.model_name.includes("M2")) ||
 			models[0];
-		if (!m) return { modelPrefix: "", display: "No data", color: "err" as const };
+		if (!m) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 		const intervalRemaining =
 			typeof m.current_interval_remaining_percent === "number" ? m.current_interval_remaining_percent : 0;
 		const weeklyRemaining =
@@ -61,9 +61,10 @@ export const minimaxQuotaPlan: TokenPlan = {
 			(time): time is number => typeof time === "number" && time > now,
 		);
 		const nearestReset = resets.length > 0 ? Math.min(...resets) : null;
+		const formatted = formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset);
 		return {
 			modelPrefix: "",
-			display: formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset),
+			...formatted,
 			color:
 				intervalRemaining < 20 || weeklyRemaining < 20
 					? ("err" as const)

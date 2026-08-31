@@ -1,4 +1,4 @@
-import { formatDuration, type TokenPlan } from "../quota.ts";
+import { formatDuration, formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
 
 interface OpenCodeUsageWindow {
 	status: "ok";
@@ -44,7 +44,7 @@ export const openCodeGoQuotaPlan: TokenPlan = {
 		const weekly = win("weekly");
 		const monthly = win("monthly");
 		if (!rolling && !weekly && !monthly) {
-			return { modelPrefix: "", display: "No data", color: "err" as const };
+			return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 		}
 		const now = Date.now();
 		const resets = [rolling, weekly, monthly]
@@ -60,16 +60,13 @@ export const openCodeGoQuotaPlan: TokenPlan = {
 		const r = rem(rolling);
 		const weeklyRemaining = rem(weekly);
 		const monthlyRemaining = rem(monthly);
-		const parts: string[] = [];
-		if (r !== null) parts.push(`5h: ${Math.round(r)}%`);
-		if (weeklyRemaining !== null) parts.push(`W: ${Math.round(weeklyRemaining)}%`);
-		if (monthlyRemaining !== null) parts.push(`M: ${Math.round(monthlyRemaining)}%`);
-		let display = parts.join(" ");
+		const segments: QuotaSegments = {};
+		if (r !== null) segments.fiveHour = `5h: ${Math.round(r)}%`;
+		if (weeklyRemaining !== null) segments.week = `W: ${Math.round(weeklyRemaining)}%`;
+		if (monthlyRemaining !== null) segments.month = `M: ${Math.round(monthlyRemaining)}%`;
 		if (nearestReset) {
 			const diff = nearestReset - now;
-			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) {
-				display += ` ⏱ ${formatDuration(diff)}`;
-			}
+			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(diff);
 		}
 		const low = (value: number | null) => value !== null && value < 20;
 		const mid = (value: number | null) => value !== null && value < 50;
@@ -79,6 +76,6 @@ export const openCodeGoQuotaPlan: TokenPlan = {
 				: mid(r) || mid(weeklyRemaining) || mid(monthlyRemaining)
 					? ("warn" as const)
 					: ("ok" as const);
-		return { modelPrefix: "", display, color };
+		return { modelPrefix: "", display: formatQuotaSegments(segments), segments, color };
 	},
 };

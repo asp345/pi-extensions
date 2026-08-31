@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatUserPath } from "./format.ts";
 import { createStepTimer } from "./step-timer.ts";
-import { createTokenStats, formatUserPath, type SharedState } from "./token-stats.ts";
+import { createTokenStats, type SharedState } from "./token-stats.ts";
 
 const shared: SharedState = {
 	sessionActive: false,
@@ -10,7 +11,7 @@ const shared: SharedState = {
 
 export default function piStatsExtension(pi: ExtensionAPI): void {
 	const stats = createTokenStats(pi, shared);
-	createStepTimer(pi, shared);
+	createStepTimer(pi);
 
 	pi.on("session_start", (_event, ctx) => {
 		shared.sessionActive = true;

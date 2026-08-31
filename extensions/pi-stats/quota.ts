@@ -9,9 +9,16 @@ export interface QuotaFetchExtra {
 	team?: TeamCredential | null;
 }
 
+export type QuotaSegmentKey = "fiveHour" | "day" | "week" | "month" | "balance" | "reset";
+
+export type QuotaSegments = Partial<Record<QuotaSegmentKey, string>>;
+
+export const QUOTA_SEGMENT_ORDER: readonly QuotaSegmentKey[] = ["fiveHour", "day", "week", "month", "balance", "reset"];
+
 export interface QuotaDisplay {
 	modelPrefix: string;
 	display: string;
+	segments: QuotaSegments;
 	color: "ok" | "warn" | "err";
 }
 
@@ -41,14 +48,24 @@ export function formatDuration(ms: number): string {
 	return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
+export function formatQuotaSegments(segments: QuotaSegments): string {
+	return QUOTA_SEGMENT_ORDER.map((key) => segments[key])
+		.filter((value): value is string => Boolean(value))
+		.join(" ");
+}
+
 export function formatTokenPlanDisplay(
 	fiveHourRemaining: number,
 	weeklyRemaining: number,
 	nearestResetMs?: number | null,
-): string {
-	let display = `5h: ${Math.round(fiveHourRemaining)}% W: ${Math.round(weeklyRemaining)}%`;
-	if (!nearestResetMs) return display;
-	const remaining = nearestResetMs - Date.now();
-	if (remaining > 0 && remaining < 30 * 24 * 60 * 60 * 1000) display += ` ⏱ ${formatDuration(remaining)}`;
-	return display;
+): Pick<QuotaDisplay, "display" | "segments"> {
+	const segments: QuotaSegments = {
+		fiveHour: `5h: ${Math.round(fiveHourRemaining)}%`,
+		week: `W: ${Math.round(weeklyRemaining)}%`,
+	};
+	if (nearestResetMs) {
+		const remaining = nearestResetMs - Date.now();
+		if (remaining > 0 && remaining < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(remaining);
+	}
+	return { display: formatQuotaSegments(segments), segments };
 }

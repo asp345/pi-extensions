@@ -44,5 +44,7 @@ test("formats daily and weekly windows", () => {
 			},
 		],
 	};
-	assert.match(formatProviderQuota(report).display, /D: 80% W: 40%/);
+	const formatted = formatProviderQuota(report);
+	assert.equal(formatted.display, "D: 80% W: 40%");
+	assert.deepEqual(formatted.segments, { day: "D: 80%", week: "W: 40%" });
 });

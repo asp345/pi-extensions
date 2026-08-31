@@ -1,4 +1,4 @@
-import type { TokenPlan } from "../quota.ts";
+import { formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
 
 interface DeepSeekBalanceInfo {
 	currency?: unknown;
@@ -31,11 +31,13 @@ export const deepseekQuotaPlan: TokenPlan = {
 			? payload.balance_infos.filter((info): info is DeepSeekBalanceInfo => isRecord(info))
 			: [];
 		const cny = infos.find((info) => info.currency === "CNY") || infos[0];
-		if (!cny) return { modelPrefix: "", display: "No data", color: "err" as const };
+		if (!cny) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 		const total = parseFloat(String(cny.total_balance || "0"));
+		const segments: QuotaSegments = { balance: `¥${total.toFixed(1)}` };
 		return {
 			modelPrefix: "",
-			display: `¥${total.toFixed(1)}`,
+			display: formatQuotaSegments(segments),
+			segments,
 			color: total < 1 ? ("warn" as const) : ("ok" as const),
 		};
 	},

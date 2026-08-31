@@ -8,4 +8,4 @@ Remembers the selected thinking level for each `provider/model` pair and restore
 - `/model-thinking off`
 - `/model-thinking status`
 
-Configuration is stored in the Pi agent directory under `extensions/pi-model-thinking/config.json`.
+Configuration is stored as `pi-model-thinking.json` in the Pi agent directory.

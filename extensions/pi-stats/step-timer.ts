@@ -1,6 +1,5 @@
 // Tracks elapsed time for the current run in Pi's working message.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { SharedState } from "./token-stats.ts";
 
 const TICK_MS = 1000;
 function formatDuration(ms: number): string {
@@ -15,7 +14,7 @@ function formatDuration(ms: number): string {
 	return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 }
 
-export function createStepTimer(pi: ExtensionAPI, _shared: SharedState): void {
+export function createStepTimer(pi: ExtensionAPI): void {
 	let lastCtx: ExtensionContext | undefined;
 	let tick: ReturnType<typeof setInterval> | undefined;
 
