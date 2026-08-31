@@ -19,7 +19,7 @@ const HANDOFF_SHORTCUT = "alt+h";
 const HANDOFF_GUIDELINE =
 	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait. Never use the timeout shell command.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to 10 minutes, then continue as a background task. Press ${HANDOFF_SHORTCUT} to move the most recent foreground command to the background immediately. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to 10 minutes, then continue as a background task. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
@@ -57,7 +57,14 @@ export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
 	if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
 	return env;
 }
-function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, foreground: Map<string, AbortController>) {
+const HANDOFF_STATUS = "pi-background-tasks-handoff";
+
+function createHybridBashDefinition(
+	cwd: string,
+	ctx: ExtensionContext,
+	runtime: BackgroundRuntime,
+	foreground: Map<string, AbortController>,
+) {
 	const operations: BashOperations = {
 		async exec(command, execCwd, { onData, signal, timeout, env }) {
 			try {
@@ -73,8 +80,11 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 			});
 			const handoff = new AbortController();
 			foreground.set(task.id, handoff);
-			const done = await runtime.waitForExit(task.id, HANDOFF_MS, signal, handoff.signal);
-			foreground.delete(task.id);
+			ctx.ui.setStatus(HANDOFF_STATUS, ctx.ui.theme.fg("muted", `${HANDOFF_SHORTCUT} to run in background`));
+			const done = await runtime.waitForExit(task.id, HANDOFF_MS, signal, handoff.signal).finally(() => {
+				foreground.delete(task.id);
+				if (foreground.size === 0) ctx.ui.setStatus(HANDOFF_STATUS, undefined);
+			});
 			if (!done) {
 				if (!handoff.signal.aborted && signal?.aborted) {
 					runtime.discard(task.id);
@@ -114,7 +124,7 @@ export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime)
 	const foreground = new Map<string, AbortController>();
 
 	pi.on("session_start", (_event, ctx) => {
-		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime, foreground));
+		pi.registerTool(createHybridBashDefinition(ctx.cwd, ctx, runtime, foreground));
 	});
 
 	pi.registerShortcut(HANDOFF_SHORTCUT, {
