@@ -2,6 +2,7 @@
 	"name": "pi-config",
 	"version": "0.1.0",
 	"private": true,
+	"packageManager": "bun@1.3.13",
 	"description": "Personal Pi monorepo",
 	"license": "UNLICENSED",
 	"type": "module",
@@ -9,12 +10,12 @@
 		"extensions/*"
 	],
 	"scripts": {
-		"check": "npm run biome && npm run typecheck && npm run test && npm run structure",
+		"check": "bun run biome && bun run typecheck && bun run test && bun run structure",
 		"biome": "biome check extensions scripts package.json tsconfig.json biome.json",
 		"biome:fix": "biome check --write extensions scripts package.json tsconfig.json biome.json",
 		"typecheck": "tsc --noEmit",
-		"test": "node --disable-warning=ExperimentalWarning --experimental-transform-types --test extensions/**/*.test.ts",
-		"structure": "node scripts/check.ts"
+		"test": "find extensions -name '*.test.ts' -print0 | xargs -0 -n 1 bun test",
+		"structure": "bun scripts/check.ts"
 	},
 	"keywords": [
 		"pi-package"
