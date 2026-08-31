@@ -7,6 +7,7 @@ import type {
 	UsageStatus,
 	UsageWindow,
 } from "../types.ts";
+import { createProviderQuotaPlan } from "./quota-adapter.ts";
 
 const DEFAULT_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
@@ -336,3 +337,12 @@ export const antigravityUsageProvider: UsageProvider = {
 		return { provider: "antigravity", fetchedAt: nowMs, limits, metadata };
 	},
 };
+
+export const antigravityQuotaPlan = createProviderQuotaPlan({
+	id: "antigravity",
+	name: "Google Antigravity",
+	matchProviders: ["google-antigravity", "antigravity"],
+	apiKeyEnv: "GOOGLE_ANTIGRAVITY_ACCESS_TOKEN",
+	provider: antigravityUsageProvider,
+	credentialIds: ["google-antigravity", "antigravity"],
+});

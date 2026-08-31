@@ -20,7 +20,8 @@ My personal Pi monorepo.
 - `extensions/pi-setup-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
-- `extensions/pi-usage/`
+- `extensions/pi-stats/`
+- `extensions/pi-model-thinking/`
 - `extensions/pi-question/`
 - `extensions/pi-themes/`
 

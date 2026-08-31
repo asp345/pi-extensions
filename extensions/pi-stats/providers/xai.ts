@@ -7,6 +7,7 @@ import type {
 	UsageStatus,
 	UsageWindow,
 } from "../types.ts";
+import { createProviderQuotaPlan } from "./quota-adapter.ts";
 
 const PROVIDER_ID = "xai";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -386,3 +387,11 @@ export const xaiUsageProvider: UsageProvider = {
 		return { provider: PROVIDER_ID, fetchedAt: Date.now(), limits: deduped, metadata };
 	},
 };
+
+export const xaiQuotaPlan = createProviderQuotaPlan({
+	id: "xai",
+	name: "xAI",
+	matchProviders: ["xai"],
+	apiKeyEnv: "XAI_API_KEY",
+	provider: xaiUsageProvider,
+});

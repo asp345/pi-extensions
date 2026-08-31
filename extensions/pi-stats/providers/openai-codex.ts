@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import type { ResolvedCredential, UsageAmount, UsageLimit, UsageProvider, UsageReport, UsageWindow } from "../types.ts";
+import { createProviderQuotaPlan } from "./quota-adapter.ts";
 
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const CODEX_USAGE_PATH = "wham/usage";
@@ -252,3 +253,11 @@ export const openaiCodexUsageProvider: UsageProvider = {
 		return { provider: "openai-codex", fetchedAt: nowMs, limits, metadata };
 	},
 };
+
+export const openaiCodexQuotaPlan = createProviderQuotaPlan({
+	id: "openai-codex",
+	name: "OpenAI Codex",
+	matchProviders: ["openai-codex"],
+	apiKeyEnv: "OPENAI_API_KEY",
+	provider: openaiCodexUsageProvider,
+});

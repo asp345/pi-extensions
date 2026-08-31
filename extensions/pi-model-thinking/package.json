@@ -1,8 +1,8 @@
 {
-	"name": "@asp345/pi-usage",
+	"name": "@asp345/pi-model-thinking",
 	"version": "0.0.0",
-	"description": "Provider usage limits command for pi",
-	"license": "MIT",
+	"description": "Remember and restore Pi thinking levels per model",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -10,8 +10,7 @@
 		"pi-package"
 	],
 	"files": [
-		"*.ts",
-		"!*.test.ts",
+		"index.ts",
 		"LICENSE",
 		"README.md"
 	],

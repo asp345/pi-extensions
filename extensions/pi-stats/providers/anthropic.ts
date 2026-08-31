@@ -1,4 +1,5 @@
 import type { ResolvedCredential, UsageAmount, UsageLimit, UsageProvider, UsageReport, UsageWindow } from "../types.ts";
+import { createProviderQuotaPlan } from "./quota-adapter.ts";
 
 const DEFAULT_ENDPOINT = "https://api.anthropic.com/api/oauth";
 const FIVE_HOURS_MS = 5 * 60 * 60 * 1000;
@@ -342,3 +343,11 @@ export const anthropicUsageProvider: UsageProvider = {
 		return { provider: "anthropic", fetchedAt: Date.now(), limits, metadata: { endpoint: url } };
 	},
 };
+
+export const anthropicQuotaPlan = createProviderQuotaPlan({
+	id: "anthropic",
+	name: "Claude",
+	matchProviders: ["anthropic"],
+	apiKeyEnv: "ANTHROPIC_API_KEY",
+	provider: anthropicUsageProvider,
+});

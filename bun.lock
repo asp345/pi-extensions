@@ -123,6 +123,13 @@
         "typebox": "*",
       },
     },
+    "extensions/pi-model-thinking": {
+      "name": "@asp345/pi-model-thinking",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "extensions/pi-nix-store-guard": {
       "name": "@asp345/pi-nix-store-guard",
       "version": "0.0.0",
@@ -169,6 +176,15 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "extensions/pi-stats": {
+      "name": "@asp345/pi-stats",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+      },
+    },
     "extensions/pi-subagents": {
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
@@ -182,13 +198,6 @@
     "extensions/pi-themes": {
       "name": "@asp345/pi-themes",
       "version": "0.0.0",
-    },
-    "extensions/pi-usage": {
-      "name": "@asp345/pi-usage",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-      },
     },
   },
   "overrides": {
@@ -217,6 +226,8 @@
 
     "@asp345/pi-lsp": ["@asp345/pi-lsp@workspace:extensions/pi-lsp"],
 
+    "@asp345/pi-model-thinking": ["@asp345/pi-model-thinking@workspace:extensions/pi-model-thinking"],
+
     "@asp345/pi-nix-store-guard": ["@asp345/pi-nix-store-guard@workspace:extensions/pi-nix-store-guard"],
 
     "@asp345/pi-openrouter-metadata": ["@asp345/pi-openrouter-metadata@workspace:extensions/pi-openrouter-metadata"],
@@ -229,11 +240,11 @@
 
     "@asp345/pi-setup-custom-providers": ["@asp345/pi-setup-custom-providers@workspace:extensions/pi-setup-custom-providers"],
 
+    "@asp345/pi-stats": ["@asp345/pi-stats@workspace:extensions/pi-stats"],
+
     "@asp345/pi-subagents": ["@asp345/pi-subagents@workspace:extensions/pi-subagents"],
 
     "@asp345/pi-themes": ["@asp345/pi-themes@workspace:extensions/pi-themes"],
-
-    "@asp345/pi-usage": ["@asp345/pi-usage@workspace:extensions/pi-usage"],
 
     "@aws-crypto/crc32": ["@aws-crypto/crc32@5.2.0", "", { "dependencies": { "@aws-crypto/util": "^5.2.0", "@aws-sdk/types": "^3.222.0", "tslib": "^2.6.2" } }, "sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg=="],
 

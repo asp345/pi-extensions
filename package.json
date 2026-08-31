@@ -38,7 +38,8 @@
 			"./extensions/pi-compaction/index.ts",
 			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-service-tier/index.ts",
-			"./extensions/pi-usage/index.ts",
+			"./extensions/pi-stats/index.ts",
+			"./extensions/pi-model-thinking/index.ts",
 			"./extensions/pi-better-edit/index.ts",
 			"./extensions/pi-fff/src/index.ts"
 		],
