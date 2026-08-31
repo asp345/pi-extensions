@@ -31,7 +31,12 @@ function relative(timestamp: number, now = Date.now()): string {
 function taskStatus(task: TaskSnapshot): string {
 	if (task.timedOut) return "timed out";
 	if (task.status === "running") return "running";
-	if (task.status === "stopped") return "stopped by user";
+	if (task.status === "stopped") {
+		if (task.stopReason === "user") return "stopped by user";
+		if (task.stopReason === "agent") return "stopped by agent";
+		if (task.stopReason === "shutdown") return "stopped on shutdown";
+		return "stopped";
+	}
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }
 
@@ -296,7 +301,7 @@ export class BackgroundUI {
 							return tui.requestRender();
 						}
 						if (data === "s") {
-							this.runtime.stop(selectedId);
+							this.runtime.stop(selectedId, "user");
 							return tui.requestRender();
 						}
 						if (data === "c") {

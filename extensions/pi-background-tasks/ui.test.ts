@@ -24,6 +24,7 @@ function exitEvent(): TaskEvent {
 			exitCode: 0,
 			outputBytes: 5,
 			timedOut: false,
+			stopReason: null,
 		},
 		output: "done\n",
 	};

@@ -9,7 +9,7 @@ Background shell tasks for Pi without blocking the turn. Completion is delivered
 
 ## Runtime
 
-`BackgroundRuntime` spawns via `node:child_process`, tails output to 8000 chars, decodes UTF-8 split across chunks, publishes `BACKGROUND_TASKS_STATE_EVENT`, supports quiet tasks (`notify:false`) with `waitForExit` and late promotion, `discard` SIGTERM then SIGKILL, `shutdown`/`activate` lifecycle.
+`BackgroundRuntime` spawns via `node:child_process`, tails output to 8000 chars, decodes UTF-8 split across chunks, publishes `BACKGROUND_TASKS_STATE_EVENT`, supports quiet tasks (`notify:false`) with `waitForExit` and late promotion, records explicit stops as `user`, `agent`, or `shutdown`, uses `discard` only for internal quiet-task cleanup, and provides `shutdown`/`activate` lifecycle.
 
 ## UI
 

@@ -110,7 +110,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				const output = runtime.output(id);
 				return output === undefined ? result(NO_MATCH, true) : result(tail(output) || "(empty)");
 			}
-			return runtime.stop(id) ? result(stoppingText(id)) : result(NO_MATCH, true);
+			return runtime.stop(id, "agent") ? result(stoppingText(id)) : result(NO_MATCH, true);
 		},
 	});
 
@@ -130,7 +130,10 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			}
 			if (value.startsWith("stop ")) {
 				const id = value.slice(5).trim();
-				return ctx.ui.notify(runtime.stop(id) ? stoppingText(id) : NO_MATCH, runtime.get(id) ? "info" : "warning");
+				return ctx.ui.notify(
+					runtime.stop(id, "user") ? stoppingText(id) : NO_MATCH,
+					runtime.get(id) ? "info" : "warning",
+				);
 			}
 			const watch = value.match(/^(?:watch|read|log)(?:\s+--follow)?\s+(.+)$/);
 			if (watch) {

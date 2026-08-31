@@ -7,6 +7,7 @@ import { getShellConfig } from "@earendil-works/pi-coding-agent";
 import { sleepBlockReason } from "./guard.ts";
 
 type TaskStatus = "running" | "completed" | "failed" | "stopped";
+export type StopReason = "user" | "agent" | "shutdown";
 
 export interface TaskSnapshot {
 	id: string;
@@ -24,6 +25,7 @@ export interface TaskSnapshot {
 	exitCode: number | null;
 	outputBytes: number;
 	timedOut: boolean;
+	stopReason: StopReason | null;
 }
 
 export interface WaitResult {
@@ -157,6 +159,7 @@ export class BackgroundRuntime {
 				exitCode: null,
 				outputBytes: 0,
 				timedOut: false,
+				stopReason: null,
 			},
 			child,
 			output: "",
@@ -220,11 +223,12 @@ export class BackgroundRuntime {
 		return snapshot(task);
 	}
 
-	stop(id: string | undefined): boolean {
+	stop(id: string | undefined, reason: "user" | "agent"): boolean {
 		const task = this.find(id);
 		if (!task) return false;
 		if (task.info.status !== "running") return true;
 		task.stopRequested = true;
+		task.info.stopReason = reason;
 		task.info.updatedAt = Date.now();
 		this.clearTimeoutTimer(task);
 		this.kill(task, "SIGTERM");
@@ -250,6 +254,7 @@ export class BackgroundRuntime {
 		for (const task of [...this.tasks.values()]) {
 			if (task.info.status === "running") {
 				task.stopRequested = true;
+				task.info.stopReason = "shutdown";
 				task.child.once("close", () => this.removeLog(task));
 				this.kill(task, "SIGTERM");
 				this.kill(task, "SIGKILL");
