@@ -19,7 +19,7 @@
 		]
 	},
 	"dependencies": {
-		"@ff-labs/fff-bun": "0.10.5"
+		"@ff-labs/fff-bun": "0.10.6"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
