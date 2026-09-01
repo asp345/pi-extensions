@@ -8,4 +8,4 @@ Goal tracking for Pi with automatic continuation.
 
 ## Runtime
 
-`GoalRuntime` persists to `goals.json`, caps owned prompt markers, owns continuation prompt exactly once, re-drives continuation on goal-owned background task completion, ignores unowned tasks. `resumeGoal` restores active goal across sessions without default turn limit.
+`GoalRuntime` persists to `goals.json`, caps owned prompt markers, and starts continuation only after the agent settles with no other queued messages. Goal-owned background tasks defer normal continuation, trigger an hourly check-in after the agent settles, and re-drive continuation when they complete. Clearing a goal drops pending goal work and aborts only a currently running goal-owned turn. `resumeGoal` restores active goals across sessions without a default turn limit.

@@ -124,7 +124,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			}
 			if (input === "clear" || input === "stop") {
 				const objective = runtime.goal?.objective;
-				runtime.setGoal(undefined, ctx);
+				runtime.clearGoal(ctx);
 				ctx.ui.notify(objective ? `Goal cleared: ${safeText(objective, 160)}` : "No goal is set.", "info");
 				return;
 			}
@@ -163,7 +163,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 	});
 	pi.on("session_shutdown", (_event, ctx) => {
 		if (runtime.goal) runtime.persist();
-		runtime.cancelContinuation();
+		runtime.shutdown();
 		if (activeContext === ctx) activeContext = undefined;
 		unsubscribeBackgroundTasks();
 		ctx.ui.setStatus("goal", undefined);

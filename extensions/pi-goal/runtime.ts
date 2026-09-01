@@ -6,8 +6,8 @@ export const MAX_OBJECTIVE = 4_000;
 const MAX_NO_PROGRESS_TURNS = 3;
 const MAX_OWNED_PROMPTS = 16;
 const OWNED_PROMPT_TTL_MS = 10 * 60_000;
+const BACKGROUND_CHECK_IN_INTERVAL_MS = 60 * 60_000;
 const MARKER = /<!-- pi-goal:(start|continue):([^\s>]+) -->/u;
-
 type GoalStatus = "active" | "paused" | "blocked" | "complete";
 
 export interface GoalState {
@@ -60,6 +60,9 @@ export interface GoalContext {
 export class GoalRuntime {
 	goal?: GoalState;
 	private pendingContinuation?: string;
+	private pendingStart?: string;
+	private backgroundCheckInDue = false;
+	private backgroundCheckInTimer?: ReturnType<typeof setTimeout>;
 	private currentRunAutomatic = false;
 	private currentRunOwnsGoal = false;
 	private currentRunUsedTool = false;
@@ -75,8 +78,10 @@ export class GoalRuntime {
 	}
 
 	setGoal(goal: GoalState | undefined, ctx: GoalContext) {
+		this.clearBackgroundCheckIn();
 		this.goal = goal;
 		this.pendingContinuation = undefined;
+		this.pendingStart = undefined;
 		this.currentRunOwnsGoal = false;
 		this.goalBackgroundTaskIds.clear();
 		this.settleFailure = undefined;
@@ -89,7 +94,12 @@ export class GoalRuntime {
 	}
 
 	async startPrompt(ctx: GoalContext) {
-		return this.sendOwnedPrompt(ctx, "start", "Work on the active /goal until it is complete.");
+		const goal = this.goal;
+		if (goal?.status !== "active") return false;
+		this.pendingContinuation = goal.id;
+		this.pendingStart = goal.id;
+		await this.settled(ctx);
+		return true;
 	}
 
 	async resumeRestored(ctx: GoalContext) {
@@ -109,6 +119,7 @@ export class GoalRuntime {
 		this.ownedPrompts.delete(key);
 		if (stamp === undefined || Date.now() - stamp > OWNED_PROMPT_TTL_MS) return;
 		this.pendingContinuation = undefined;
+		this.pendingStart = undefined;
 		this.currentRunOwnsGoal = true;
 		this.currentRunAutomatic = marker[1] === "continue";
 	}
@@ -130,6 +141,8 @@ export class GoalRuntime {
 		}
 		this.runningBackgroundTaskIds.clear();
 		for (const id of next) this.runningBackgroundTaskIds.add(id);
+		if (this.goalBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
+		else this.clearBackgroundCheckIn();
 		if (wasWaiting && this.goalBackgroundTaskIds.size === 0 && ctx) await this.settled(ctx);
 	}
 
@@ -173,13 +186,35 @@ export class GoalRuntime {
 			this.pause(ctx, `no progress across ${MAX_NO_PROGRESS_TURNS} automatic runs`);
 			return;
 		}
-		if (this.pendingContinuation !== goal.id) return;
-		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.() || this.goalBackgroundTaskIds.size > 0) return;
-		await this.sendOwnedPrompt(ctx, "continue", "Continue the active /goal. Keep working until it is complete.");
+		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.()) return;
+		if (this.backgroundCheckInDue && this.goalBackgroundTaskIds.size > 0) {
+			this.backgroundCheckInDue = false;
+			await this.sendOwnedPrompt("continue", "Check in on the active /goal and its running background work.");
+			return;
+		}
+		if (this.pendingContinuation !== goal.id || this.goalBackgroundTaskIds.size > 0) return;
+		const start = this.pendingStart === goal.id;
+		await this.sendOwnedPrompt(
+			start ? "start" : "continue",
+			start
+				? "Work on the active /goal until it is complete."
+				: "Continue the active /goal. Keep working until it is complete.",
+		);
+	}
+
+	clearGoal(ctx: GoalContext) {
+		const abortOwnedRun = this.currentRunOwnsGoal;
+		this.setGoal(undefined, ctx);
+		if (abortOwnedRun) {
+			try {
+				ctx.abort?.();
+			} catch {}
+		}
 	}
 
 	pause(ctx: GoalContext, reason = "paused by user") {
 		const goal = this.goal;
+		this.clearBackgroundCheckIn();
 		if (goal?.status !== "active") return false;
 		this.cancelContinuation();
 		try {
@@ -220,6 +255,29 @@ export class GoalRuntime {
 		}
 	}
 
+	shutdown() {
+		this.clearBackgroundCheckIn();
+		this.cancelContinuation();
+	}
+
+	private scheduleBackgroundCheckIn(ctx?: GoalContext) {
+		if (this.backgroundCheckInTimer || !ctx || this.goal?.status !== "active") return;
+		this.backgroundCheckInTimer = setTimeout(() => {
+			this.backgroundCheckInTimer = undefined;
+			if (this.goal?.status !== "active" || this.goalBackgroundTaskIds.size === 0) return;
+			this.backgroundCheckInDue = true;
+			this.scheduleBackgroundCheckIn(ctx);
+			void this.settled(ctx);
+		}, BACKGROUND_CHECK_IN_INTERVAL_MS);
+		this.backgroundCheckInTimer.unref?.();
+	}
+
+	private clearBackgroundCheckIn() {
+		if (this.backgroundCheckInTimer) clearTimeout(this.backgroundCheckInTimer);
+		this.backgroundCheckInTimer = undefined;
+		this.backgroundCheckInDue = false;
+	}
+
 	private recordOwnedPrompt(marker: string) {
 		const now = Date.now();
 		for (const [key, stamp] of this.ownedPrompts) {
@@ -232,18 +290,13 @@ export class GoalRuntime {
 		this.ownedPrompts.set(marker, now);
 	}
 
-	private async sendOwnedPrompt(_ctx: GoalContext, kind: "start" | "continue", text: string) {
+	private async sendOwnedPrompt(kind: "start" | "continue", text: string) {
 		const goal = this.goal;
 		if (goal?.status !== "active") return false;
 		const marker = randomUUID();
 		this.recordOwnedPrompt(marker);
-		// pi.sendUserMessage is fire-and-forget: a failed send surfaces as a
-		// "<runtime>" extension error and cannot be caught. Keep the continuation
-		// armed so the next agent_settled retries; beforeAgentStart disarms it once
-		// the owned prompt actually starts a run.
 		this.pi.sendUserMessage(
 			`${text}\n\nGoal ID: ${goal.id}\nObjective: ${goal.objective}\n\n<!-- pi-goal:${kind}:${marker} -->`,
-			{ deliverAs: "followUp" },
 		);
 		this.pendingContinuation = goal.id;
 		return true;
