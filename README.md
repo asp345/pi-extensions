@@ -2,9 +2,8 @@
 
 My personal Pi monorepo.
 
-## Contents
 
-### Extensions
+## Extensions
 
 - `extensions/pi-github-copilot/`
 - `extensions/pi-anthropic-oauth/`
@@ -20,8 +19,11 @@ My personal Pi monorepo.
 - `extensions/pi-setup-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
+- `extensions/pi-service-tier/`
 - `extensions/pi-stats/`
 - `extensions/pi-model-thinking/`
+- `extensions/pi-better-edit/`
+- `extensions/pi-fff/`
 - `extensions/pi-question/`
 - `extensions/pi-themes/`
 
@@ -31,8 +33,8 @@ Each extension's details are documented in its own `README.md`.
 
 ```bash
 nix develop
-npm ci --ignore-scripts
-npm run check
+bun install --frozen-lockfile --ignore-scripts
+bun run check
 nix fmt
 ```
 
