@@ -40,6 +40,7 @@ export class QuotaController {
 	private readonly cache: Record<string, QuotaCacheEntry> = {};
 	private timer: ReturnType<typeof setInterval> | null = null;
 	private provider: string | null = null;
+	private refreshVersion = 0;
 	state: QuotaDisplayState | null = null;
 
 	constructor(private readonly options: QuotaControllerOptions) {}
@@ -114,6 +115,7 @@ export class QuotaController {
 
 	async refresh(ctx: ExtensionContext, force = false): Promise<void> {
 		this.detectProvider(ctx);
+		const version = ++this.refreshVersion;
 		const provider = ctx.model?.provider;
 		if (!provider) return;
 		const plan = this.resolvePlan(provider);
@@ -143,6 +145,7 @@ export class QuotaController {
 			const data = plan.fetchQuotaWithContext
 				? await plan.fetchQuotaWithContext(ctx)
 				: await plan.fetchQuota(plan, key ?? "", { team: this.resolveTeamCredential(plan) });
+			if (version !== this.refreshVersion || provider !== this.provider) return;
 			this.cache[plan.id] = { fetchedAt: Date.now(), ttl, data };
 			const formatted = plan.format(data);
 			if (formatted.color === "err" && formatted.segments && Object.keys(formatted.segments).length === 0) {
@@ -151,6 +154,7 @@ export class QuotaController {
 				this.state = { planId: plan.id, provider, ...formatted, fetchedAt: Date.now() };
 			}
 		} catch (error) {
+			if (version !== this.refreshVersion || provider !== this.provider) return;
 			const message = error instanceof Error ? error.message : String(error);
 			const network = /timeout|abort|fetch failed|network|econnreset|enotfound/i.test(message);
 			this.state = this.errorState(
@@ -170,6 +174,7 @@ export class QuotaController {
 		const provider = ctx.model?.provider ?? null;
 		if (provider === this.provider) return;
 		this.provider = provider;
+		this.refreshVersion += 1;
 		this.state = null;
 		if (!provider) {
 			this.options.requestRender();
@@ -191,6 +196,7 @@ export class QuotaController {
 
 	start(ctx: ExtensionContext): void {
 		this.provider = null;
+		this.refreshVersion += 1;
 		this.state = null;
 		for (const key of Object.keys(this.cache)) delete this.cache[key];
 		void this.refresh(ctx).catch(() => {});
@@ -198,6 +204,7 @@ export class QuotaController {
 	}
 
 	stop(): void {
+		this.refreshVersion += 1;
 		if (this.timer) clearInterval(this.timer);
 		this.timer = null;
 	}

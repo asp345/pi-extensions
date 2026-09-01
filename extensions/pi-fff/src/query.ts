@@ -1,4 +1,5 @@
 import path from "node:path";
+import { DEFAULT_CONFIG } from "./config.ts";
 
 export function normalizePathConstraint(pathConstraint: string, cwd = process.cwd()): string | null {
 	let trimmed = pathConstraint.trim();
@@ -70,12 +71,14 @@ export function buildQuery(
 	pattern: string,
 	exclude?: string | string[],
 	cwd = process.cwd(),
+	defaultExcludes = DEFAULT_CONFIG.defaultExcludes,
 ): string {
 	const parts: string[] = [];
-	if (path) {
-		const pathConstraint = normalizePathConstraint(path, cwd);
-		if (pathConstraint) parts.push(pathConstraint);
-	}
+	const pathConstraint = path ? normalizePathConstraint(path, cwd) : null;
+	if (pathConstraint) parts.push(pathConstraint);
+
+	parts.push(...normalizeExcludes(defaultExcludes, cwd));
+
 	parts.push(...normalizeExcludes(exclude, cwd));
 	parts.push(pattern);
 	return parts.join(" ");

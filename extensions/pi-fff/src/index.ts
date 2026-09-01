@@ -19,6 +19,7 @@ import type {
 } from "@ff-labs/fff-bun";
 import { Type } from "@sinclair/typebox";
 import { AuxFinderPool, routePathConstraint } from "./aux-finders.ts";
+import { loadConfig } from "./config.ts";
 import { FilePickerFactory } from "./file-picker.ts";
 import { isHomeDir, resolveDbPaths } from "./paths.ts";
 import { buildQuery } from "./query.ts";
@@ -286,6 +287,7 @@ function createFffMentionProvider(
 // ---------------------------------------------------------------------------
 
 export default function fffExtension(pi: ExtensionAPI) {
+	const config = loadConfig();
 	let mainFinder: FileFinderApi | null = null;
 	let finderCwd: string | null = null;
 	// Concurrent ensureFinder() callers share the same in-flight promise so
@@ -454,7 +456,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 		// constraint stays relative to the picker's actual root.
 		const rebase = nodePath.relative(aux.root, route.root).replaceAll(nodePath.sep, "/");
 		const suffix = [rebase, route.suffix].filter(Boolean).join("/");
-		const query = buildQuery(suffix || undefined, pattern, exclude, aux.root);
+		const query = buildQuery(suffix || undefined, pattern, exclude, aux.root, config.defaultExcludes);
 		return { finder: aux.finder, query, root: aux.root };
 	}
 
@@ -633,7 +635,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 		),
 		exclude: Type.Optional(
 			Type.Union([Type.String(), Type.Array(Type.String())], {
-				description: "Path constraints to exclude; string or array, e.g. 'test/,*.min.js'.",
+				description: "Additional path constraints to exclude; configured defaults are always excluded.",
 			}),
 		),
 		caseSensitive: Type.Optional(
@@ -678,7 +680,9 @@ export default function fffExtension(pi: ExtensionAPI) {
 			// only caps per-file, so limit=5 could still return a full SDK page.
 			const pageSize = Math.min(effectiveLimit, GREP_PAGE_SIZE_MAX);
 			const context = clampContext(params.context);
-			const query = aux ? aux.query : buildQuery(params.path, pattern, params.exclude, activeCwd);
+			const query = aux
+				? aux.query
+				: buildQuery(params.path, pattern, params.exclude, activeCwd, config.defaultExcludes);
 
 			// Auto-detect: regex if the pattern has regex metacharacters AND parses
 			// as a valid regex, otherwise plain literal. The fuzzy fallback below
@@ -819,7 +823,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 		),
 		exclude: Type.Optional(
 			Type.Union([Type.String(), Type.Array(Type.String())], {
-				description: "Path constraints to exclude; string or array, e.g. 'test/,*.min.js'.",
+				description: "Additional path constraints to exclude; configured defaults are always excluded.",
 			}),
 		),
 		limit: Type.Optional(
@@ -864,7 +868,7 @@ export default function fffExtension(pi: ExtensionAPI) {
 				? resumed.query
 				: aux && "query" in aux
 					? (aux as { query: string }).query
-					: buildQuery(params.path, params.pattern, params.exclude, activeCwd);
+					: buildQuery(params.path, params.pattern, params.exclude, activeCwd, config.defaultExcludes);
 
 			const pattern = resumed ? resumed.pattern : params.pattern;
 			const pageIndex = resumed?.nextPageIndex ?? 0;

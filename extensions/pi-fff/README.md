@@ -81,7 +81,7 @@ This extension registers FFF-powered tools (`fffind`, `ffgrep`, `fff-multi-grep`
 
 ### `ffgrep`
 
-Search file contents. Smart case, plain text by default, regex optional.
+Search file contents. Smart case, plain text by default, regex optional. Configured default path exclusions apply.
 
 Parameters:
 - `pattern` — search text or regex
@@ -94,7 +94,7 @@ Parameters:
 
 ### `fffind`
 
-Fuzzy file name search. Frecency-ranked.
+Fuzzy file name search. Frecency-ranked. Configured default path exclusions apply.
 
 Parameters:
 - `pattern` — fuzzy query (e.g. `main.ts`, `src/ config`)
@@ -111,6 +111,18 @@ Parameters:
 - `context` — context lines
 - `limit` — max matches (default: 100)
 - `cursor` — pagination cursor
+
+## Configuration
+
+Create `pi-fff.json` in the Pi agent directory to replace the built-in default exclusions:
+
+```json
+{
+  "defaultExcludes": ["vendor", "generated"]
+}
+```
+
+Use an empty array to disable default exclusions. Reload Pi after changing the file.
 
 ## Commands
 
