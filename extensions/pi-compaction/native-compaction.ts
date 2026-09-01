@@ -59,6 +59,12 @@ function cloneItem<T>(value: T): T {
 	return structuredClone(value);
 }
 
+function cloneInputItem(value: ResponseItem): ResponseItem {
+	const item = cloneItem(value);
+	delete item.status;
+	return item;
+}
+
 function isResponseItem(value: unknown): value is ResponseItem {
 	if (!isJsonObject(value)) return false;
 	return (
@@ -211,7 +217,9 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 				if (block.type === "thinking" && typeof block.thinkingSignature === "string") {
 					try {
 						const reasoning = JSON.parse(block.thinkingSignature);
-						if (isJsonObject(reasoning) && reasoning.type === "reasoning") items.push(cloneItem(reasoning));
+						if (isJsonObject(reasoning) && reasoning.type === "reasoning") {
+							items.push(cloneInputItem(reasoning));
+						}
 					} catch {}
 					continue;
 				}
@@ -255,14 +263,12 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 					type: "tool_search_call",
 					call_id: searchCallId,
 					execution: "client",
-					status: "completed",
 					arguments: { query: addedTools.map((tool) => tool.name).join(" "), limit: addedTools.length },
 				});
 				items.push({
 					type: "tool_search_output",
 					call_id: searchCallId,
 					execution: "client",
-					status: "completed",
 					tools: addedTools.map((tool) => responseTool(tool, true)),
 				});
 			}
@@ -301,7 +307,7 @@ export function effectiveInputForBranch(params: {
 	if (checkpoint.status === "valid") {
 		const tail = branch.slice(checkpoint.checkpoint.entryIndex + 1);
 		return [
-			...checkpoint.checkpoint.details.replacementHistory.map(cloneItem),
+			...checkpoint.checkpoint.details.replacementHistory.map(cloneInputItem),
 			...entriesToResponseItems(params.model, tail, params.tools),
 		];
 	}
