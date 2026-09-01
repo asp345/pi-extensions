@@ -199,8 +199,8 @@ export class QuotaController {
 		this.refreshVersion += 1;
 		this.state = null;
 		for (const key of Object.keys(this.cache)) delete this.cache[key];
-		void this.refresh(ctx).catch(() => {});
 		this.restartTimer(ctx);
+		void this.refresh(ctx).catch(() => {});
 	}
 
 	stop(): void {

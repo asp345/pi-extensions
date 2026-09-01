@@ -38,6 +38,7 @@ export function normalizePathConstraint(pathConstraint: string, cwd = process.cw
 	if (/[*?[{]/.test(trimmed)) return trimmed;
 	// Filename with extension (`main.rs`, `config.json`) → FilePath constraint.
 	const lastSegment = trimmed.split("/").pop() ?? "";
+	if (lastSegment.startsWith(".") && !lastSegment.slice(1).includes(".")) return trimmed;
 	if (/\.[a-zA-Z][a-zA-Z0-9]{0,9}$/.test(lastSegment)) return trimmed;
 	// Bare directory prefix → append `/` so the parser sees a PathSegment.
 	return `${trimmed}/`;

@@ -7,7 +7,18 @@ export interface PiFffConfig {
 }
 
 export const DEFAULT_CONFIG: PiFffConfig = {
-	defaultExcludes: [".git/", ".direnv/", "coverage/", "target/", "result/"],
+	defaultExcludes: [
+		".direnv/",
+		".envrc",
+		".envrc/",
+		".claude/",
+		".codex",
+		".codex/",
+		".antigravitycli",
+		".antigravitycli/",
+		".worktrees/",
+		".pi/",
+	],
 };
 
 const CONFIG_FILE = join(getAgentDir(), "pi-fff.json");
