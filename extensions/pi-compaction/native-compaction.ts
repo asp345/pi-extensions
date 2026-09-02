@@ -193,6 +193,15 @@ function responseTool(tool: ToolInfo, deferLoading = false): JsonObject {
 	};
 }
 
+function assistantTextItem(text: string, phase?: "commentary" | "final_answer"): ResponseItem {
+	return {
+		type: "message",
+		role: "assistant",
+		content: [{ type: "output_text", text, annotations: [] }],
+		...(phase ? { phase } : {}),
+	};
+}
+
 function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: ToolInfo[]): ResponseItem[] {
 	const items: ResponseItem[] = [];
 	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
@@ -212,34 +221,37 @@ function messagesToResponseItems(model: Model<Api>, messages: Message[], tools: 
 		} else if (message.role === "assistant" && Array.isArray(message.content)) {
 			flushOrphanedToolCalls();
 			if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+			const isSameProvider = message.provider === model.provider;
 			for (const block of message.content) {
 				if (!isJsonObject(block)) continue;
-				if (block.type === "thinking" && typeof block.thinkingSignature === "string") {
-					try {
-						const reasoning = JSON.parse(block.thinkingSignature);
-						if (isJsonObject(reasoning) && reasoning.type === "reasoning") {
-							items.push(cloneInputItem(reasoning));
-						}
-					} catch {}
+				if (block.type === "thinking") {
+					if (isSameProvider && typeof block.thinkingSignature === "string") {
+						try {
+							const reasoning = JSON.parse(block.thinkingSignature);
+							if (isJsonObject(reasoning) && reasoning.type === "reasoning") {
+								items.push(cloneInputItem(reasoning));
+								continue;
+							}
+						} catch {}
+					}
+					if (typeof block.thinking === "string" && block.thinking.trim()) {
+						items.push(assistantTextItem(block.thinking));
+					}
 					continue;
 				}
 				if (block.type === "text" && typeof block.text === "string") {
 					const phase = textPhase(block.textSignature);
-					items.push({
-						type: "message",
-						role: "assistant",
-						content: [{ type: "output_text", text: block.text, annotations: [] }],
-						...(phase ? { phase } : {}),
-					});
+					items.push(assistantTextItem(block.text, phase));
 					continue;
 				}
 				if (block.type === "toolCall" && typeof block.id === "string") {
 					const [callId, rawItemId] = block.id.split("|");
+					const itemId = isSameProvider ? normalizedItemId(rawItemId) : undefined;
 					pendingToolCalls.set(block.id, callId);
 					items.push({
 						type: "function_call",
 						call_id: callId,
-						...(normalizedItemId(rawItemId) ? { id: normalizedItemId(rawItemId) } : {}),
+						...(itemId ? { id: itemId } : {}),
 						name: String(block.name ?? ""),
 						arguments: JSON.stringify(block.arguments ?? {}),
 					});
