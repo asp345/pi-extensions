@@ -34,9 +34,14 @@ function estimateTokens(textLen: number): number {
 	return Math.round(textLen / 4);
 }
 
+export interface MetricPartOptions {
+	speed?: boolean;
+	quota?: boolean;
+}
+
 export interface TokenStatsHandle {
 	/** Status-bar metrics excluding run timing, which index.ts appends. */
-	getMetricParts(theme: Theme, ctx: ExtensionContext): string[];
+	getMetricParts(theme: Theme, ctx: ExtensionContext, options?: MetricPartOptions): string[];
 }
 
 export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenStatsHandle {
@@ -87,7 +92,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		stats.lastSpeedRenderRequestAt = 0;
 	}
 
-	function getMetricParts(theme: Theme, ctx: ExtensionContext): string[] {
+	function getMetricParts(theme: Theme, ctx: ExtensionContext, options: MetricPartOptions = {}): string[] {
 		const dim = (s: string) => theme.fg("dim", s);
 		const warn = (s: string) => theme.fg("warning", s);
 		const ok = dim;
@@ -114,7 +119,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			if (segParts.length > 0) parts.push(segParts.join(" "));
 		}
 
-		if (cfg.speed) {
+		if (cfg.speed && options.speed !== false) {
 			let liveSpeed = stats.displayedLiveTokenSpeed;
 			const nowMs = Date.now();
 			if (stats.streaming && nowMs - stats.lastSpeedDisplayAt >= LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS) {
@@ -191,7 +196,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 
 		quota.handleProviderChange(ctx);
 		const quotaState = quota.state;
-		if (quotaState?.display) {
+		if (options.quota !== false && quotaState?.display) {
 			const qColor =
 				quotaState.color === "ok"
 					? ok

@@ -29,19 +29,26 @@ export default function piStatsExtension(pi: ExtensionAPI): void {
 				invalidate() {},
 				render(width: number): string[] {
 					if (!shared.sessionActive) return [];
-					const left = stats.getMetricParts(theme, ctx).join(theme.fg("dim", " | "));
+					const separator = theme.fg("dim", " | ");
+					let left = stats.getMetricParts(theme, ctx).join(separator);
 					const modelName = ctx.model?.id ?? "";
 					const provider = ctx.model?.provider ?? "";
 					const thinkingLevel = ctx.thinkingLevel ?? "off";
 					const model = theme.fg("dim", `${provider ? `(${provider}) ` : ""}${modelName} · ${thinkingLevel}`);
-					const leftWidth = visibleWidth(left);
 					const modelWidth = visibleWidth(model);
-					const topLine =
-						leftWidth + modelWidth <= width
-							? left + " ".repeat(width - leftWidth - modelWidth) + model
-							: leftWidth <= width
-								? left + " ".repeat(width - leftWidth) + truncateToWidth(model, Math.max(0, width - leftWidth), "")
-								: truncateToWidth(left, width);
+					const fitsWithModel = (value: string) => visibleWidth(value) + modelWidth + 2 <= width;
+					if (!fitsWithModel(left)) {
+						left = stats.getMetricParts(theme, ctx, { speed: false }).join(separator);
+					}
+					if (!fitsWithModel(left)) {
+						left = stats.getMetricParts(theme, ctx, { speed: false, quota: false }).join(separator);
+					}
+					const leftWidth = visibleWidth(left);
+					const topLine = fitsWithModel(left)
+						? left + " ".repeat(width - leftWidth - modelWidth) + model
+						: modelWidth <= width
+							? " ".repeat(width - modelWidth) + model
+							: truncateToWidth(model, width, "");
 
 					const cwd = formatUserPath(ctx.cwd ?? "");
 					const branch = footerData.getGitBranch();
