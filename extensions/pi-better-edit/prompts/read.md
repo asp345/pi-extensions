@@ -1,1 +1,0 @@
-Read a text file as 3-character `HASH│content` rows for use as edit anchors. Supports offset/limit pagination. Images return visual attachments; binary files, directories, and UTF-16/UTF-32 are rejected. Empty files return `HASH│`; BOM is stripped and invalid UTF-8 is shown as U+FFFD. Use `read_skill` for plain skill content.

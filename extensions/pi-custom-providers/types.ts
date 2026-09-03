@@ -1,4 +1,4 @@
-import type { Api, ModelThinkingLevel, OpenAICompletionsCompat, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Api, OpenAICompletionsCompat, ThinkingLevelMap } from "@earendil-works/pi-ai";
 
 export const API_OPTIONS = [
 	"openai-completions",
@@ -6,16 +6,6 @@ export const API_OPTIONS = [
 	"anthropic-messages",
 	"google-generative-ai",
 ] as const satisfies readonly Api[];
-
-export const THINKING_LEVELS = [
-	"off",
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const satisfies readonly ModelThinkingLevel[];
 
 export const DEFAULT_CONTEXT_WINDOW = 128_000;
 export const DEFAULT_MAX_TOKENS = 16_384;
@@ -53,10 +43,9 @@ export interface CustomProviderConfig {
 	compat?: OpenAICompletionsCompat;
 	/** Listing value × multiplier = USD per million tokens; "auto" detects the scale. */
 	priceMultiplier?: number | "auto";
-	models?: CustomModelConfig[];
 }
 
-export interface ModelsFile {
+export interface CustomProvidersFile {
 	providers: Record<string, CustomProviderConfig>;
 }
 

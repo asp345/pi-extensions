@@ -31,7 +31,7 @@
 			"./extensions/pi-lsp/index.ts",
 			"./extensions/pi-nix-store-guard/index.ts",
 			"./extensions/pi-openrouter-metadata/index.ts",
-			"./extensions/pi-setup-custom-providers/index.ts",
+			"./extensions/pi-custom-providers/index.ts",
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
@@ -39,9 +39,7 @@
 			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-service-tier/index.ts",
 			"./extensions/pi-stats/index.ts",
-			"./extensions/pi-model-thinking/index.ts",
-			"./extensions/pi-better-edit/index.ts",
-			"./extensions/pi-fff/src/index.ts"
+			"./extensions/pi-model-thinking/index.ts"
 		],
 		"prompts": [
 			"./prompts"

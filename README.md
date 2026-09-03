@@ -16,14 +16,12 @@ My personal Pi monorepo.
 - `extensions/pi-lsp/`
 - `extensions/pi-nix-store-guard/`
 - `extensions/pi-openrouter-metadata/`
-- `extensions/pi-setup-custom-providers/`
+- `extensions/pi-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-service-tier/`
 - `extensions/pi-stats/`
 - `extensions/pi-model-thinking/`
-- `extensions/pi-better-edit/`
-- `extensions/pi-fff/`
 - `extensions/pi-question/`
 - `extensions/pi-themes/`
 

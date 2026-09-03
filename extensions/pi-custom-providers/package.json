@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/pi-setup-custom-providers",
+	"name": "@asp345/pi-custom-providers",
 	"version": "0.0.0",
-	"description": "Custom provider setup wizard for pi",
+	"description": "Custom provider management for pi",
 	"license": "MIT",
 	"type": "module",
 	"main": "./index.ts",

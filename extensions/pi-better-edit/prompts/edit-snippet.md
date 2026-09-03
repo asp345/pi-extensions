@@ -1,1 +1,0 @@
-Edit lines with `{ "path": path, "edits": [[remove_from, remove_to, replacement_text], ...] }`; `path` `string|null`, two bare 3-char HASHes per range (e.g. `"aB3"`). After success chain from diff anchors (formatter-safe, no `read`); on error obey its hint — 'no read needed' → retry from echo, 're-read' → call `read`.

@@ -6,4 +6,4 @@ The extension keeps Pi's bundled OpenRouter models as an offline and compatibili
 
 Validated overlays are cached in `~/.config/pi/openrouter-metadata-store.json`. Network refreshes revalidate the cache after five minutes, while offline and failed refreshes retain the previous catalog.
 
-This extension does not configure custom providers. Use `pi-setup-custom-providers` and `/custom-model` for that.
+This extension does not configure custom providers. Use `pi-custom-providers` and `/custom-providers` for that.

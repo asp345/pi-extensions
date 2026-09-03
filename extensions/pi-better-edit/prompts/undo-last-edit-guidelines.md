@@ -1,1 +1,0 @@
-- undo_last_edit: use immediately when a diff shows unintended changes. It only reverts the latest edit, and any later write clears its history.

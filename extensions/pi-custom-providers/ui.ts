@@ -2,14 +2,13 @@ import type { Api } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, matchesKey, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
-import { discoverProviderModels, mergeConfiguredModels } from "./discovery.ts";
-import type { CustomModelConfig, CustomProviderConfig, ModelMetadata, ModelsFile } from "./types.ts";
-import { API_OPTIONS, DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, THINKING_LEVELS } from "./types.ts";
+import type { CustomProviderConfig, CustomProvidersFile } from "./types.ts";
+import { API_OPTIONS } from "./types.ts";
 
 const THINKING_FORMATS = ["openai", "openrouter", "deepseek", "together", "zai", "qwen"] as const;
 const MAX_TOKENS_FIELDS = ["max_completion_tokens", "max_tokens"] as const;
 
-type Save = (data: ModelsFile) => Promise<void>;
+type Save = (data: CustomProvidersFile) => Promise<void>;
 
 export const MAX_VISIBLE_ROWS = 10;
 
@@ -99,43 +98,18 @@ async function pick<T extends string>(
 	return selected === null || selected === undefined ? undefined : (selected as T);
 }
 
-function positiveInteger(value: string | undefined): number | undefined {
-	if (value === undefined) return undefined;
-	const parsed = Number(value.trim());
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
-}
-
 function formatPriceMultiplier(value: number | "auto" | undefined): string {
 	return value === undefined || value === "auto" ? "auto" : String(value);
 }
 
 /** Menu rows are labelled by id and described by this detail line. */
-function providerDetail(ctx: ExtensionContext, providerId: string, config: CustomProviderConfig): string {
-	const models = `${config.models?.length ?? 0} models`;
+function providerDetail(ctx: ExtensionContext, providerId: string): string {
+	const models = `${ctx.modelRegistry.getProvider(providerId)?.getModels().length ?? 0} models`;
 	const authenticated = ctx.modelRegistry.getProviderAuthStatus(providerId).configured;
 	return authenticated ? models : `${models} · no credentials`;
 }
 
-function modelDetail(model: CustomModelConfig): string {
-	const reasoning = model.reasoning ? "thinking" : "no thinking";
-	return `${reasoning} · ${model.input?.includes("image") ? "image" : "text"}`;
-}
-
-function metadataToModel(metadata: ModelMetadata): CustomModelConfig {
-	return {
-		id: metadata.id,
-		name: metadata.name ?? metadata.id,
-		reasoning: metadata.reasoning === true,
-		thinkingLevelMap: metadata.thinkingLevelMap ? { ...metadata.thinkingLevelMap } : undefined,
-		input: metadata.input ?? ["text"],
-		cost: metadata.cost,
-		contextWindow: metadata.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-		maxTokens: metadata.maxTokens ?? DEFAULT_MAX_TOKENS,
-		limitSource: metadata.contextWindow || metadata.maxTokens ? "detected" : "default",
-	};
-}
-
-async function addProvider(ctx: ExtensionContext, data: ModelsFile, save: Save): Promise<void> {
+async function addProvider(ctx: ExtensionContext, data: CustomProvidersFile, save: Save): Promise<void> {
 	const providerId = (await ctx.ui.input("Provider ID", "novita"))?.trim();
 	if (!providerId) return;
 	if (data.providers[providerId]) {
@@ -162,10 +136,9 @@ async function addProvider(ctx: ExtensionContext, data: ModelsFile, save: Save):
 		baseUrl,
 		api: api as Api,
 		apiKey: apiKey || undefined,
-		models: [],
 	};
 	await save(data);
-	ctx.ui.notify(`Added provider "${providerId}". Add models here or authenticate with /login.`, "info");
+	ctx.ui.notify(`Added provider "${providerId}". Authenticate with /login if credentials are not configured.`, "info");
 }
 
 async function editProviderConnection(
@@ -272,168 +245,21 @@ async function editProviderCompatibility(
 	}
 }
 
-async function editThinkingMap(
-	ctx: ExtensionContext,
-	model: CustomModelConfig,
-	save: () => Promise<void>,
-): Promise<void> {
-	model.reasoning = true;
-	for (;;) {
-		if (!model.thinkingLevelMap) model.thinkingLevelMap = {};
-		const map = model.thinkingLevelMap;
-		const level = await pick(ctx, `Thinking map: ${model.id}`, [
-			...THINKING_LEVELS.map((item) => ({
-				label: `${item}: ${map[item] === null ? "unsupported" : (map[item] ?? "default")}`,
-				value: item,
-			})),
-			{ label: "Back", value: "back" as const },
-		]);
-		if (!level || level === "back") return;
-		const action = await pick(ctx, `Map ${level}`, [
-			{ label: "Use Pi level name", value: "same" },
-			{ label: "Custom provider value", value: "custom" },
-			{ label: "Unsupported", value: "unsupported" },
-			{ label: "Default behavior", value: "default" },
-		]);
-		if (!action) continue;
-		if (action === "same") map[level] = level;
-		else if (action === "unsupported") map[level] = null;
-		else if (action === "default") delete map[level];
-		else {
-			const value = (await ctx.ui.input(`Provider value for ${level}`, map[level] ?? level))?.trim();
-			if (!value) continue;
-			map[level] = value;
-		}
-		if (Object.keys(map).length === 0) model.thinkingLevelMap = undefined;
-		await save();
-	}
-}
-
-async function editModel(
-	ctx: ExtensionContext,
-	providerId: string,
-	config: CustomProviderConfig,
-	model: CustomModelConfig,
-	save: () => Promise<void>,
-): Promise<void> {
-	for (;;) {
-		const action = await pick(ctx, `${model.id} — ${modelDetail(model)}`, [
-			{ label: `Name: ${model.name ?? model.id}`, value: "name" },
-			{ label: `Reasoning: ${model.reasoning === true ? "yes" : "no"}`, value: "reasoning" },
-			{ label: "Thinking level mappings", value: "map" },
-			{ label: `Image input: ${model.input?.includes("image") ? "yes" : "no"}`, value: "image" },
-			{ label: `Context window: ${model.contextWindow ?? DEFAULT_CONTEXT_WINDOW}`, value: "context" },
-			{ label: `Max output: ${model.maxTokens ?? DEFAULT_MAX_TOKENS}`, value: "output" },
-			{ label: "Remove model", value: "remove" },
-			{ label: "Back", value: "back" },
-		]);
-		if (!action || action === "back") return;
-		if (action === "name") {
-			const value = await ctx.ui.input("Display name", model.name ?? model.id);
-			if (value !== undefined) model.name = value.trim() || model.id;
-		} else if (action === "reasoning") {
-			model.reasoning = model.reasoning !== true;
-		} else if (action === "map") {
-			await editThinkingMap(ctx, model, save);
-			continue;
-		} else if (action === "image") {
-			model.input = model.input?.includes("image") ? ["text"] : ["text", "image"];
-		} else if (action === "context" || action === "output") {
-			const current = action === "context" ? model.contextWindow : model.maxTokens;
-			const value = positiveInteger(
-				await ctx.ui.input(action === "context" ? "Context window" : "Max output tokens", String(current ?? "")),
-			);
-			if (!value) {
-				ctx.ui.notify("Enter a positive integer", "warning");
-				continue;
-			}
-			if (action === "context") model.contextWindow = value;
-			else model.maxTokens = value;
-			model.limitSource = "manual";
-		} else {
-			if (!(await ctx.ui.confirm("Remove model?", `${providerId}/${model.id}`))) continue;
-			config.models = (config.models ?? []).filter((candidate) => candidate !== model);
-			await save();
-			return;
-		}
-		await save();
-	}
-}
-
-async function addModel(ctx: ExtensionContext, config: CustomProviderConfig, save: () => Promise<void>): Promise<void> {
-	const id = (await ctx.ui.input("Model ID", "vendor/model"))?.trim();
-	if (!id) return;
-	if (config.models?.some((model) => model.id.toLowerCase() === id.toLowerCase())) {
-		ctx.ui.notify(`Model "${id}" already exists`, "warning");
-		return;
-	}
-	const model: CustomModelConfig = {
-		id,
-		name: id,
-		reasoning: false,
-		input: ["text"],
-		contextWindow: DEFAULT_CONTEXT_WINDOW,
-		maxTokens: DEFAULT_MAX_TOKENS,
-		limitSource: "default",
-	};
-	if (!config.models) config.models = [];
-	config.models.push(model);
-	await save();
-	await editModel(ctx, "", config, model, save);
-}
-
-async function discoverModels(
-	ctx: ExtensionContext,
-	providerId: string,
-	config: CustomProviderConfig,
-	save: () => Promise<void>,
-): Promise<void> {
+async function refreshModels(ctx: ExtensionContext, providerId: string): Promise<void> {
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), 15_000);
 	try {
-		const auth = await ctx.modelRegistry.getProviderAuth(providerId).catch(() => undefined);
-		const discovered = await discoverProviderModels(config, auth, controller.signal);
-		const existing = new Set((config.models ?? []).map((model) => model.id.toLowerCase()));
-		const fresh = [...discovered.values()].filter((model) => !existing.has(model.id.toLowerCase()));
-		const action = await pick(ctx, `Discovered ${discovered.size} models`, [
-			{ label: `Refresh metadata for ${config.models?.length ?? 0} configured models`, value: "refresh" },
-			{ label: `Add all ${fresh.length} new models`, value: "all" },
-			{ label: "Choose new models one at a time", value: "choose" },
-			{ label: "Back", value: "back" },
-		]);
-		if (!action || action === "back") return;
-		if (action === "refresh") {
-			config.models = mergeConfiguredModels(config.models ?? [], discovered);
-			await save();
-			ctx.ui.notify("Model metadata refreshed", "info");
-			return;
-		}
-		if (action === "all") {
-			if (!config.models) config.models = [];
-			config.models.push(...fresh.map(metadataToModel));
-			await save();
-			ctx.ui.notify(`Added ${fresh.length} models`, "info");
-			return;
-		}
-		const remaining = [...fresh];
-		while (remaining.length > 0) {
-			const selected = await pick(ctx, `Add a model (${remaining.length} new)`, [
-				{ label: "Done", value: "" },
-				...remaining.map((model) => ({
-					label: model.id,
-					value: model.id,
-					description: model.reasoning ? "thinking" : undefined,
-				})),
-			]);
-			if (!selected) return;
-			const index = remaining.findIndex((model) => model.id === selected);
-			const model = remaining[index];
-			if (!model) continue;
-			if (!config.models) config.models = [];
-			config.models.push(metadataToModel(model));
-			remaining.splice(index, 1);
-			await save();
-		}
+		const result = await ctx.modelRegistry.refresh({
+			providers: [providerId],
+			allowNetwork: true,
+			force: true,
+			signal: controller.signal,
+		});
+		if (result.aborted) throw new Error("Model catalog refresh timed out");
+		const error = result.errors.get(providerId);
+		if (error) throw error;
+		const count = ctx.modelRegistry.getProvider(providerId)?.getModels().length ?? 0;
+		ctx.ui.notify(`Refreshed ${count} models`, "info");
 	} catch (error) {
 		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 	} finally {
@@ -441,49 +267,25 @@ async function discoverModels(
 	}
 }
 
-async function manageModels(
+async function manageProvider(
 	ctx: ExtensionContext,
 	providerId: string,
-	config: CustomProviderConfig,
-	save: () => Promise<void>,
+	data: CustomProvidersFile,
+	save: Save,
 ): Promise<void> {
-	for (;;) {
-		const models = config.models ?? [];
-		const selected = await pick(ctx, `Models: ${providerId} (${models.length})`, [
-			{ label: "Add model", value: "add" },
-			{ label: "Back", value: "back" },
-			...models.map((model, index) => ({
-				label: model.id,
-				value: `model:${index}`,
-				description: modelDetail(model),
-			})),
-		]);
-		if (!selected || selected === "back") return;
-		if (selected === "add") {
-			await addModel(ctx, config, save);
-			continue;
-		}
-		const model = models[Number(selected.slice("model:".length))];
-		if (model) await editModel(ctx, providerId, config, model, save);
-	}
-}
-
-async function manageProvider(ctx: ExtensionContext, providerId: string, data: ModelsFile, save: Save): Promise<void> {
 	const config = data.providers[providerId];
 	if (!config) return;
 	const persist = () => save(data);
 	for (;;) {
-		const action = await pick(ctx, `${providerId} — ${providerDetail(ctx, providerId, config)}`, [
-			{ label: "Models", value: "models" },
-			{ label: "Discover or refresh models", value: "discover" },
+		const action = await pick(ctx, `${providerId} — ${providerDetail(ctx, providerId)}`, [
+			{ label: "Refresh model catalog", value: "discover" },
 			{ label: "Connection", value: "connection" },
 			{ label: "Compatibility", value: "compat" },
 			{ label: "Remove provider", value: "remove" },
 			{ label: "Back", value: "back" },
 		]);
 		if (!action || action === "back") return;
-		if (action === "models") await manageModels(ctx, providerId, config, persist);
-		else if (action === "discover") await discoverModels(ctx, providerId, config, persist);
+		if (action === "discover") await refreshModels(ctx, providerId);
 		else if (action === "connection") await editProviderConnection(ctx, providerId, config, persist);
 		else if (action === "compat") await editProviderCompatibility(ctx, providerId, config, persist);
 		else {
@@ -495,16 +297,20 @@ async function manageProvider(ctx: ExtensionContext, providerId: string, data: M
 	}
 }
 
-export async function runCustomModelUi(ctx: ExtensionContext, data: ModelsFile, save: Save): Promise<void> {
+export async function runCustomProvidersUi(
+	ctx: ExtensionContext,
+	data: CustomProvidersFile,
+	save: Save,
+): Promise<void> {
 	for (;;) {
 		const entries = Object.entries(data.providers);
-		const selected = await pick(ctx, "Custom model providers", [
+		const selected = await pick(ctx, "Custom providers", [
 			{ label: "Add provider", value: "add" },
 			{ label: "Done", value: "done" },
-			...entries.map(([providerId, config], index) => ({
+			...entries.map(([providerId], index) => ({
 				label: providerId,
 				value: `provider:${index}`,
-				description: providerDetail(ctx, providerId, config),
+				description: providerDetail(ctx, providerId),
 			})),
 		]);
 		if (!selected || selected === "done") return;

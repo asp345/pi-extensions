@@ -1,12 +1,12 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ModelsFile } from "./types.ts";
+import type { CustomProvidersFile } from "./types.ts";
 
-export const MODELS_FILE = join(getAgentDir(), "models.json");
+export const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");
 export const MODELS_STORE_FILE = join(getAgentDir(), "models-store.json");
 
-export async function readModelsFile(path = MODELS_FILE): Promise<ModelsFile> {
+export async function readCustomProvidersFile(path = CUSTOM_PROVIDERS_FILE): Promise<CustomProvidersFile> {
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
@@ -17,14 +17,14 @@ export async function readModelsFile(path = MODELS_FILE): Promise<ModelsFile> {
 
 	const value = JSON.parse(text) as unknown;
 	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		throw new Error("models.json must contain an object");
+		throw new Error("custom-providers.json must contain an object");
 	}
 	const root = value as { providers?: unknown };
 	if (root.providers === undefined) root.providers = {};
 	if (typeof root.providers !== "object" || root.providers === null || Array.isArray(root.providers)) {
-		throw new Error("models.json providers must contain an object");
+		throw new Error("custom-providers.json providers must contain an object");
 	}
-	return value as ModelsFile;
+	return value as CustomProvidersFile;
 }
 
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
@@ -36,24 +36,16 @@ async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
 	await chmod(path, 0o600);
 }
 
-export async function writeModelsFile(data: ModelsFile, path = MODELS_FILE): Promise<void> {
+export async function writeCustomProvidersFile(data: CustomProvidersFile, path = CUSTOM_PROVIDERS_FILE): Promise<void> {
 	await writeJsonAtomic(path, data);
 }
 
-/**
- * Pi never deletes a models-store entry, even when the provider is
- * unregistered, so entries authored for removed custom providers linger
- * indefinitely. They stay readable offline and outrank the user's
- * configuration on the next merge, which is the failure that surfaced
- * earlier. Entries for pi's built-in providers and for providers still
- * present in models.json are left untouched; only entries that no longer have
- * a live configuration are dropped. The removed ids are returned so callers
- * can report what was pruned.
- */
-export async function pruneModelsStore(
-	liveProviders: ReadonlySet<string>,
+/** Removes cached catalogs only for providers removed through this extension. */
+export async function removeModelsStoreProviders(
+	providerIds: ReadonlySet<string>,
 	path = MODELS_STORE_FILE,
 ): Promise<string[]> {
+	if (providerIds.size === 0) return [];
 	let text: string;
 	try {
 		text = await readFile(path, "utf8");
@@ -70,10 +62,9 @@ export async function pruneModelsStore(
 	}
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
 	const store = value as Record<string, unknown>;
-
-	const orphans = Object.keys(store).filter((providerId) => !liveProviders.has(providerId));
-	if (orphans.length === 0) return [];
-	for (const providerId of orphans) delete store[providerId];
+	const removed = [...providerIds].filter((providerId) => providerId in store);
+	if (removed.length === 0) return [];
+	for (const providerId of removed) delete store[providerId];
 	await writeJsonAtomic(path, store);
-	return orphans;
+	return removed;
 }

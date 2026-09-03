@@ -1,1 +1,0 @@
-Load skill files as plain text without edit anchors or served state. Use `read` for files that may be edited. Images return visual attachments; binary files and directories are rejected, and long output is truncated.

@@ -1,6 +1,5 @@
 import type { AuthResult, ThinkingLevelMap } from "@earendil-works/pi-ai";
-import type { CustomModelConfig, CustomProviderConfig, ModelCost, ModelMetadata } from "./types.ts";
-import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from "./types.ts";
+import type { CustomProviderConfig, ModelCost, ModelMetadata } from "./types.ts";
 
 const MAX_CATALOG_BYTES = 16_000_000;
 
@@ -226,38 +225,4 @@ export async function discoverProviderModels(
 		}
 	}
 	throw new Error(errors.join("; "));
-}
-
-/**
- * Capabilities, effort names, and prices all describe the serving endpoint, so
- * every field is taken from the provider's own listing or from the value set by
- * hand. A shared catalog describes some other gateway and would claim support
- * this endpoint may not have.
- */
-export function mergeConfiguredModels(
-	configured: readonly CustomModelConfig[],
-	discovered: ReadonlyMap<string, ModelMetadata>,
-): CustomModelConfig[] {
-	return configured.map((model) => {
-		const key = model.id.trim().toLowerCase();
-		const metadata = discovered.get(key);
-		if (!metadata) return { ...model };
-		const manualLimits = model.limitSource === "manual";
-		return {
-			...model,
-			name: model.name ?? metadata.name ?? model.id,
-			reasoning: metadata.reasoning === true ? true : model.reasoning,
-			thinkingLevelMap:
-				model.thinkingLevelMap ?? (metadata.thinkingLevelMap ? { ...metadata.thinkingLevelMap } : undefined),
-			input: metadata.input?.includes("image") ? ["text", "image"] : (model.input ?? ["text"]),
-			cost: metadata.cost ?? model.cost,
-			contextWindow: manualLimits
-				? (model.contextWindow ?? DEFAULT_CONTEXT_WINDOW)
-				: (metadata.contextWindow ?? model.contextWindow ?? DEFAULT_CONTEXT_WINDOW),
-			maxTokens: manualLimits
-				? (model.maxTokens ?? DEFAULT_MAX_TOKENS)
-				: (metadata.maxTokens ?? model.maxTokens ?? DEFAULT_MAX_TOKENS),
-			limitSource: manualLimits ? "manual" : metadata.contextWindow || metadata.maxTokens ? "detected" : "default",
-		};
-	});
 }

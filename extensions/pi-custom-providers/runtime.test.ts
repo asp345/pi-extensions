@@ -8,15 +8,13 @@ import type { CustomModelConfig, CustomProviderConfig } from "./types.ts";
 function recordingPi() {
 	const registered: string[] = [];
 	const unregistered: string[] = [];
-	const configs = new Map<string, ProviderConfig>();
 	const pi = {
-		registerProvider: (name: string, config: ProviderConfig) => {
+		registerProvider: (name: string, _config: ProviderConfig) => {
 			registered.push(name);
-			configs.set(name, config);
 		},
 		unregisterProvider: (name: string) => unregistered.push(name),
 	} as unknown as ExtensionAPI;
-	return { pi, registered, unregistered, configs };
+	return { pi, registered, unregistered };
 }
 
 test("a configured thinking map reaches pi untouched", () => {
@@ -52,30 +50,13 @@ test("the system role is the default, and an explicit setting still wins", () =>
 	);
 });
 
-test("provider compatibility overrides reach every model, and model entries win", () => {
-	const { pi, configs } = recordingPi();
-	createProviderRegistrar(pi)({
-		providers: {
-			novita: {
-				baseUrl: "https://api.novita.ai/openai",
-				api: "openai-completions",
-				compat: { supportsDeveloperRole: true, maxTokensField: "max_tokens" },
-				models: [{ id: "a" }, { id: "b", compat: { maxTokensField: "max_completion_tokens" } }],
-			},
-		},
-	});
-	const models = configs.get("novita")?.models;
-	assert.deepEqual(models?.[0]?.compat, { supportsDeveloperRole: true, maxTokensField: "max_tokens" });
-	assert.deepEqual(models?.[1]?.compat, { supportsDeveloperRole: true, maxTokensField: "max_completion_tokens" });
-});
-
 test("only complete custom providers are registered, and built-ins are never replaced", () => {
 	const { pi, registered } = recordingPi();
 	createProviderRegistrar(pi)({
 		providers: {
-			novita: { baseUrl: "https://api.novita.ai/openai", api: "openai-completions", models: [{ id: "a" }] },
-			incomplete: { models: [{ id: "b" }] },
-			openrouter: { baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions", models: [{ id: "c" }] },
+			novita: { baseUrl: "https://api.novita.ai/openai", api: "openai-completions" },
+			incomplete: {},
+			openrouter: { baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions" },
 		},
 	});
 	assert.deepEqual(registered, ["novita"]);
@@ -83,7 +64,7 @@ test("only complete custom providers are registered, and built-ins are never rep
 
 test("providers removed from the file are unregistered", () => {
 	const { pi, registered, unregistered } = recordingPi();
-	const provider = { baseUrl: "https://example.com/v1", api: "openai-completions" as const, models: [{ id: "a" }] };
+	const provider = { baseUrl: "https://example.com/v1", api: "openai-completions" as const };
 	const registerProviders = createProviderRegistrar(pi);
 
 	registerProviders({ providers: { temp: provider } });

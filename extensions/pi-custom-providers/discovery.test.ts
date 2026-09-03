@@ -1,13 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-	capabilityTokens,
-	discoverProviderModels,
-	mergeConfiguredModels,
-	modelEndpointCandidates,
-	parseModelMetadata,
-} from "./discovery.ts";
-import type { ModelMetadata } from "./types.ts";
+import { capabilityTokens, discoverProviderModels, modelEndpointCandidates, parseModelMetadata } from "./discovery.ts";
 
 test("Novita listings expose reasoning, context, casing, and per-million pricing", () => {
 	const model = parseModelMetadata({
@@ -139,75 +132,4 @@ test("discovery reports every endpoint failure", async () => {
 	} finally {
 		globalThis.fetch = original;
 	}
-});
-
-function metadata(entries: Record<string, ModelMetadata>): Map<string, ModelMetadata> {
-	return new Map(Object.entries(entries));
-}
-
-test("the provider listing supplies metadata, and manual limits survive", () => {
-	const merged = mergeConfiguredModels(
-		[
-			{ id: "vendor/model", contextWindow: 8000, maxTokens: 1000, limitSource: "default" },
-			{ id: "vendor/manual", contextWindow: 4096, maxTokens: 512, limitSource: "manual" },
-		],
-		metadata({
-			"vendor/model": {
-				id: "vendor/model",
-				reasoning: true,
-				input: ["text", "image"],
-				cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: 262_144,
-				maxTokens: 65_536,
-			},
-			"vendor/manual": { id: "vendor/manual", contextWindow: 262_144 },
-		}),
-	);
-
-	assert.deepEqual(merged[0], {
-		id: "vendor/model",
-		name: "vendor/model",
-		reasoning: true,
-		thinkingLevelMap: undefined,
-		input: ["text", "image"],
-		cost: { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 262_144,
-		maxTokens: 65_536,
-		limitSource: "detected",
-	});
-	assert.equal(merged[1]?.contextWindow, 4096);
-	assert.equal(merged[1]?.limitSource, "manual");
-});
-
-test("a model missing from the listing keeps its configuration untouched", () => {
-	const [model] = mergeConfiguredModels(
-		[{ id: "vendor/model", reasoning: true, contextWindow: 4096, thinkingLevelMap: { low: "low" } }],
-		metadata({}),
-	);
-
-	assert.equal(model?.reasoning, true);
-	assert.equal(model?.contextWindow, 4096);
-	assert.deepEqual(model?.thinkingLevelMap, { low: "low" });
-});
-
-test("pricing refreshes even when a stale zero cost was stored", () => {
-	const [model] = mergeConfiguredModels(
-		[{ id: "vendor/model", cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }],
-		metadata({
-			"vendor/model": { id: "vendor/model", cost: { input: 0.27, output: 1.12, cacheRead: 0, cacheWrite: 0 } },
-		}),
-	);
-
-	assert.deepEqual(model?.cost, { input: 0.27, output: 1.12, cacheRead: 0, cacheWrite: 0 });
-});
-
-test("user edits are never overwritten by discovery", () => {
-	const [model] = mergeConfiguredModels(
-		[{ id: "vendor/model", name: "My name", reasoning: true, thinkingLevelMap: { max: "max" } }],
-		metadata({ "vendor/model": { id: "vendor/model", name: "Vendor name", reasoning: false } }),
-	);
-
-	assert.equal(model?.name, "My name");
-	assert.equal(model?.reasoning, true);
-	assert.deepEqual(model?.thinkingLevelMap, { max: "max" });
 });
