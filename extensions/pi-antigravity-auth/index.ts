@@ -33,6 +33,7 @@ import {
 	ensureProjectContext,
 	exchangeAntigravity,
 	fetchWithAgyCliTransport,
+	MODEL_CATALOG_TTL_MS,
 	orderAgyRequestPayloadInPlace,
 	refreshAntigravityToken,
 	refreshModelCatalog,
@@ -770,24 +771,78 @@ const TIER_THINKING_LEVEL_MAP: ThinkingLevelMap = {
 	max: null,
 };
 
+function modelThinkingLevelMap(model: AgyModelDefinition): ThinkingLevelMap | undefined {
+	if (!model.reasoning) return undefined;
+	const tiers = new Set(model.tiers?.map(({ tier }) => tier));
+	if (tiers.size === 0 || tiers.has("default")) return { ...TIER_THINKING_LEVEL_MAP };
+	return {
+		minimal: null,
+		low: tiers.has("low") ? "low" : null,
+		medium: tiers.has("medium") ? "medium" : null,
+		high: tiers.has("high") ? "high" : null,
+		xhigh: null,
+		max: null,
+	};
+}
+
 export default function antigravityAuth(pi: ExtensionAPI): void {
 	const toProviderModels = (definitions: AgyModelDefinition[]) =>
 		definitions.map((model) => ({
 			id: model.id.replace(/^antigravity-/, ""),
 			name: model.name,
 			reasoning: model.reasoning,
-			thinkingLevelMap: model.reasoning ? { ...TIER_THINKING_LEVEL_MAP } : undefined,
+			thinkingLevelMap: modelThinkingLevelMap(model),
 			input: model.input,
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: model.contextWindow,
 			maxTokens: model.maxTokens,
 		}));
-	const models = toProviderModels(STATIC_MODEL_CATALOG);
+	const staticModels = toProviderModels(STATIC_MODEL_CATALOG);
 	const provider: Parameters<ExtensionAPI["registerProvider"]>[1] = {
 		name: "Google Antigravity",
 		baseUrl: "https://cloudcode-pa.googleapis.com",
 		api: "google-generative-ai",
-		models,
+		models: staticModels,
+		refreshModels: async (context) => {
+			const storedModels = context.stored?.models.map((model) => ({
+				id: model.id,
+				name: model.name,
+				reasoning: model.reasoning,
+				thinkingLevelMap: model.thinkingLevelMap,
+				input: model.input,
+				cost: model.cost,
+				contextWindow: model.contextWindow,
+				maxTokens: model.maxTokens,
+			}));
+			const fallback = storedModels?.length ? storedModels : staticModels;
+			const checkedAt = context.stored?.checkedAt ?? 0;
+			if (
+				!context.allowNetwork ||
+				(!context.force && Date.now() - checkedAt < MODEL_CATALOG_TTL_MS) ||
+				context.credential?.type !== "oauth"
+			) {
+				return fallback;
+			}
+
+			try {
+				const refreshed = toProviderModels(await refreshModelCatalog(context.credential.access, context.signal));
+				const refreshedAt = Date.now();
+				await context.publish({
+					persist: {
+						checkedAt: refreshedAt,
+						models: refreshed.map((model) => ({
+							...model,
+							api: "google-generative-ai",
+							provider: PROVIDER_ID,
+							baseUrl: "https://cloudcode-pa.googleapis.com",
+						})),
+					},
+				});
+				return refreshed;
+			} catch {
+				return fallback;
+			}
+		},
 		oauth: {
 			name: "Google Antigravity",
 			usesCallbackServer: true,
@@ -795,14 +850,6 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 			refreshToken: refresh,
 			getApiKey: (credentials: OAuthCredentials) => {
 				rememberRefresh(credentials.access, credentials.refresh);
-				// Refresh the model catalog in the background so new releases appear
-				// without code changes; failures keep the current catalog.
-				void refreshModelCatalog(credentials.access).then(
-					(definitions) => {
-						provider.models = toProviderModels(definitions);
-					},
-					() => {},
-				);
 				return credentials.access;
 			},
 		},

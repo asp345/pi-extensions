@@ -26,6 +26,14 @@ export function resolveModelForAntigravity(requestedModel: string, tier?: string
 	if (/^gemini-3\.1-pro/.test(id)) {
 		return findTier("gemini-3.1-pro", tier) ?? { actualModel: "gemini-3.1-pro-low", thinkingBudget: 1001 };
 	}
+	if (/^gemini-3\.8-flash/.test(id)) {
+		return (
+			findTier("gemini-3.8-flash", tier) ?? {
+				actualModel: `gemini-3.8-flash-${tier ?? "medium"}`,
+				thinkingBudget: tier === "low" ? 1000 : tier === "high" ? -1 : 4000,
+			}
+		);
+	}
 	if (/^gemini-3\.7-flash/.test(id)) {
 		return (
 			findTier("gemini-3.7-flash", tier) ?? {

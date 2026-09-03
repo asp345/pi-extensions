@@ -11,7 +11,7 @@ import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
 import { fetchWithAgyCliTransport } from "./transport.ts";
 
 export interface AgyModelTier {
-	tier: "low" | "medium" | "high";
+	tier: "default" | "low" | "medium" | "high";
 	wireModel: string;
 	thinkingBudget: number;
 }
@@ -40,7 +40,7 @@ interface FetchAvailableModelsResponse {
 }
 
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
-const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
+export const MODEL_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 const TIER_SUFFIX_REGEX = /-(minimal|low|medium|high|extra-low|tiered)$/;
 
 let cachedModels: AgyModelDefinition[] | undefined;
@@ -99,11 +99,11 @@ export function normalizeRemoteModels(payload: FetchAvailableModelsResponse): Ag
 			entry.tiers.set("default", { wireModel: id, thinkingBudget: info.thinkingBudget ?? 1024 });
 		}
 	}
-	const order = { low: 0, medium: 1, high: 2 } as const;
+	const order: Record<AgyModelTier["tier"], number> = { default: 0, low: 1, medium: 2, high: 3 };
 	return [...byBase.values()].map(({ def, tiers }) => {
 		const tierList = [...tiers.entries()]
 			.filter(([tier]) => tier !== "default" || tiers.size === 1)
-			.map(([tier, value]) => ({ tier: tier as "low" | "medium" | "high", ...value }))
+			.map(([tier, value]) => ({ tier: tier as AgyModelTier["tier"], ...value }))
 			.sort((a, b) => order[a.tier] - order[b.tier]);
 		return { ...def, ...(tierList.length ? { tiers: tierList } : {}) };
 	});
@@ -158,11 +158,24 @@ export async function refreshModelCatalog(accessToken: string, signal?: AbortSig
 
 /** True when the catalog is older than the TTL and a refresh is worthwhile. */
 export function modelCatalogStale(): boolean {
-	return Date.now() - cachedAt > CATALOG_TTL_MS;
+	return Date.now() - cachedAt > MODEL_CATALOG_TTL_MS;
 }
 
 /** Static snapshot used before the first successful network refresh. */
 export const STATIC_MODEL_CATALOG: AgyModelDefinition[] = [
+	{
+		id: "gemini-3.8-flash",
+		name: "Gemini 3.8 Flash",
+		reasoning: true,
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		input: ["text", "image"],
+		tiers: [
+			{ tier: "low", wireModel: "gemini-3.8-flash-low", thinkingBudget: 1000 },
+			{ tier: "medium", wireModel: "gemini-3.8-flash-medium", thinkingBudget: 4000 },
+			{ tier: "high", wireModel: "gemini-3.8-flash-high", thinkingBudget: -1 },
+		],
+	},
 	{
 		id: "gemini-3.7-flash",
 		name: "Gemini 3.7 Flash",
