@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/pi-service-tier",
+	"name": "@asp345/pi-openai-models",
 	"version": "0.0.0",
-	"description": "Service-tier selection for pi",
+	"description": "OpenAI and Codex context, Daybreak Blue, and service-tier settings for pi",
 	"license": "MIT",
 	"type": "module",
 	"main": "./index.ts",
@@ -21,6 +21,7 @@
 		]
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*"
 	}
 }

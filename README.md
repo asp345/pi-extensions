@@ -19,7 +19,7 @@ My personal Pi monorepo.
 - `extensions/pi-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
-- `extensions/pi-service-tier/`
+- `extensions/pi-openai-models/`
 - `extensions/pi-stats/`
 - `extensions/pi-model-thinking/`
 - `extensions/pi-question/`
