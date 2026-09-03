@@ -103,26 +103,10 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 	};
 
 	const definition = createBashToolDefinition(cwd, { operations });
-	const renderResult = definition.renderResult;
-	if (!renderResult) throw new Error("Bash tool result renderer is unavailable");
-	const renderHandoffResult: typeof renderResult = (result, options, theme, context) => {
-		const displayResult =
-			options.isPartial && (context.args.timeout ?? 0) >= 60
-				? {
-						...result,
-						content: [
-							...result.content,
-							{ type: "text" as const, text: `\n[${HANDOFF_SHORTCUT} to run in background]` },
-						],
-					}
-				: result;
-		return renderResult(displayResult, options, theme, context);
-	};
 	return {
 		...definition,
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
-		renderResult: renderHandoffResult,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
 	};
 }
