@@ -1,7 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition, ThinkingLevel } from "./types.ts";
-import { message } from "./util.ts";
+import { contentText, message } from "./util.ts";
 
 interface Callbacks {
 	onFallback(model: Model<Api>, reason: string): void;
@@ -114,18 +114,6 @@ function finalError(session: AgentSession, start: number): string | undefined {
 		return undefined;
 	}
 	return undefined;
-}
-
-function contentText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter(
-			(part): part is Record<string, unknown> =>
-				typeof part === "object" && part !== null && (part as Record<string, unknown>).type === "text",
-		)
-		.map((part) => String((part as Record<string, unknown>).text ?? ""))
-		.join("\n");
 }
 
 function isAbortError(error: unknown): boolean {

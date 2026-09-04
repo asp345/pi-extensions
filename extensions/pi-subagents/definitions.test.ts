@@ -7,7 +7,9 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const { discoverDefinitions } = await import("./definitions.ts");
-const { delegationPrompt } = await import("./index.ts");
+
+import { delegationPrompt } from "./delegation.ts";
+
 const { promptWithFallbacks, resolveModel, resolveThinking, resumeSession, turnLimitAction } = await import(
 	"./runner.ts"
 );

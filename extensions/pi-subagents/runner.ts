@@ -1,11 +1,10 @@
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
 	type AgentSessionEvent,
 	createAgentSession,
-	DefaultResourceLoader,
 	defineTool,
 	type ExtensionContext,
 	getAgentDir,
@@ -13,7 +12,6 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { definitionBody } from "./definitions.ts";
 import {
 	promptWithFallbacks,
 	remainingModels,
@@ -22,8 +20,10 @@ import {
 	resolveThinking,
 	turnLimitAction,
 } from "./fallback.ts";
+import { copyParentConversation } from "./fork.ts";
+import { buildSystemPrompt, createLoader, skillCatalog } from "./resources.ts";
 import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.ts";
-import { compact, message, onAbort } from "./util.ts";
+import { message, onAbort } from "./util.ts";
 
 interface Callbacks {
 	onSession(session: AgentSession): void;
@@ -260,165 +260,6 @@ export async function resumeSession(
 
 export { promptWithFallbacks, resolveModel, resolveModels, resolveThinking, turnLimitAction } from "./fallback.ts";
 
-function createLoader(
-	definition: AgentDefinition,
-	cwd: string,
-	systemPrompt: () => string,
-	settingsManager: SettingsManager,
-): DefaultResourceLoader {
-	const extensionSpec = Array.isArray(definition.extensions)
-		? extensionSelection(definition.extensions, cwd)
-		: undefined;
-	const excluded = new Set(definition.excludeExtensions.map((name) => name.toLowerCase()));
-	const loadAll = definition.extensions === true;
-	const noExtensions = definition.extensions === false;
-	type LoaderOptions = ConstructorParameters<typeof DefaultResourceLoader>[0];
-	const extensionsOverride: LoaderOptions["extensionsOverride"] =
-		noExtensions || (loadAll && !excluded.size)
-			? undefined
-			: (current) => ({
-					...current,
-					extensions: current.extensions.filter((extension: { path: string }) => {
-						const name = extensionName(extension.path);
-						return !excluded.has(name) && (loadAll || extensionSpec?.names.has(name));
-					}),
-				});
-	const selectedSkills = Array.isArray(definition.skills)
-		? new Set(definition.skills.map((name) => name.toLowerCase()))
-		: undefined;
-	const skillsOverride: LoaderOptions["skillsOverride"] = selectedSkills
-		? (current) => ({
-				...current,
-				skills: current.skills.filter((skill: { name: string }) => selectedSkills.has(skill.name.toLowerCase())),
-			})
-		: undefined;
-	return new DefaultResourceLoader({
-		cwd,
-		agentDir: getAgentDir(),
-		settingsManager,
-		noExtensions,
-		additionalExtensionPaths: extensionSpec?.paths,
-		extensionsOverride,
-		noSkills: definition.skills === false,
-		skillsOverride,
-		noPromptTemplates: true,
-		noThemes: true,
-		noContextFiles: true,
-		systemPromptOverride: systemPrompt,
-		appendSystemPromptOverride: () => [],
-	});
-}
-
-function skillCatalog(loader: DefaultResourceLoader): string {
-	return loader
-		.getSkills()
-		.skills.map((skill) => {
-			const description = compact(String(skill.description ?? ""), 240);
-			return `- ${skill.name}: ${description || "No description"} (${skill.filePath})`;
-		})
-		.join("\n");
-}
-
-function buildSystemPrompt(definition: AgentDefinition, ctx: ExtensionContext, cwd: string): string {
-	const body = definitionBody(definition);
-	const bridge = `<sub_agent_context>
-You are the selected ${definition.name} subagent. Work only on the assigned task.
-Use direct tools instead of shell substitutes where practical. Be concise and report evidence.
-</sub_agent_context>`;
-	const environment = `<active_agent name="${escapeXml(definition.name)}"/>
-
-# Environment
-Working directory: ${cwd}`;
-	const memory = definition.memory
-		? `\n\n# Memory\nMemory scope: ${definition.memory}. Use ${memoryPath(definition, cwd)} when the task requires persistent memory; do not read it speculatively.`
-		: "";
-	if (definition.promptMode === "append") {
-		return `${ctx.getSystemPrompt()}\n\n${bridge}\n\n${environment}\n\n<agent_instructions>\n${body}\n</agent_instructions>${memory}`;
-	}
-	return `${bridge}\n\n${environment}\n\n${body}${memory}`;
-}
-
-function memoryPath(definition: AgentDefinition, cwd: string): string {
-	if (definition.memory === "user") return join(getAgentDir(), "agent-memory", definition.name, "MEMORY.md");
-	if (definition.memory === "local") return join(cwd, ".agents", "memory", definition.name, "MEMORY.md");
-	return join(cwd, ".pi", "agent-memory", definition.name, "MEMORY.md");
-}
-
-type SessionMessage = AgentSession["messages"][number];
-type ContentMessage = Extract<SessionMessage, { content: unknown }>;
-
-function isSessionMessage(value: unknown): value is ContentMessage {
-	return isRecord(value) && typeof value.role === "string" && "content" in value;
-}
-
-function copyParentConversation(ctx: ExtensionContext, session: AgentSession): void {
-	const manager = ctx.sessionManager as unknown as {
-		buildContextEntries?: () => unknown[];
-		getBranch: () => unknown[];
-	};
-	const entries = manager.buildContextEntries?.() ?? manager.getBranch();
-	const messages = entries
-		.flatMap<ContentMessage>((entry) => {
-			if (!isRecord(entry)) return [];
-			if (entry.type === "message" && isSessionMessage(entry.message)) return [entry.message];
-			if (isSessionMessage(entry)) return [entry];
-			if (entry.type === "compaction" && typeof entry.summary === "string") {
-				return [
-					{
-						role: "user",
-						content: [{ type: "text", text: `[Parent summary]\n${entry.summary}` }],
-						timestamp: Date.now(),
-					},
-				];
-			}
-			return [];
-		})
-		.map(compactForkMessage);
-	const summary = messages.find((message) => contentText(message.content).startsWith("[Parent summary]"));
-	const tail: ContentMessage[] = [];
-	let chars = 0;
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (!message || message === summary) continue;
-		const size = JSON.stringify(message).length;
-		if (tail.length && chars + size > 160_000) break;
-		tail.unshift(message);
-		chars += size;
-	}
-	const selected = summary ? [summary, ...tail] : tail;
-	const resultIds = new Set(
-		selected.filter((message) => message.role === "toolResult").map((message) => message.toolCallId),
-	);
-	const callIds = new Set<string>();
-	for (const message of selected) {
-		if (message.role !== "assistant" || !Array.isArray(message.content)) continue;
-		message.content = message.content.filter((part) => part.type !== "toolCall" || resultIds.has(part.id));
-		for (const part of message.content) if (part.type === "toolCall") callIds.add(part.id);
-	}
-	const consistent = selected.filter((message) => {
-		if (message.role === "toolResult") return callIds.has(message.toolCallId);
-		if (message.role === "assistant" && Array.isArray(message.content)) return message.content.length > 0;
-		return true;
-	});
-	if (consistent.length) session.agent.state.messages = structuredClone(consistent);
-}
-
-function compactForkMessage(message: ContentMessage): ContentMessage {
-	const copy = structuredClone(message);
-	if (copy.role !== "toolResult" || !Array.isArray(copy.content)) return copy;
-	copy.content = copy.content.map((part) =>
-		part.type === "text" && typeof part.text === "string"
-			? {
-					...part,
-					text: part.text.length > 4_000 ? `${part.text.slice(0, 4_000)}\n[Tool result truncated for fork]` : part.text,
-				}
-			: part.type === "image"
-				? { type: "text", text: "[Image omitted from fork]" }
-				: part,
-	);
-	return copy;
-}
-
 function observe(
 	session: AgentSession,
 	maxTurns: number | undefined,
@@ -461,77 +302,8 @@ function assertTools(session: AgentSession, definition: AgentDefinition): void {
 	session.setActiveToolsByName([...definition.tools, REPORT_TOOL_NAME]);
 }
 
-function extensionSelection(entries: string[], cwd: string): { names: Set<string>; paths: string[] } {
-	const names = new Set<string>();
-	const paths: string[] = [];
-	for (const entry of entries) {
-		if (entry.includes("/") || entry.includes("\\") || entry.startsWith("~")) {
-			const expanded = entry === "~" || entry.startsWith("~/") ? join(homedir(), entry.slice(2)) : entry;
-			const path = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
-			paths.push(path);
-			names.add(extensionName(path));
-		} else names.add(entry.toLowerCase());
-	}
-	return { names, paths };
-}
-
-function extensionName(path: string): string {
-	const base = basename(path);
-	return (
-		base === "index.ts" || base === "index.js" ? basename(dirname(path)) : base.replace(/\.(?:ts|js)$/u, "")
-	).toLowerCase();
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-export function contentText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text")
-		.map((part) => String(part.text ?? ""))
-		.join("\n");
-}
-
-export function compactTranscript(session: AgentSession): string {
-	const results = new Map<string, { error: boolean; summary: string }>();
-	for (const message of session.messages) {
-		if (message.role !== "toolResult") continue;
-		results.set(message.toolCallId, {
-			error: message.isError === true,
-			summary: compact(contentText(message.content), 300),
-		});
-	}
-	const lines: string[] = [];
-	for (const message of session.messages) {
-		if (message.role === "user") {
-			const text = contentText(message.content).trim();
-			if (text) lines.push(`User:\n${text}`);
-		} else if (message.role === "assistant") {
-			const text = contentText(message.content).trim();
-			if (text) lines.push(`Assistant:\n${text}`);
-			for (const part of Array.isArray(message.content) ? message.content : []) {
-				if (part.type !== "toolCall") continue;
-				const result = results.get(part.id);
-				lines.push(
-					result?.error
-						? `[Tool ${part.name}: error: ${result.summary || "failed"}]`
-						: `[Tool ${part.name}: ${result ? "ok" : "invoked"}]`,
-				);
-			}
-		}
-	}
-	return lines.join("\n\n");
-}
-
 function resolveSessionDir(value: string | undefined, cwd: string): string | undefined {
 	if (!value) return undefined;
 	if (value === "~" || value.startsWith("~/")) return resolve(homedir(), value.slice(2));
 	return isAbsolute(value) ? value : resolve(cwd, value);
-}
-
-function escapeXml(value: string): string {
-	return value.replace(/&/gu, "&amp;").replace(/"/gu, "&quot;").replace(/</gu, "&lt;");
 }

@@ -13,3 +13,16 @@ export function onAbort(signal: AbortSignal | undefined, action: () => void): ()
 	else signal.addEventListener("abort", action, { once: true });
 	return () => signal.removeEventListener("abort", action);
 }
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+export function contentText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((part): part is Record<string, unknown> => isRecord(part) && part.type === "text")
+		.map((part) => String(part.text ?? ""))
+		.join("\n");
+}
