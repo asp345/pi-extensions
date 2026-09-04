@@ -1,9 +1,9 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { StatsConfigStore } from "./config-store.ts";
+import registerFooterCommand from "./footer-command.ts";
 import { type MetricPartOptions, renderMetricParts } from "./metric-parts.ts";
 import { QuotaController } from "./quota-controller.ts";
-import registerStatsCommand from "./stats-command.ts";
 import type { SharedState } from "./types.ts";
 import { UsageAccountant } from "./usage-accountant.ts";
 
@@ -20,7 +20,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 		isSessionActive: () => shared.sessionActive,
 		requestRender: () => shared.requestRender?.(),
 	});
-	registerStatsCommand(pi, { store, quota, shared });
+	registerFooterCommand(pi, { store, quota, shared });
 
 	pi.on("turn_start", (_event, ctx) => {
 		accountant.beginTurn(Date.now());

@@ -5,7 +5,7 @@ import { TOKEN_PLANS } from "./plans.ts";
 import type { QuotaController } from "./quota-controller.ts";
 import type { SharedState } from "./types.ts";
 
-function registerStatsCommand(
+function registerFooterCommand(
 	pi: ExtensionAPI,
 	deps: { store: StatsConfigStore; quota: QuotaController; shared: SharedState },
 ): void {
@@ -251,4 +251,4 @@ function registerStatsCommand(
 	});
 }
 
-export default registerStatsCommand;
+export default registerFooterCommand;
