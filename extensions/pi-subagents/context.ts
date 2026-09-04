@@ -12,7 +12,7 @@ import { contentText } from "./util.ts";
 export const CONTEXT_ROWS = 30;
 export const SCROLL_STEP = 10;
 
-export interface ContextTheme {
+interface ContextTheme {
 	fg(color: "accent" | "borderMuted" | "dim" | "text", text: string): string;
 }
 
@@ -199,7 +199,7 @@ function renderBlock(entries: readonly unknown[], width: number, record: AgentRe
 	});
 }
 
-export type ScrollPosition = number | { topLine: number } | null | undefined;
+type ScrollPosition = number | { topLine: number } | null | undefined;
 
 export function buildAgentContextFullLines(
 	record: AgentRecord,

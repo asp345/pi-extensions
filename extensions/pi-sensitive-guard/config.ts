@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type Severity = "critical" | "high" | "medium";
-export type RedactionScope = "protectedOnly" | "allOutput";
+type RedactionScope = "protectedOnly" | "allOutput";
 
 export interface GuardConfig {
 	enabled: boolean;

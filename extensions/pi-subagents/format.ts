@@ -2,7 +2,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { AgentRecord } from "./types.ts";
 
 export const RESULT_BYTES = 8_000;
-export const RESULT_LINES = 120;
+const RESULT_LINES = 120;
 
 export interface CompletionDetails {
 	id: string;

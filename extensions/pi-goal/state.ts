@@ -4,7 +4,7 @@ import type { CustomEntry, ExtensionContext } from "@earendil-works/pi-coding-ag
 export const GOAL_STATE_ENTRY = "goal-state";
 export const MAX_OBJECTIVE = 4_000;
 
-export type GoalStatus = "active" | "paused" | "blocked" | "complete";
+type GoalStatus = "active" | "paused" | "blocked" | "complete";
 
 export interface GoalState {
 	id: string;
@@ -50,7 +50,7 @@ export function rejection(goal: GoalState | undefined, requestedId: string) {
 	return undefined;
 }
 
-export function parseState(value: unknown): GoalState | undefined {
+function parseState(value: unknown): GoalState | undefined {
 	if (!isRecord(value)) return undefined;
 	const raw = value.goal;
 	if (!isRecord(raw)) return undefined;

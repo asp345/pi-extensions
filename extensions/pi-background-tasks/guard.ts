@@ -1,13 +1,13 @@
 import { type Command, type ParsedScript, parse, type Word } from "unbash";
 
-export const MAX_SLEEP_SECONDS = 30;
+const MAX_SLEEP_SECONDS = 30;
 
 const DURATION_RE = /^(\d+(?:\.\d+)?)([smhd])?$/;
 const SUFFIX_SECONDS: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
 const FALLBACK_RE = /\bsleep\b((?:\s+[\w.]+)*)/g;
 const QUOTED_RE = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g;
 
-export interface SleepInspection {
+interface SleepInspection {
 	/** total evaluated seconds across all sleep invocations */
 	totalSeconds: number;
 	/** a sleep invocation whose arguments cannot be statically evaluated */
@@ -66,7 +66,7 @@ function regexInspection(command: string): SleepInspection {
  * and evaluates only literal durations. `sleep -- <seconds>` is a deliberate
  * opt-in form and is never blocked.
  */
-export function inspectSleep(command: string): SleepInspection {
+function inspectSleep(command: string): SleepInspection {
 	const state: SleepInspection = { ...NO_SLEEP };
 	let root: ParsedScript;
 	try {

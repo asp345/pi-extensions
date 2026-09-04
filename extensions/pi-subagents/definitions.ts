@@ -45,7 +45,7 @@ export function discoverDefinitions(cwd: string, projectTrusted = true): Definit
 	return { definitions, errors };
 }
 
-export function parseDefinition(path: string, source: AgentDefinition["source"]): AgentDefinition {
+function parseDefinition(path: string, source: AgentDefinition["source"]): AgentDefinition {
 	const raw = readFileSync(path, "utf8");
 	const { frontmatter: fm } = parseFrontmatter<Record<string, unknown>>(raw);
 	const name = basename(path, ".md");
@@ -108,33 +108,6 @@ export function definitionSummary(registry: DefinitionRegistry): string {
 		.filter((definition) => definition.enabled)
 		.map((definition) => `- ${definition.name}: ${compact(definition.description, 240)}`)
 		.join("\n");
-}
-
-export function definitionTemplate(name: string): string {
-	return `---
-description: Describe ${name} in one line
-tools: read, bash, grep, find, ls
-extensions: true
-exclude_extensions: none
-skills: true
-models: parent
-thinking: parent
-max_turns: 24
-persist_session: true
-output_transcript: true
-prompt_mode: append
-fork: false
-run_in_background: true
-worktree: false
-enabled: true
----
-
-Write the selected agent's instructions here.
-`;
-}
-
-export function safeDefinitionName(name: string): boolean {
-	return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(name) && name !== "." && name !== "..";
 }
 
 function selection(value: unknown, fallback: Selection): Selection {

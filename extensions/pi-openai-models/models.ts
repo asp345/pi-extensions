@@ -1,6 +1,6 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 
-export const LONG_CONTEXT_WINDOW = 1_050_000;
+const LONG_CONTEXT_WINDOW = 1_050_000;
 
 const LONG_CONTEXT_IDS = new Set(["gpt-5.4", "gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
 

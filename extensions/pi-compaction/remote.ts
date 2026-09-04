@@ -1,11 +1,11 @@
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import { cloneItem, isJsonObject, isResponseItem, type JsonObject, type ResponseItem } from "./protocol.ts";
 
-export const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
+const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const MAX_REMOTE_RETRIES = 2;
 
-export type RemoteCompactionResult = {
+type RemoteCompactionResult = {
 	compactionItem: ResponseItem;
 	usage?: Usage;
 };
@@ -59,7 +59,7 @@ export function resolveCodexResponsesUrl(baseUrl?: string): string {
 	return `${normalized}/codex/responses`;
 }
 
-export function extractCodexAccountId(token: string): string {
+function extractCodexAccountId(token: string): string {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) throw new Error("Invalid token");

@@ -7,7 +7,7 @@ import registerStatsCommand from "./stats-command.ts";
 import type { SharedState } from "./types.ts";
 import { UsageAccountant } from "./usage-accountant.ts";
 
-export interface TokenStatsHandle {
+interface TokenStatsHandle {
 	/** Status-bar metrics excluding run timing, which index.ts appends. */
 	getMetricParts(theme: Theme, ctx: ExtensionContext, options?: MetricPartOptions): string[];
 }

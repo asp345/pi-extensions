@@ -10,7 +10,7 @@ import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from "./constants.ts";
 import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
 import { fetchWithAgyCliTransport } from "./transport.ts";
 
-export interface AgyModelTier {
+interface AgyModelTier {
 	tier: "default" | "low" | "medium" | "high";
 	wireModel: string;
 	thinkingBudget: number;
@@ -44,7 +44,6 @@ export const MODEL_CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 const TIER_SUFFIX_REGEX = /-(minimal|low|medium|high|extra-low|tiered)$/;
 
 let cachedModels: AgyModelDefinition[] | undefined;
-let cachedAt = 0;
 
 const isTier = (suffix: string): suffix is "low" | "medium" | "high" =>
 	suffix === "low" || suffix === "medium" || suffix === "high";
@@ -60,7 +59,7 @@ function isAgentModel(id: string): boolean {
  * Collapse tiered model ids into base models with a tiers list.
  * gemini-3.7-flash-{low,medium,high} → gemini-3.7-flash with three tiers.
  */
-export function normalizeRemoteModels(payload: FetchAvailableModelsResponse): AgyModelDefinition[] {
+function normalizeRemoteModels(payload: FetchAvailableModelsResponse): AgyModelDefinition[] {
 	const byBase = new Map<
 		string,
 		{
@@ -152,13 +151,7 @@ async function fetchModelsFromNetwork(accessToken: string, signal?: AbortSignal)
 export async function refreshModelCatalog(accessToken: string, signal?: AbortSignal): Promise<AgyModelDefinition[]> {
 	const models = await fetchModelsFromNetwork(accessToken, signal);
 	cachedModels = models;
-	cachedAt = Date.now();
 	return models;
-}
-
-/** True when the catalog is older than the TTL and a refresh is worthwhile. */
-export function modelCatalogStale(): boolean {
-	return Date.now() - cachedAt > MODEL_CATALOG_TTL_MS;
 }
 
 /** Static snapshot used before the first successful network refresh. */

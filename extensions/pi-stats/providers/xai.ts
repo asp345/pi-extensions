@@ -327,7 +327,7 @@ async function fetchBillingPayload(url: string, accessToken: string, signal?: Ab
 	}
 }
 
-export const xaiUsageProvider: UsageProvider = {
+const xaiUsageProvider: UsageProvider = {
 	id: PROVIDER_ID,
 	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
 		const accessToken = credential.accessToken?.trim();

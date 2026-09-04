@@ -71,19 +71,6 @@ export function saveWorktree(worktree: WorktreeInfo, prompt: string): string | u
 	return branch;
 }
 
-export function removeWorktree(parentCwd: string, worktree: WorktreeInfo): void {
-	if (!existsSync(worktree.root)) return;
-	try {
-		git(parentCwd, ["worktree", "remove", "--force", worktree.root], 20_000);
-	} catch {
-		try {
-			git(parentCwd, ["worktree", "prune"]);
-		} catch {
-			/* best effort */
-		}
-	}
-}
-
 function uniqueBranch(cwd: string, base: string): string {
 	try {
 		git(cwd, ["show-ref", "--verify", `refs/heads/${base}`]);

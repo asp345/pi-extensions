@@ -1,4 +1,5 @@
-import { type ExtensionContext, readStoredCredential } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { resolveOpenAiAuth } from "./auth.ts";
 import { InvalidCommandError, serializeWebRunPayload, validateWebRunCommand, type WebRunCommand } from "./commands.ts";
 import {
 	CodexAuthExpiredError,
@@ -11,39 +12,7 @@ import {
 import { normalizeSearchResponseBody, type SearchResponse } from "./normalize.ts";
 import type { RefIndex, SearchExecutionOptions, SearchRequest, WebSearchProvider } from "./provider.ts";
 
-const PROVIDER_ID = "openai-codex";
-
-export interface OpenAiAuthCredentials {
-	accessToken: string;
-	accountId?: string;
-}
-
-function readStoredOAuthCredential(): { access: string; accountId?: string } | undefined {
-	const credential = readStoredCredential(PROVIDER_ID);
-	if (credential?.type !== "oauth") return undefined;
-	const accountId = typeof credential.accountId === "string" && credential.accountId ? credential.accountId : undefined;
-	return { access: credential.access, accountId };
-}
-
-async function resolveOpenAiAuth(ctx: ExtensionContext): Promise<OpenAiAuthCredentials | null> {
-	// Prefer the auto-refreshed OAuth token from pi's model registry.
-	let accessToken: string | undefined;
-	try {
-		const resolved = await ctx.modelRegistry.getProviderAuth(PROVIDER_ID);
-		const headerAuth = resolved?.auth.headers?.Authorization;
-		accessToken =
-			resolved?.auth.apiKey ?? (typeof headerAuth === "string" ? headerAuth.replace(/^Bearer\s+/i, "") : undefined);
-	} catch {
-		accessToken = undefined;
-	}
-
-	const stored = readStoredOAuthCredential();
-	const token = accessToken ?? stored?.access;
-	if (!token) return null;
-	return { accessToken: token, accountId: stored?.accountId };
-}
-
-export interface CodexWebSearchProviderOptions {
+interface CodexWebSearchProviderOptions {
 	endpoint?: string;
 	timeoutMs?: number;
 	customFetch?: typeof fetch;
@@ -53,6 +22,10 @@ export interface CodexWebSearchProviderOptions {
 }
 
 const DEFAULT_ENDPOINT = "https://chatgpt.com/backend-api/codex/alpha/search";
+
+function debug(requestId: string, fields: string): void {
+	if (process.env.PI_WEB_SEARCH_DEBUG) console.error(`[PI_WEB_SEARCH_DEBUG] req_id=${requestId} ${fields}`);
+}
 const DEFAULT_TIMEOUT_MS = 15000;
 const DEFAULT_MODEL = "gpt-4o";
 
@@ -187,13 +160,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 		const startTime = Date.now();
 		const requestId = Math.random().toString(36).substring(2, 9);
 
-		if (process.env.PI_WEB_SEARCH_DEBUG) {
-			console.error(
-				`[PI_WEB_SEARCH_DEBUG] req_id=${requestId} session_id=${sessionId} cmd=${JSON.stringify(
-					validatedCmd,
-				)} provider=codex`,
-			);
-		}
+		debug(requestId, `session_id=${sessionId} cmd=${JSON.stringify(validatedCmd)} provider=codex`);
 
 		try {
 			let response: Response | null = null;
@@ -250,11 +217,10 @@ export class CodexWebSearchProvider implements WebSearchProvider {
 			const normalized = normalizeSearchResponseBody(body);
 			this.recordRefs(normalized);
 
-			if (process.env.PI_WEB_SEARCH_DEBUG) {
-				console.error(
-					`[PI_WEB_SEARCH_DEBUG] req_id=${requestId} status=200 elapsed_ms=${elapsedMs} results=${normalized.results.length} output_len=${normalized.output?.length ?? 0}`,
-				);
-			}
+			debug(
+				requestId,
+				`status=200 elapsed_ms=${elapsedMs} results=${normalized.results.length} output_len=${normalized.output?.length ?? 0}`,
+			);
 
 			return normalized;
 		} catch (err: unknown) {

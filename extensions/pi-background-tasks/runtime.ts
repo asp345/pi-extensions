@@ -8,7 +8,7 @@ import { TaskOutput } from "./output.ts";
 import { TaskTimers } from "./timers.ts";
 
 type TaskStatus = "running" | "completed" | "failed" | "stopped";
-export type StopReason = "user" | "agent" | "shutdown";
+type StopReason = "user" | "agent" | "shutdown";
 
 export interface TaskSnapshot {
 	id: string;
@@ -29,7 +29,7 @@ export interface TaskSnapshot {
 	stopReason: StopReason | null;
 }
 
-export interface WaitResult {
+interface WaitResult {
 	task: TaskSnapshot;
 	output: string;
 }

@@ -9,13 +9,13 @@ export interface QuotaFetchExtra {
 	team?: TeamCredential | null;
 }
 
-export type QuotaSegmentKey = "fiveHour" | "day" | "week" | "month" | "balance" | "reset";
+type QuotaSegmentKey = "fiveHour" | "day" | "week" | "month" | "balance" | "reset";
 
 export type QuotaSegments = Partial<Record<QuotaSegmentKey, string>>;
 
-export const QUOTA_SEGMENT_ORDER: readonly QuotaSegmentKey[] = ["fiveHour", "day", "week", "month", "balance", "reset"];
+const QUOTA_SEGMENT_ORDER: readonly QuotaSegmentKey[] = ["fiveHour", "day", "week", "month", "balance", "reset"];
 
-export interface QuotaDisplay {
+interface QuotaDisplay {
 	modelPrefix: string;
 	display: string;
 	segments: QuotaSegments;

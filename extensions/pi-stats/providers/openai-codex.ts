@@ -197,7 +197,7 @@ function normalizeCodexBaseUrl(baseUrl?: string): string {
 	return `${parsed.origin}/backend-api`;
 }
 
-export const openaiCodexUsageProvider: UsageProvider = {
+const openaiCodexUsageProvider: UsageProvider = {
 	id: "openai-codex",
 	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
 		const accessToken = credential.accessToken;

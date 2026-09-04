@@ -21,13 +21,13 @@ const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
 const ACTIVE_FETCH_TIMEOUT_MS = 15_000;
 const ACCESS_TOKEN_EXPIRY_BUFFER_MS = 60_000;
 
-export interface AntigravityAuthorization {
+interface AntigravityAuthorization {
 	url: string;
 	verifier: string;
 	projectId: string;
 }
 
-export type ExchangeResult =
+type ExchangeResult =
 	| { type: "success"; refresh: string; access: string; expires: number; email?: string; projectId: string }
 	| { type: "failed"; error: string };
 
@@ -63,7 +63,7 @@ function accessTokenExpired(credentials: OAuthCredentials): boolean {
 }
 
 /** Splits "refreshToken|projectId|managedProjectId" packed by exchangeProjectContext. */
-export function parseRefreshParts(refresh: string): {
+function parseRefreshParts(refresh: string): {
 	refreshToken: string;
 	projectId?: string;
 	managedProjectId?: string;
@@ -76,11 +76,7 @@ export function parseRefreshParts(refresh: string): {
 	};
 }
 
-export function formatRefreshParts(parts: {
-	refreshToken: string;
-	projectId?: string;
-	managedProjectId?: string;
-}): string {
+function formatRefreshParts(parts: { refreshToken: string; projectId?: string; managedProjectId?: string }): string {
 	const base = `${parts.refreshToken}|${parts.projectId ?? ""}`;
 	return parts.managedProjectId ? `${base}|${parts.managedProjectId}` : base;
 }

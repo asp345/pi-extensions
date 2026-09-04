@@ -21,7 +21,7 @@ import {
 } from "./validate.ts";
 
 export const CACHE_VERSION = 1;
-export const CACHE_FILE = "openrouter-metadata-store.json";
+const CACHE_FILE = "openrouter-metadata-store.json";
 const PI_MODELS_STORE_FILE = "models-store.json";
 
 export interface OpenRouterMetadataCacheEntry {

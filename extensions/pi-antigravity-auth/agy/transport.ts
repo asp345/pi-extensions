@@ -1,7 +1,7 @@
-export const AGY_RESPONSE_HEADER_TIMEOUT_MS = 180_000;
-export const AGY_IDLE_TIMEOUT_MS = 180_000;
+const AGY_RESPONSE_HEADER_TIMEOUT_MS = 180_000;
+const AGY_IDLE_TIMEOUT_MS = 180_000;
 
-export interface AgyFetchOptions {
+interface AgyFetchOptions {
 	signal?: AbortSignal;
 	timeoutMs?: number;
 	idleTimeoutMs?: number;

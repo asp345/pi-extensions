@@ -1,6 +1,6 @@
 import type { ThinkingLevel } from "@earendil-works/pi-ai";
 
-export const MAX_PRICE_PER_TOKEN_USD = 1;
+const MAX_PRICE_PER_TOKEN_USD = 1;
 export const EFFORT_LEVELS = [
 	"minimal",
 	"low",

@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isTier, type Tier } from "./tier.ts";
 
-export const CONTEXT_MODES = ["standard", "1m"] as const;
-export type ContextMode = (typeof CONTEXT_MODES)[number];
+const CONTEXT_MODES = ["standard", "1m"] as const;
+type ContextMode = (typeof CONTEXT_MODES)[number];
 
 export interface OpenAISettings {
 	contextMode: ContextMode;

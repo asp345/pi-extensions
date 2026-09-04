@@ -4,7 +4,7 @@
  * this extension only fetches on-demand usage reports.
  */
 
-export type UsageUnit = "percent" | "tokens" | "requests" | "usd" | "unknown";
+type UsageUnit = "percent" | "tokens" | "requests" | "usd" | "unknown";
 export type UsageStatus = "ok" | "warning" | "exhausted" | "unknown";
 
 export interface UsageWindow {
@@ -57,15 +57,4 @@ export interface SharedState {
 	sessionActive: boolean;
 	/** Footer render callback, cleared when the footer or session closes. */
 	requestRender: (() => void) | null;
-}
-
-export function resolveUsedFraction(limit: UsageLimit): number | undefined {
-	const amount = limit.amount;
-	if (amount.usedFraction !== undefined) return amount.usedFraction;
-	if (amount.used !== undefined && amount.limit !== undefined && amount.limit > 0) {
-		return amount.used / amount.limit;
-	}
-	if (amount.unit === "percent" && amount.used !== undefined) return amount.used / 100;
-	if (amount.remainingFraction !== undefined) return Math.max(0, 1 - amount.remainingFraction);
-	return undefined;
 }

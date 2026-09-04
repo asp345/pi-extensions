@@ -10,7 +10,7 @@ import {
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
 
-export const TIERS = ["default", "flex", "priority"] as const;
+const TIERS = ["default", "flex", "priority"] as const;
 export type Tier = (typeof TIERS)[number];
 
 const APIS = new Set(["openai-responses", "openai-completions", "openai-codex-responses"]);
@@ -29,7 +29,7 @@ export function tierCostMultiplier(tier: Tier, modelId: string): number {
 	return 1;
 }
 
-export function applyTierCost(message: AssistantMessage, multiplier: number): void {
+function applyTierCost(message: AssistantMessage, multiplier: number): void {
 	if (multiplier === 1) return;
 	const cost = message.usage.cost;
 	cost.input *= multiplier;
@@ -73,7 +73,7 @@ function emptyErrorMessage(model: Model<Api>, error: unknown, aborted: boolean):
 	};
 }
 
-export function streamWithTier(
+function streamWithTier(
 	start: (model: Model<Api>, context: Context, options?: StreamOptions) => AssistantMessageEventStream,
 	model: Model<Api>,
 	context: Context,

@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
-export interface TextCompactionModel {
+interface TextCompactionModel {
 	provider: string;
 	id: string;
 }

@@ -6,7 +6,7 @@ export interface SearchRequest {
 	query: string;
 }
 
-export interface RefIndexEntry {
+interface RefIndexEntry {
 	url: string;
 	title?: string;
 }

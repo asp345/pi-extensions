@@ -1,5 +1,5 @@
-export const QUOTA_ERROR_PERCENT = 10;
-export const QUOTA_WARN_PERCENT = 20;
+const QUOTA_ERROR_PERCENT = 10;
+const QUOTA_WARN_PERCENT = 20;
 
 /**
  * Shared quota color ladder: err when any remaining window is below the error

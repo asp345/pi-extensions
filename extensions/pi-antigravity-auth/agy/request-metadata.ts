@@ -40,7 +40,7 @@ const AGY_MODEL_ENUM_BY_WIRE_MODEL: Record<string, string> = {
 	"gpt-oss-120b-medium": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
 };
 
-export interface AgySessionContext {
+interface AgySessionContext {
 	conversationId: string;
 	trajectoryId: string;
 	numericSessionId: string;
@@ -133,7 +133,7 @@ export class AgyRequestSessionStore {
 	}
 }
 
-export function getAgyModelEnum(model: string): string | undefined {
+function getAgyModelEnum(model: string): string | undefined {
 	return AGY_MODEL_ENUM_BY_WIRE_MODEL[model.toLowerCase()];
 }
 
@@ -151,10 +151,7 @@ export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>):
 	Object.assign(payload, ordered);
 }
 
-export function countAgyRequestSteps(
-	payload: { contents?: unknown },
-	mode: "parts" | "contents" | "cli" = "parts",
-): number {
+function countAgyRequestSteps(payload: { contents?: unknown }, mode: "parts" | "contents" | "cli" = "parts"): number {
 	const contents = payload.contents;
 	if (!Array.isArray(contents)) return 1;
 	if (mode === "contents") return Math.max(1, contents.length);

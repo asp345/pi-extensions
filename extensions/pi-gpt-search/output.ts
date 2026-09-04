@@ -2,7 +2,7 @@ import type { WebRunCommand } from "./commands.ts";
 import type { SearchResponse, SearchResult } from "./normalize.ts";
 import type { RefIndex } from "./provider.ts";
 
-export interface FormattedToolOutput {
+interface FormattedToolOutput {
 	content: Array<{ type: "text"; text: string }>;
 	details: Record<string, unknown>;
 }

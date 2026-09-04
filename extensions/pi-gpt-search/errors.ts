@@ -1,4 +1,4 @@
-export class WebSearchError extends Error {
+class WebSearchError extends Error {
 	constructor(
 		message: string,
 		public readonly code: string,

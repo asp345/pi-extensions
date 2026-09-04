@@ -277,7 +277,7 @@ function buildScopedWeeklyUsageLimits(entries: readonly ParsedApiLimitEntry[]): 
 	return limits;
 }
 
-export const anthropicUsageProvider: UsageProvider = {
+const anthropicUsageProvider: UsageProvider = {
 	id: "anthropic",
 	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
 		const baseUrl = DEFAULT_ENDPOINT;

@@ -10,7 +10,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { toGeminiSchema } from "./agy/index.ts";
 
-export type GeminiPart =
+type GeminiPart =
 	| { text: string; thought?: boolean; thoughtSignature?: string }
 	| { inlineData: { mimeType: string; data: string } }
 	| {
@@ -24,8 +24,8 @@ export type GeminiPart =
 				id: string;
 			};
 	  };
-export type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
-export type GeminiRequest = {
+type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
+type GeminiRequest = {
 	contents: GeminiContent[];
 	tools?: Array<{
 		functionDeclarations: Array<{

@@ -7,7 +7,7 @@
  */
 import { getLiveModelCatalog } from "./models.ts";
 
-export interface ResolvedModel {
+interface ResolvedModel {
 	actualModel: string;
 	thinkingBudget?: number;
 }

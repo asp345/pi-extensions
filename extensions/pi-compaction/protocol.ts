@@ -36,7 +36,7 @@ export function approximateTokens(item: ResponseItem): number {
 	return Math.max(1, Math.ceil(responseItemText(item).length / 4));
 }
 
-export function truncateMiddle(text: string, maxCharacters: number): string {
+function truncateMiddle(text: string, maxCharacters: number): string {
 	if (text.length <= maxCharacters) return text;
 	if (maxCharacters <= 1) return text.slice(-maxCharacters);
 	const marker = "…";

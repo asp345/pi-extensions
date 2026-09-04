@@ -3,7 +3,7 @@
  * User-Agent shape captured from agy CLI 1.1.20:
  * antigravity/cli/1.1.20 (aidev_client; os_type=linux; arch=amd64; cl=970154694; auth_method=consumer)
  */
-export const AGY_CLI_VERSION = "1.1.20";
+const AGY_CLI_VERSION = "1.1.20";
 const AGY_CLI_CHANGE_LIST = "970154694";
 
 function normalizePlatform(platform: NodeJS.Platform): string {

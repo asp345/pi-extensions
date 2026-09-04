@@ -1,6 +1,6 @@
 export const BACKGROUND_TASKS_STATE_EVENT = "pi-background-tasks:state";
 
-export interface BackgroundTasksState {
+interface BackgroundTasksState {
 	runningTaskIds: string[];
 }
 

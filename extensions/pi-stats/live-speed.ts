@@ -1,4 +1,4 @@
-export interface ActiveTokenSpeedOptions {
+interface ActiveTokenSpeedOptions {
 	activeWindowMs: number;
 	idleGapMs: number;
 	minimumActiveMs: number;

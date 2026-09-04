@@ -12,14 +12,14 @@ interface QuotaCacheEntry {
 	data: unknown;
 }
 
-export type QuotaError =
+type QuotaError =
 	| { kind: "no_plan" }
 	| { kind: "key_missing"; envVar: string; provider: string }
 	| { kind: "api_error"; message: string }
 	| { kind: "network_error"; message: string }
 	| { kind: "no_data" };
 
-export interface QuotaDisplayState {
+interface QuotaDisplayState {
 	planId: string;
 	display: string;
 	segments: QuotaSegments;

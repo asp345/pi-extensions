@@ -11,13 +11,13 @@ export interface NativeCompactionDetails {
 	replacementHistory: ResponseItem[];
 }
 
-export type NativeCheckpoint = {
+type NativeCheckpoint = {
 	entryIndex: number;
 	entryId: string;
 	details: NativeCompactionDetails;
 };
 
-export type CheckpointLookup =
+type CheckpointLookup =
 	| { status: "none" }
 	| { status: "invalid"; entryIndex: number; entryId: string }
 	| { status: "valid"; checkpoint: NativeCheckpoint };
@@ -31,7 +31,7 @@ export function modelKey(model: Pick<Model<Api>, "provider" | "api" | "id">): st
 	return `${model.provider}:${model.api}:${model.id}`;
 }
 
-export function parseNativeCompactionDetails(value: unknown): NativeCompactionDetails | undefined {
+function parseNativeCompactionDetails(value: unknown): NativeCompactionDetails | undefined {
 	if (!isJsonObject(value)) return undefined;
 	if (value.kind !== NATIVE_COMPACTION_KIND || value.version !== NATIVE_COMPACTION_VERSION) return undefined;
 	if (typeof value.modelKey !== "string" || !Array.isArray(value.replacementHistory)) return undefined;

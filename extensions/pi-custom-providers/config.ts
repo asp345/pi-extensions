@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { CustomProvidersFile } from "./types.ts";
 
-export const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");
-export const MODELS_STORE_FILE = join(getAgentDir(), "models-store.json");
+const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");
+const MODELS_STORE_FILE = join(getAgentDir(), "models-store.json");
 
 export async function readCustomProvidersFile(path = CUSTOM_PROVIDERS_FILE): Promise<CustomProvidersFile> {
 	let text: string;

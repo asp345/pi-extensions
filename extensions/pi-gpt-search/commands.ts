@@ -1,36 +1,30 @@
 import { type Static, Type } from "typebox";
 import { Check, Errors } from "typebox/value";
 
-export const SearchQuerySchema = Type.Object({
+const SearchQuerySchema = Type.Object({
 	q: Type.String({ description: "Search query string" }),
 	recency: Type.Optional(Type.Number({ description: "Optional recency filter in days" })),
 	domains: Type.Optional(Type.Array(Type.String(), { description: "Allowed domain filters" })),
 });
-export type SearchQuery = Static<typeof SearchQuerySchema>;
+type SearchQuery = Static<typeof SearchQuerySchema>;
 
-export const OpenOperationSchema = Type.Object({
+const OpenOperationSchema = Type.Object({
 	ref_id: Type.String({ description: "Reference ID of search result or document to open (e.g. turn0search0)" }),
 	lineno: Type.Optional(Type.Number({ description: "Line number to jump to" })),
 });
-export type OpenOperation = Static<typeof OpenOperationSchema>;
+type OpenOperation = Static<typeof OpenOperationSchema>;
 
-export const ClickOperationSchema = Type.Object({
+const ClickOperationSchema = Type.Object({
 	ref_id: Type.String({ description: "Reference ID of document" }),
 	id: Type.Number({ description: "Element ID to click" }),
 });
-export type ClickOperation = Static<typeof ClickOperationSchema>;
-
-export const FindOperationSchema = Type.Object({
+const FindOperationSchema = Type.Object({
 	ref_id: Type.String({ description: "Reference ID of opened document" }),
 	pattern: Type.String({ description: "Pattern to find in document" }),
 });
-export type FindOperation = Static<typeof FindOperationSchema>;
-
-export const ResponseLengthSchema = Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long")], {
+const ResponseLengthSchema = Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long")], {
 	description: "Desired output length; defaults to medium",
 });
-export type ResponseLength = Static<typeof ResponseLengthSchema>;
-
 export const WebRunCommandSchema = Type.Object(
 	{
 		search_query: Type.Optional(Type.Array(SearchQuerySchema, { description: "Search queries to execute" })),
@@ -132,7 +126,7 @@ function normalizeWebRunCommand(cmd: WebRunCommand): WebRunCommand {
 	return normalized;
 }
 
-export interface EndpointPayloadOptions {
+interface EndpointPayloadOptions {
 	sessionId?: string;
 	model?: string;
 }

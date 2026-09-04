@@ -19,7 +19,7 @@ import {
 	truncateMessage,
 } from "./protocol.ts";
 
-export const RETAINED_USER_TOKEN_BUDGET = 64_000;
+const RETAINED_USER_TOKEN_BUDGET = 64_000;
 
 function shortHash(value: string): string {
 	return createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -224,10 +224,7 @@ export function effectiveInputForBranch(params: {
 	return messagesToResponseItems(params.model, convertToLlm(context.messages), params.tools);
 }
 
-export function retainRecentUserMessages(
-	items: ResponseItem[],
-	maxTokens = RETAINED_USER_TOKEN_BUDGET,
-): ResponseItem[] {
+function retainRecentUserMessages(items: ResponseItem[], maxTokens = RETAINED_USER_TOKEN_BUDGET): ResponseItem[] {
 	let remaining = maxTokens;
 	const retained: ResponseItem[] = [];
 	for (const item of [...items].reverse()) {

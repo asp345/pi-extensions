@@ -231,7 +231,7 @@ function normalizeQuotaInfos(info: AntigravityModelInfo): AntigravityQuotaInfo[]
 	return results;
 }
 
-export const antigravityUsageProvider: UsageProvider = {
+const antigravityUsageProvider: UsageProvider = {
 	id: "antigravity",
 	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
 		if (!credential.projectId) return null;

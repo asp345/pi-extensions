@@ -10,7 +10,7 @@ const MAX_TOKENS_FIELDS = ["max_completion_tokens", "max_tokens"] as const;
 
 type Save = (data: CustomProvidersFile) => Promise<void>;
 
-export const MAX_VISIBLE_ROWS = 10;
+const MAX_VISIBLE_ROWS = 10;
 
 export interface Choice<T extends string> {
 	label: string;
