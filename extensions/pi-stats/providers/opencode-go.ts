@@ -1,4 +1,5 @@
 import { formatDuration, formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
+import { quotaColor } from "./quota-color.ts";
 
 interface OpenCodeUsageWindow {
 	status: "ok";
@@ -68,14 +69,7 @@ export const openCodeGoQuotaPlan: TokenPlan = {
 			const diff = nearestReset - now;
 			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(diff);
 		}
-		const low = (value: number | null) => value !== null && value < 20;
-		const mid = (value: number | null) => value !== null && value < 50;
-		const color =
-			low(r) || low(weeklyRemaining) || low(monthlyRemaining)
-				? ("err" as const)
-				: mid(r) || mid(weeklyRemaining) || mid(monthlyRemaining)
-					? ("warn" as const)
-					: ("ok" as const);
+		const color = quotaColor(r, weeklyRemaining, monthlyRemaining);
 		return { modelPrefix: "", display: formatQuotaSegments(segments), segments, color };
 	},
 };

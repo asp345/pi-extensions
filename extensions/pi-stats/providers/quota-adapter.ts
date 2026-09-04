@@ -2,6 +2,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resolveCredential } from "../auth.ts";
 import { formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageProvider, UsageReport } from "../types.ts";
+import { quotaColor } from "./quota-color.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -69,12 +70,11 @@ export function formatProviderQuota(report: UsageReport) {
 	const display = formatQuotaSegments(segments);
 	if (!display) return { modelPrefix: "", display: "No quota data", segments: {}, color: "err" as const };
 
-	const minimum = Math.min(...windows.values());
 	return {
 		modelPrefix: "",
 		display,
 		segments,
-		color: minimum < 20 ? ("err" as const) : minimum < 50 ? ("warn" as const) : ("ok" as const),
+		color: quotaColor(...windows.values()),
 	};
 }
 

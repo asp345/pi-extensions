@@ -1,5 +1,6 @@
 import type { QuotaFetchExtra, TokenPlan } from "../quota.ts";
 import { formatQuotaSegments, formatTokenPlanDisplay, type QuotaSegments } from "../quota.ts";
+import { quotaColor } from "./quota-color.ts";
 
 interface GlmQuotaEntry {
 	type?: unknown;
@@ -94,14 +95,7 @@ export const glmQuotaPlan: TokenPlan = {
 			if (weeklyRemaining !== null) segments.week = `W: ${Math.round(weeklyRemaining)}%`;
 			formatted = { display: formatQuotaSegments(segments) || "No data", segments };
 		}
-		const low = (value: number | null) => value !== null && value < 20;
-		const mid = (value: number | null) => value !== null && value < 50;
-		const color =
-			low(intervalRemaining) || low(weeklyRemaining)
-				? ("err" as const)
-				: mid(intervalRemaining) || mid(weeklyRemaining)
-					? ("warn" as const)
-					: ("ok" as const);
+		const color = quotaColor(intervalRemaining, weeklyRemaining);
 		return { modelPrefix: "", ...formatted, color };
 	},
 };

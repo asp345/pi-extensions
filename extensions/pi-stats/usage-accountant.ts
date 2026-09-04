@@ -1,9 +1,17 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { estimateTokens, isReasonableTokenSpeed } from "./estimate.ts";
 import { ActiveTokenSpeed } from "./live-speed.ts";
 
 const LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS = 1_000;
+const MAX_REASONABLE_TOKEN_SPEED = 2_500;
+
+function isReasonableTokenSpeed(tokensPerSecond: number): boolean {
+	return Number.isFinite(tokensPerSecond) && tokensPerSecond > 0 && tokensPerSecond <= MAX_REASONABLE_TOKEN_SPEED;
+}
+
+function estimateTokens(textLen: number): number {
+	return Math.round(textLen / 4);
+}
 
 /** Cumulative usage totals and live streaming-speed state, rebuilt from session history on start. */
 export class UsageAccountant {

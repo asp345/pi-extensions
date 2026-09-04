@@ -47,7 +47,7 @@ function registerStatsCommand(
 		ctx.ui.notify(quota.state?.error ? `GLM team quota query failed: ${errMsg}` : "GLM team quota enabled", "info");
 	}
 
-	pi.registerCommand("stats", {
+	pi.registerCommand("footer", {
 		description: "Token stats settings and provider quota selection",
 		handler: async (args, ctx) => {
 			const arg = args.trim() || "config";
@@ -246,7 +246,7 @@ function registerStatsCommand(
 				return;
 			}
 
-			ctx.ui.notify("Usage: /stats [config | limit]", "warning");
+			ctx.ui.notify("Usage: /footer [config | limit]", "warning");
 		},
 	});
 }

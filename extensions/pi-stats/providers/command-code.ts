@@ -1,4 +1,5 @@
 import { formatDuration, formatQuotaSegments, type QuotaSegments, type TokenPlan } from "../quota.ts";
+import { quotaColor } from "./quota-color.ts";
 
 interface CommandCodeWindow {
 	cap?: unknown;
@@ -140,14 +141,7 @@ export const commandCodeQuotaPlan: TokenPlan = {
 			const diff = nearestReset - now;
 			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(diff);
 		}
-		const low = (value: number | null) => value !== null && value < 20;
-		const mid = (value: number | null) => value !== null && value < 50;
-		const color =
-			low(intervalRemaining) || low(weeklyRemaining) || low(monthlyPercent)
-				? ("err" as const)
-				: mid(intervalRemaining) || mid(weeklyRemaining) || mid(monthlyPercent)
-					? ("warn" as const)
-					: ("ok" as const);
+		const color = quotaColor(intervalRemaining, weeklyRemaining, monthlyPercent);
 		const display = formatQuotaSegments(segments) || "No quota data";
 		return { modelPrefix: "", display, segments, color };
 	},

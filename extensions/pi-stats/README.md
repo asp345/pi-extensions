@@ -1,6 +1,6 @@
 # pi-stats
 
-A Pi footer and `/stats` command for token metrics, timing, and provider quotas.
+A Pi footer and `/footer` command for token metrics, timing, and provider quotas.
 
 ## Metrics
 
@@ -11,11 +11,11 @@ A Pi footer and `/stats` command for token metrics, timing, and provider quotas.
 - Average and rolling token throughput
 - Current request duration in the working message
 
-Configuration is stored as `pi-stats.json` in the Pi agent directory. Use `/stats config` to configure the footer. The extension does not persist usage logs.
+Configuration is stored as `pi-stats.json` in the Pi agent directory. Use `/footer config` to configure the footer. The extension does not persist usage logs.
 
 ## Provider quotas
 
-Quota plans are selected automatically from the current provider ID. Use `/stats limit` only to override the detected plan or disable quota display. Supported providers:
+Quota plans are selected automatically from the current provider ID. Use `/footer limit` only to override the detected plan or disable quota display. Supported providers:
 
 - Anthropic Claude
 - OpenAI Codex

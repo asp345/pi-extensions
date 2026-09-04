@@ -1,4 +1,5 @@
 import { formatTokenPlanDisplay, type TokenPlan } from "../quota.ts";
+import { quotaColor } from "./quota-color.ts";
 
 interface MiniMaxModelRemain {
 	model_name?: unknown;
@@ -65,12 +66,7 @@ export const minimaxQuotaPlan: TokenPlan = {
 		return {
 			modelPrefix: "",
 			...formatted,
-			color:
-				intervalRemaining < 20 || weeklyRemaining < 20
-					? ("err" as const)
-					: intervalRemaining < 50 || weeklyRemaining < 50
-						? ("warn" as const)
-						: ("ok" as const),
+			color: quotaColor(intervalRemaining, weeklyRemaining),
 		};
 	},
 };
