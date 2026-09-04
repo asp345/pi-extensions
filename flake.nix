@@ -25,21 +25,14 @@
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
-              biome
               bun
-              nixd
               nixfmt
               typescriptLanguageServerBun
             ];
 
-            PI_BIOME_LSP_COMMAND = "${pkgs.biome}/bin/biome lsp-proxy";
-            PI_NIXD_LSP_COMMAND = "${pkgs.nixd}/bin/nixd";
-
-            # Appended, not prepended: @earendil-works/pi-coding-agent is a
-            # devDependency for its types, and Bun links its `pi` bin into
-            # node_modules/.bin. Prepending would shadow the home-manager pi
-            # with that copy, whose asset layout differs from the packaged
-            # build and breaks against PI_PACKAGE_DIR.
+            # Appended, not prepended: prepending would shadow the
+            # home-manager pi with the node_modules copy, whose asset layout
+            # breaks against PI_PACKAGE_DIR.
             shellHook = ''
               export PATH="$PATH:$PWD/node_modules/.bin"
             '';
