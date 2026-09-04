@@ -4,227 +4,35 @@ import {
 	lazyStream,
 	type Model,
 	type Provider,
-	type ProviderHeaders,
 	type SimpleStreamOptions,
 	type StreamOptions,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	type AutoSession,
+	COPILOT_HEADERS,
+	createAutoSession,
+	credentialFingerprint,
+	mergeHeaders,
+	routePrompt,
+} from "./auto-session.ts";
+import {
+	AUTO_MODEL_ID,
+	AUTO_PREFIX,
+	apiForModel,
+	BASE_PROVIDER,
+	DEFAULT_BASE_URL,
+	PROVIDER_ID,
+	poolModel,
+	realModelId,
+	type WrappedProvider,
+} from "./catalog.ts";
 
-const PROVIDER_ID = "github-copilot";
-const AUTO_MODEL_ID = "auto";
-const AUTO_PREFIX = "auto-";
-const BASE_PROVIDER = "__piConfigCopilotAutoBase" as const;
-type WrappedProvider = Provider & { [BASE_PROVIDER]?: Provider };
+export { apiForModel, poolModel, realModelId } from "./catalog.ts";
 
 // Minimum interval before re-fetching the built-in Copilot catalog during model refresh.
 // Startup refresh must stay off the network or the TUI freezes until it completes.
 const REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
-
-function realModelId(id: string): string {
-	return id.startsWith(AUTO_PREFIX) ? id.slice(AUTO_PREFIX.length) : id;
-}
-const COPILOT_HEADERS = {
-	Accept: "application/json",
-	"Content-Type": "application/json",
-	"User-Agent": "GitHubCopilotChat/0.35.0",
-	"Editor-Version": "vscode/1.107.0",
-	"Editor-Plugin-Version": "copilot-chat/0.35.0",
-	"Copilot-Integration-Id": "vscode-chat",
-	"X-GitHub-Api-Version": "2026-06-01",
-	"Openai-Intent": "conversation-edits",
-} as const;
-
-const DEFAULT_BASE_URL = "https://api.individual.githubcopilot.com";
-
-interface AutoSession {
-	availableModels: string[];
-	sessionToken: string;
-	expiresAt: number;
-	interactionId: string;
-	chosenModel?: string;
-	reasoningBucket?: "low" | "medium" | "high";
-}
-
-interface SessionResponse {
-	available_models?: unknown;
-	selected_model?: unknown;
-	session_token?: unknown;
-	expires_at?: unknown;
-}
-
-interface IntentResponse {
-	chosen_model?: unknown;
-	candidate_models?: unknown;
-	reasoning_bucket?: unknown;
-}
-
-function apiForModel(id: string): Api {
-	if (/^claude-(haiku|sonnet|opus)-[45]([.-]|$)/.test(id)) return "anthropic-messages";
-	if (id.startsWith("gpt-5") || id.startsWith("oswe") || id.startsWith("mai-")) return "openai-responses";
-	return "openai-completions";
-}
-
-function poolModel(id: string, name: string, api: Api): Model<Api> {
-	const anthropic = api === "anthropic-messages";
-	const responses = api === "openai-responses";
-	let compat: Record<string, unknown>;
-	if (anthropic) {
-		compat = { supportsEagerToolInputStreaming: false };
-	} else if (responses) {
-		compat = {
-			supportsReasoningEffort: true,
-			supportsStore: false,
-			supportsStrictMode: true,
-			sessionAffinityFormat: "openai",
-		};
-	} else {
-		compat = {
-			supportsStore: false,
-			supportsDeveloperRole: false,
-			supportsReasoningEffort: false,
-		};
-	}
-	return {
-		id,
-		name,
-		api,
-		provider: PROVIDER_ID,
-		baseUrl: DEFAULT_BASE_URL,
-		reasoning: responses,
-		input: ["text", "image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 400_000,
-		maxTokens: anthropic ? 64_000 : 128_000,
-		thinkingLevelMap: responses
-			? {
-					off: "none",
-					minimal: "low",
-					low: "low",
-					medium: "medium",
-					high: "high",
-					xhigh: null,
-					max: null,
-				}
-			: undefined,
-		compat,
-	};
-}
-
-function stringList(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function latestUserPrompt(context: Context): { prompt: string; hasImage: boolean } {
-	for (let index = context.messages.length - 1; index >= 0; index--) {
-		const message = context.messages[index];
-		if (message.role !== "user") continue;
-		if (typeof message.content === "string") return { prompt: message.content, hasImage: false };
-
-		let prompt = "";
-		let hasImage = false;
-		for (const part of message.content) {
-			if (part.type === "text") prompt += `${prompt ? "\n" : ""}${part.text}`;
-			if (part.type === "image") hasImage = true;
-		}
-		return { prompt, hasImage };
-	}
-	return { prompt: "", hasImage: false };
-}
-
-function mergeHeaders(base: ProviderHeaders | undefined, extra: Record<string, string>): ProviderHeaders {
-	const merged: ProviderHeaders = { ...(base ?? {}) };
-	for (const [name, value] of Object.entries(extra)) {
-		for (const existing of Object.keys(merged)) {
-			if (existing.toLowerCase() === name.toLowerCase()) delete merged[existing];
-		}
-		merged[name] = value;
-	}
-	return merged;
-}
-
-async function credentialFingerprint(apiKey: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(apiKey));
-	return Array.from(new Uint8Array(digest, 0, 8), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-async function fetchJson<T>(url: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
-	const timeout = AbortSignal.timeout(15_000);
-	const combinedSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
-	const response = await fetch(url, { ...init, signal: combinedSignal });
-	if (!response.ok) {
-		const body = await response.text();
-		throw new Error(`Copilot Auto ${response.status} ${response.statusText}: ${body.slice(0, 500)}`);
-	}
-	return (await response.json()) as T;
-}
-
-async function createAutoSession(baseUrl: string, apiKey: string, signal?: AbortSignal): Promise<AutoSession> {
-	const interactionId = crypto.randomUUID();
-	const response = await fetchJson<SessionResponse>(
-		`${baseUrl}/models/session`,
-		{
-			method: "POST",
-			headers: {
-				...COPILOT_HEADERS,
-				Authorization: `Bearer ${apiKey}`,
-				"X-Initiator": "user",
-				"X-Interaction-Id": interactionId,
-			},
-			body: JSON.stringify({ auto_mode: { model_hints: [AUTO_MODEL_ID] } }),
-		},
-		signal,
-	);
-
-	const availableModels = stringList(response.available_models);
-	if (availableModels.length === 0 || typeof response.session_token !== "string") {
-		throw new Error("Copilot Auto returned an invalid model session");
-	}
-
-	const now = Date.now();
-	const reportedExpiry = typeof response.expires_at === "number" ? response.expires_at * 1000 : 0;
-	const expiresAt =
-		reportedExpiry > now + 30_000 && reportedExpiry < now + 24 * 60 * 60_000 ? reportedExpiry : now + 10 * 60_000;
-	return {
-		availableModels,
-		sessionToken: response.session_token,
-		expiresAt,
-		interactionId,
-		chosenModel: typeof response.selected_model === "string" ? response.selected_model : availableModels[0],
-	};
-}
-
-async function routePrompt(
-	baseUrl: string,
-	apiKey: string,
-	state: AutoSession,
-	context: Context,
-	signal?: AbortSignal,
-): Promise<void> {
-	const { prompt, hasImage } = latestUserPrompt(context);
-	const response = await fetchJson<IntentResponse>(
-		`${baseUrl}/models/session/intent`,
-		{
-			method: "POST",
-			headers: {
-				...COPILOT_HEADERS,
-				Authorization: `Bearer ${apiKey}`,
-				"Copilot-Session-Token": state.sessionToken,
-				"X-Initiator": "user",
-				"X-Interaction-Id": state.interactionId,
-			},
-			body: JSON.stringify({ prompt, available_models: state.availableModels, has_image: hasImage }),
-		},
-		signal,
-	);
-
-	const candidates = stringList(response.candidate_models);
-	const chosen = typeof response.chosen_model === "string" ? response.chosen_model : candidates[0];
-	if (!chosen) throw new Error("Copilot Auto router did not choose a model");
-
-	state.chosenModel = chosen;
-	const bucket = response.reasoning_bucket;
-	state.reasoningBucket = bucket === "low" || bucket === "medium" || bucket === "high" ? bucket : undefined;
-}
 
 export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => void): Provider {
 	const baseById = new Map(base.getModels().map((entry) => [entry.id, entry]));
