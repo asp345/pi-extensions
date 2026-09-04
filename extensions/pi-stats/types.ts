@@ -51,6 +51,14 @@ export interface UsageProvider {
 	fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null>;
 }
 
+/** Runtime state shared between the footer renderer and the token stats runtime. */
+export interface SharedState {
+	/** Whether the session is active. Set by session_start and session_shutdown. */
+	sessionActive: boolean;
+	/** Footer render callback, cleared when the footer or session closes. */
+	requestRender: (() => void) | null;
+}
+
 export function resolveUsedFraction(limit: UsageLimit): number | undefined {
 	const amount = limit.amount;
 	if (amount.usedFraction !== undefined) return amount.usedFraction;

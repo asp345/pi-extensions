@@ -2,7 +2,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatUserPath } from "./format.ts";
 import { createStepTimer } from "./step-timer.ts";
-import { createTokenStats, type SharedState } from "./token-stats.ts";
+import { createTokenStats } from "./token-stats.ts";
+import type { SharedState } from "./types.ts";
 
 const shared: SharedState = {
 	sessionActive: false,
