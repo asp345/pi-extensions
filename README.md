@@ -13,7 +13,6 @@ My personal Pi monorepo.
 - `extensions/pi-direnv/`
 - `extensions/pi-goal/`
 - `extensions/pi-gpt-search/`
-- `extensions/pi-lsp/`
 - `extensions/pi-nix-store-guard/`
 - `extensions/pi-openrouter-metadata/`
 - `extensions/pi-custom-providers/`

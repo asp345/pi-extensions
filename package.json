@@ -28,7 +28,6 @@
 			"./extensions/pi-gpt-search/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",
 			"./extensions/pi-direnv/index.ts",
-			"./extensions/pi-lsp/index.ts",
 			"./extensions/pi-nix-store-guard/index.ts",
 			"./extensions/pi-openrouter-metadata/index.ts",
 			"./extensions/pi-custom-providers/index.ts",
