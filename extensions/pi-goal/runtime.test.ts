@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createGoal } from "./runtime.ts";
+import { createGoal } from "./state.ts";
 
 const { GoalRuntime } = await import("./runtime.ts");
 

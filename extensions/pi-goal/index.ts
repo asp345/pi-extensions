@@ -1,16 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
-import {
-	createGoal,
-	type GoalContext,
-	GoalRuntime,
-	type GoalState,
-	loadGoal,
-	MAX_OBJECTIVE,
-	rejection,
-	resumeGoal,
-} from "./runtime.ts";
+import { type GoalContext, GoalRuntime } from "./runtime.ts";
+import { createGoal, type GoalState, loadGoal, MAX_OBJECTIVE, rejection, resumeGoal } from "./state.ts";
 
 const MAX_REASON = 1_000;
 const MAX_EVIDENCE = 4_000;
