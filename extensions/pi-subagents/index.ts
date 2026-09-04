@@ -1,16 +1,26 @@
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.ts";
+import {
+	bounded,
+	type CompletionDetails,
+	completionDetails,
+	foregroundResult,
+	formatMetadata,
+	metadata,
+	pageText,
+	RESULT_BYTES,
+	result,
+} from "./format.ts";
 import { AgentManager } from "./manager.ts";
 import { NotificationQueue } from "./notifications.ts";
 import { compactTranscript } from "./runner.ts";
-import type { AgentRecord, AgentStatus, DefinitionRegistry, ThinkingLevel, WorktreeInfo } from "./types.ts";
+import { parseStoredRecord, type StoredAgentState, storeRecord } from "./state.ts";
+import type { AgentRecord, DefinitionRegistry } from "./types.ts";
 import { AgentsUI } from "./ui.ts";
 
-const RESULT_BYTES = 8_000;
-const RESULT_LINES = 120;
 const NOTIFICATION_BYTES = 1_200;
 const STATE_KIND = "pi-subagent-state";
 
@@ -83,44 +93,8 @@ interface SubagentReportDetails {
 	summary: string;
 }
 
-interface CompletionDetails {
-	id: string;
-	type: string;
-	status: string;
-	turns: number;
-	toolUses: number;
-	durationMs: number;
-	usedFallback?: boolean;
-}
-
 interface CompletionBatchDetails {
 	records: CompletionDetails[];
-}
-
-interface StoredAgentState {
-	version: 1;
-	id: string;
-	type: string;
-	title: string;
-	prompt: string;
-	cwd: string;
-	status: AgentStatus;
-	background: boolean;
-	startedAt: number;
-	completedAt?: number;
-	turns: number;
-	toolUses: number;
-	result?: string;
-	error?: string;
-	model?: string;
-	models: string[];
-	usedFallback?: boolean;
-	fallbackReason?: string;
-	thinking?: ThinkingLevel;
-	sessionFile?: string;
-	worktree?: WorktreeInfo;
-	worktreeBranch?: string;
-	resultConsumed?: boolean;
 }
 
 export default function subagents(pi: ExtensionAPI): void {
@@ -466,199 +440,8 @@ export default function subagents(pi: ExtensionAPI): void {
 	});
 }
 
-function storeRecord(record: AgentRecord): StoredAgentState {
-	return {
-		version: 1,
-		id: record.id,
-		type: record.type,
-		title: record.title,
-		prompt: record.prompt,
-		cwd: record.cwd,
-		status: record.status,
-		background: record.background,
-		startedAt: record.startedAt,
-		completedAt: record.completedAt,
-		turns: record.turns,
-		toolUses: record.toolUses,
-		result: record.result,
-		error: record.error,
-		model: record.model,
-		models: record.models,
-		usedFallback: record.usedFallback,
-		fallbackReason: record.fallbackReason,
-		thinking: record.thinking,
-		sessionFile: record.session?.sessionFile ?? record.sessionFile,
-		worktree: record.worktree,
-		worktreeBranch: record.worktreeBranch,
-		resultConsumed: record.resultConsumed,
-	};
-}
-
-function parseStoredRecord(value: unknown): StoredAgentState | undefined {
-	if (!isRecord(value) || value.version !== 1) return undefined;
-	if (
-		typeof value.id !== "string" ||
-		typeof value.type !== "string" ||
-		typeof value.title !== "string" ||
-		typeof value.prompt !== "string" ||
-		typeof value.cwd !== "string" ||
-		typeof value.background !== "boolean" ||
-		typeof value.startedAt !== "number" ||
-		typeof value.turns !== "number" ||
-		typeof value.toolUses !== "number" ||
-		!isAgentStatus(value.status) ||
-		!Array.isArray(value.models) ||
-		!value.models.every((model) => typeof model === "string")
-	) {
-		return undefined;
-	}
-	const thinking = typeof value.thinking === "string" && isThinkingLevel(value.thinking) ? value.thinking : undefined;
-	return {
-		version: 1,
-		id: value.id,
-		type: value.type,
-		title: value.title,
-		prompt: value.prompt,
-		cwd: value.cwd,
-		status: value.status,
-		background: value.background,
-		startedAt: value.startedAt,
-		completedAt: numberValue(value.completedAt),
-		turns: value.turns,
-		toolUses: value.toolUses,
-		result: stringValue(value.result),
-		error: stringValue(value.error),
-		model: stringValue(value.model),
-		models: [...value.models],
-		usedFallback: typeof value.usedFallback === "boolean" ? value.usedFallback : undefined,
-		fallbackReason: stringValue(value.fallbackReason),
-		thinking,
-		sessionFile: stringValue(value.sessionFile),
-		worktree: parseWorktree(value.worktree),
-		worktreeBranch: stringValue(value.worktreeBranch),
-		resultConsumed: typeof value.resultConsumed === "boolean" ? value.resultConsumed : undefined,
-	};
-}
-
-function isAgentStatus(value: unknown): value is AgentStatus {
-	return value === "running" || value === "completed" || value === "stopped" || value === "error";
-}
-
-function isThinkingLevel(value: string): value is ThinkingLevel {
-	return ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value);
-}
-
-function parseWorktree(value: unknown): WorktreeInfo | undefined {
-	if (!isRecord(value)) return undefined;
-	if (
-		typeof value.root !== "string" ||
-		typeof value.cwd !== "string" ||
-		typeof value.branch !== "string" ||
-		typeof value.base !== "string"
-	) {
-		return undefined;
-	}
-	return { root: value.root, cwd: value.cwd, branch: value.branch, base: value.base };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringValue(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-	return typeof value === "number" ? value : undefined;
-}
-
-function foregroundResult(record: AgentRecord): AgentToolResult<Record<string, unknown>> {
-	if (record.status === "error") throw new Error(record.error || `${record.type} failed.`);
-	if (record.status === "stopped") throw new Error(`${record.type} was stopped.`);
-	const page = bounded(record.result || "No final answer.", RESULT_BYTES, RESULT_LINES);
-	const suffix = page.truncated
-		? `\n\n[Final answer truncated; use get_subagent_result with id ${record.id} for bounded pages.]`
-		: "";
-	return result(page.text + suffix, metadata(record));
-}
-
 function assertParentTools(pi: ExtensionAPI, requested: string[], path: string): void {
 	const available = new Set(pi.getAllTools().map((tool) => tool.name));
 	const missing = requested.filter((name) => !available.has(name));
 	if (missing.length) throw new Error(`Agent configuration error in ${path}: missing tools: ${missing.join(", ")}.`);
-}
-
-function result(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
-	return { content: [{ type: "text", text }], details };
-}
-
-function metadata(record: AgentRecord): Record<string, unknown> {
-	return {
-		...completionDetails(record),
-		background: record.background,
-		model: record.session?.model ? `${record.session.model.provider}/${record.session.model.id}` : record.model,
-		models: record.models,
-		usedFallback: record.usedFallback === true,
-		fallbackReason: record.fallbackReason,
-		worktreeBranch: record.worktreeBranch,
-	};
-}
-
-function completionDetails(record: AgentRecord): CompletionDetails {
-	return {
-		id: record.id,
-		type: record.type,
-		status: record.status,
-		turns: record.turns,
-		toolUses: record.toolUses,
-		durationMs: (record.completedAt ?? Date.now()) - record.startedAt,
-		usedFallback: record.usedFallback,
-	};
-}
-
-function formatMetadata(record: AgentRecord): string {
-	return [
-		`ID: ${record.id}`,
-		`Type: ${record.type}`,
-		`Title: ${record.title}`,
-		`Status: ${record.status}`,
-		`Turns: ${record.turns}`,
-		`Tool uses: ${record.toolUses}`,
-		record.usedFallback ? `Fallback model: ${record.model ?? "active"}` : "",
-		record.fallbackReason ? `Fallback reason: ${bounded(record.fallbackReason, 1_000, 8).text}` : "",
-		record.worktreeBranch ? `Worktree branch: ${record.worktreeBranch}` : "",
-		record.error ? `Error: ${bounded(record.error, 1_000, 8).text}` : "",
-	]
-		.filter(Boolean)
-		.join("\n");
-}
-
-function pageText(value: string, offset: number, limit: number) {
-	const bytes = Buffer.from(value, "utf8");
-	const start = Math.min(offset, bytes.length);
-	const end = Math.min(bytes.length, start + limit);
-	let text = bytes.subarray(start, end).toString("utf8");
-	if (text.endsWith("�") && end < bytes.length) text = text.slice(0, -1);
-	text = text.split("\n").slice(0, RESULT_LINES).join("\n");
-	const consumed = Buffer.byteLength(text, "utf8");
-	return {
-		text,
-		offset: start,
-		totalBytes: bytes.length,
-		nextOffset: start + consumed < bytes.length ? start + consumed : null,
-	};
-}
-
-function bounded(value: string, maxBytes: number, maxLines: number): { text: string; truncated: boolean } {
-	const lines = value.split("\n");
-	let text = lines.slice(0, maxLines).join("\n");
-	let truncated = lines.length > maxLines;
-	let bytes = Buffer.from(text, "utf8");
-	if (bytes.length > maxBytes) {
-		bytes = bytes.subarray(0, maxBytes);
-		text = bytes.toString("utf8").replace(/�$/u, "");
-		truncated = true;
-	}
-	return { text, truncated };
 }

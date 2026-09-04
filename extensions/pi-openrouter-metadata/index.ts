@@ -2,19 +2,31 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { Model, Provider, ThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { Model, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { parseJson } from "../lib/json.ts";
+import {
+	cacheId,
+	displayName,
+	EFFORT_LEVELS,
+	finiteTimestamp,
+	headerValidator,
+	perMillionRate,
+	positiveInteger,
+	price,
+	record,
+	storedRate,
+	string,
+	stringArray,
+	stringRecord,
+} from "./validate.ts";
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_TTL_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const MAX_CATALOG_BYTES = 16_000_000;
-const MAX_PRICE_PER_TOKEN_USD = 1;
 const CACHE_VERSION = 1;
 const CACHE_FILE = "openrouter-metadata-store.json";
 const PI_MODELS_STORE_FILE = "models-store.json";
-const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
 const BASE_PROVIDER = "__piConfigOpenRouterMetadataBase" as const;
 
 type OpenRouterModel = Model<"openai-completions">;
@@ -238,7 +250,7 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 
 function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undefined {
 	try {
-		return parseCacheEntry(parseJson(readFileSync(join(getAgentDir(), CACHE_FILE), "utf8")));
+		return parseCacheEntry(JSON.parse(readFileSync(join(getAgentDir(), CACHE_FILE), "utf8")) as unknown);
 	} catch {
 		return undefined;
 	}
@@ -246,7 +258,7 @@ function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undefined {
 
 export function readPiOpenRouterModels(): OpenRouterModel[] {
 	try {
-		const root = record(parseJson(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")));
+		const root = record(JSON.parse(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")) as unknown);
 		const openrouter = record(root?.openrouter);
 		if (!Array.isArray(openrouter?.models)) return [];
 		return openrouter.models.flatMap((value) => {
@@ -310,19 +322,12 @@ function storedOpenRouterModel(value: unknown): OpenRouterModel | undefined {
 	};
 }
 
-function stringRecord(value: unknown): Record<string, string> | undefined {
-	const source = record(value);
-	if (!source) return undefined;
-	const entries = Object.entries(source).filter((entry): entry is [string, string] => typeof entry[1] === "string");
-	return entries.length ? Object.fromEntries(entries) : undefined;
-}
-
 export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenRouterMetadataCache {
 	let writeQueue = Promise.resolve();
 	return {
 		read: async () => {
 			try {
-				return parseCacheEntry(parseJson(await readFile(path, "utf8")));
+				return parseCacheEntry(JSON.parse(await readFile(path, "utf8")) as unknown);
 			} catch {
 				return undefined;
 			}
@@ -423,20 +428,6 @@ function cachedThinkingLevelMap(value: unknown): ThinkingLevelMap | undefined {
 	return Object.keys(result).length ? result : undefined;
 }
 
-function cacheId(value: unknown): string | undefined {
-	const id = string(value);
-	const controlPattern = String.raw`[\u0000-\u001f\u007f-\u009f]`;
-	return id && id.length <= 512 && !new RegExp(controlPattern, "u").test(id) ? id : undefined;
-}
-
-function finiteTimestamp(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function headerValidator(value: unknown): string | undefined {
-	return typeof value === "string" && value.length <= 1024 && !/[\r\n]/u.test(value) ? value : undefined;
-}
-
 function buildMetadataOverrides(baseline: readonly OpenRouterModel[], payload: unknown): Map<string, MetadataOverride> {
 	const knownIds = new Set(baseline.map((model) => model.id));
 	const overrides = new Map<string, MetadataOverride>();
@@ -529,7 +520,7 @@ async function readCatalog(response: Response): Promise<unknown> {
 		await response.body?.cancel();
 		throw new Error("OpenRouter model catalog exceeds the response limit.");
 	}
-	if (!response.body) return parseJson(await response.text());
+	if (!response.body) return JSON.parse(await response.text()) as unknown;
 	const reader = response.body.getReader();
 	const chunks: Uint8Array[] = [];
 	let bytes = 0;
@@ -553,7 +544,7 @@ async function readCatalog(response: Response): Promise<unknown> {
 		body.set(chunk, offset);
 		offset += chunk.byteLength;
 	}
-	return parseJson(new TextDecoder().decode(body));
+	return JSON.parse(new TextDecoder().decode(body)) as unknown;
 }
 
 function cloneModel(model: OpenRouterModel): OpenRouterModel {
@@ -567,54 +558,4 @@ function cloneModel(model: OpenRouterModel): OpenRouterModel {
 		compat: model.compat ? { ...model.compat } : undefined,
 		headers: model.headers ? { ...model.headers } : undefined,
 	};
-}
-
-function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
-function string(value: unknown): string | undefined {
-	return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function displayName(value: unknown): string | undefined {
-	const text = string(value);
-	if (!text) return undefined;
-	const clean = [...text]
-		.filter((character) => {
-			const code = character.codePointAt(0) ?? 0;
-			return code >= 32 && !(code >= 127 && code <= 159);
-		})
-		.join("")
-		.trim();
-	return clean ? clean.slice(0, 256) : undefined;
-}
-
-function stringArray(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function positiveInteger(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
-}
-
-/**
- * Rates already stored by pi, which are trusted catalog data rather than remote input.
- * Negative values are pi's sentinel for variable pricing, as used by the Auto Router
- * models, so they are preserved instead of dropping the model from the baseline.
- */
-function storedRate(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function perMillionRate(value: unknown): number | undefined {
-	const maximum = MAX_PRICE_PER_TOKEN_USD * 1_000_000;
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum ? value : undefined;
-}
-
-function price(value: unknown): number | undefined {
-	const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-	return Number.isFinite(parsed) && parsed >= 0 && parsed <= MAX_PRICE_PER_TOKEN_USD ? parsed * 1_000_000 : undefined;
 }

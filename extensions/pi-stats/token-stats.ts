@@ -11,6 +11,7 @@ import {
 	type SpeedStyle,
 	saveConfig,
 } from "./config.ts";
+import { estimateTokens, isReasonableTokenSpeed } from "./estimate.ts";
 import { formatTokenSpeed, formatTokens } from "./format.ts";
 import { ActiveTokenSpeed } from "./live-speed.ts";
 import { TOKEN_PLANS } from "./plans.ts";
@@ -24,15 +25,6 @@ export interface SharedState {
 }
 
 const LIVE_TOKEN_SPEED_UPDATE_INTERVAL_MS = 1_000;
-const MAX_REASONABLE_TOKEN_SPEED = 1000;
-
-function isReasonableTokenSpeed(tokensPerSecond: number): boolean {
-	return Number.isFinite(tokensPerSecond) && tokensPerSecond > 0 && tokensPerSecond <= MAX_REASONABLE_TOKEN_SPEED;
-}
-
-function estimateTokens(textLen: number): number {
-	return Math.round(textLen / 4);
-}
 
 export interface MetricPartOptions {
 	speed?: boolean;
