@@ -35,10 +35,8 @@ export { apiForModel, poolModel, realModelId } from "./catalog.ts";
 const REFRESH_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: () => void): Provider {
-	const baseById = new Map(base.getModels().map((entry) => [entry.id, entry]));
-
 	const templateFor = (realId: string, displayId: string): Model<Api> => {
-		const known = baseById.get(realId);
+		const known = base.getModels().find((entry) => entry.id === realId);
 		if (known) return { ...known, id: displayId, name: displayId };
 		return poolModel(displayId, displayId, apiForModel(realId));
 	};
@@ -46,7 +44,7 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 	const routerModel = poolModel(AUTO_MODEL_ID, "Copilot Auto", "openai-responses");
 	const poolIds = new Set(pool);
 	const managedIds = new Set([AUTO_MODEL_ID, ...pool.map((id) => `${AUTO_PREFIX}${id}`)]);
-	const poolModels = pool.map((id) => templateFor(id, `${AUTO_PREFIX}${id}`));
+	const poolModels = () => pool.map((id) => templateFor(id, `${AUTO_PREFIX}${id}`));
 	const sessions = new Map<string, AutoSession>();
 
 	async function prepare(
@@ -107,7 +105,7 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 
 	const listModels = (): Model<Api>[] => [
 		routerModel,
-		...poolModels,
+		...poolModels(),
 		...base.getModels().filter((entry) => !managedIds.has(entry.id)),
 	];
 
@@ -118,7 +116,7 @@ export function wrapProvider(base: Provider, pool: string[], onBaseRefreshed?: (
 		filterModels: (models, credential) => {
 			const remaining = models.filter((entry) => !managedIds.has(entry.id));
 			const filtered = base.filterModels?.(remaining, credential) ?? remaining;
-			return [routerModel, ...poolModels, ...filtered];
+			return [routerModel, ...poolModels(), ...filtered];
 		},
 		stream: (requestModel, context, options) =>
 			managedIds.has(requestModel.id)

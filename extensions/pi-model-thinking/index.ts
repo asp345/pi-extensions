@@ -89,7 +89,7 @@ export default function modelThinkingExtension(pi: ExtensionAPI): void {
 		const level = event.level as ThinkingLevel;
 		if (!config.enabled || !key || !VALID_LEVELS.has(level)) return;
 
-		if (lastApply && Date.now() - lastApply.at < APPLY_WINDOW_MS && level === lastApply.level) {
+		if (lastApply && Date.now() - lastApply.at < APPLY_WINDOW_MS) {
 			lastApply = undefined;
 			return;
 		}

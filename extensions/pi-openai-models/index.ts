@@ -53,7 +53,13 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 		if (!current || !isManagedProvider(current.provider)) return;
 		const refreshed = ctx.modelRegistry.find(current.provider, current.id);
 		if (!refreshed) return;
-		if (refreshed.contextWindow === current.contextWindow) return;
+		if (
+			refreshed.contextWindow === current.contextWindow &&
+			refreshed.api === current.api &&
+			refreshed.baseUrl === current.baseUrl &&
+			refreshed.maxTokens === current.maxTokens
+		)
+			return;
 		await pi.setModel(refreshed);
 	}
 
@@ -132,17 +138,24 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 					items.length + 2,
 					getSettingsListTheme(),
 					(id, value) => {
-						pending = pending.then(() => {
-							if (id === "contextMode" && isContextMode(value)) {
-								return applySettings(ctx, { ...settings, contextMode: value });
-							}
-							if (id === "daybreak" && (value === "on" || value === "off")) {
-								return applySettings(ctx, { ...settings, daybreak: value === "on" });
-							}
-							if (id === "serviceTier" && isTier(value)) {
-								return applySettings(ctx, { ...settings, serviceTier: value });
-							}
-						});
+						pending = pending
+							.then(() => {
+								if (id === "contextMode" && isContextMode(value)) {
+									return applySettings(ctx, { ...settings, contextMode: value });
+								}
+								if (id === "daybreak" && (value === "on" || value === "off")) {
+									return applySettings(ctx, { ...settings, daybreak: value === "on" });
+								}
+								if (id === "serviceTier" && isTier(value)) {
+									return applySettings(ctx, { ...settings, serviceTier: value });
+								}
+							})
+							.catch((error) => {
+								ctx.ui.notify(
+									`OpenAI settings failed: ${error instanceof Error ? error.message : String(error)}`,
+									"error",
+								);
+							});
 					},
 					() => done(undefined),
 				);
