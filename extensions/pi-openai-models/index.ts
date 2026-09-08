@@ -1,7 +1,7 @@
 import type { Provider } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
-import { buildManagedModels, DAYBREAK_BLUE_ALIAS, DAYBREAK_SOL_ID } from "./models.ts";
+import { buildManagedModels } from "./models.ts";
 import { isContextMode, loadSettings, type OpenAISettings, saveSettings } from "./settings.ts";
 import { isTier, tierStreamWrappers } from "./tier.ts";
 
@@ -18,7 +18,7 @@ export function wrapOpenAIProvider(base: Provider, getSettings: () => OpenAISett
 		[BASE_PROVIDER]: base,
 		getModels: () => {
 			const settings = getSettings();
-			return buildManagedModels(base.getModels(), {
+			return buildManagedModels(base.getModels(), base.id, {
 				longContext: settings.contextMode === "1m",
 				daybreak: settings.daybreak,
 			});
@@ -31,13 +31,7 @@ export function wrapOpenAIProvider(base: Provider, getSettings: () => OpenAISett
 }
 
 function unwrap(current: WrappedProvider | undefined): Provider | undefined {
-	if (!current) return undefined;
-	if (current[BASE_PROVIDER]) return current[BASE_PROVIDER];
-	const legacy = Object.getOwnPropertySymbols(current).find(
-		(symbol) => symbol.description === "pi-service-tier-base-provider",
-	);
-	const base = legacy ? (current as unknown as Record<symbol, Provider | undefined>)[legacy] : undefined;
-	return base ?? current;
+	return current?.[BASE_PROVIDER] ?? current;
 }
 
 export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
@@ -57,8 +51,7 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 		await saveSettings(settings);
 		if (!catalogChanged) return;
 		if (!ctx.model || !PROVIDER_IDS.includes(ctx.model.provider as (typeof PROVIDER_IDS)[number])) return;
-		const targetId = !settings.daybreak && ctx.model.id === DAYBREAK_BLUE_ALIAS ? DAYBREAK_SOL_ID : ctx.model.id;
-		const refreshed = ctx.modelRegistry.find(ctx.model.provider, targetId);
+		const refreshed = ctx.modelRegistry.find(ctx.model.provider, ctx.model.id);
 		if (refreshed) await pi.setModel(refreshed);
 	}
 

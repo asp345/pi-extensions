@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { buildManagedModels, DAYBREAK_BLUE_ALIAS } from "./models.ts";
+import { buildManagedModels, DAYBREAK_BLUE_ID } from "./models.ts";
 
 const sol: Model<Api> = {
 	id: "gpt-5.6-sol",
@@ -17,16 +17,16 @@ const sol: Model<Api> = {
 };
 
 test("managed models apply settings and preserve provider metadata", () => {
-	const enabled = buildManagedModels([sol], { longContext: true, daybreak: true });
+	const enabled = buildManagedModels([sol], sol.provider, { longContext: true, daybreak: true });
 	assert.equal(enabled.find((model) => model.id === sol.id)?.contextWindow, 1_050_000);
-	const blue = enabled.find((model) => model.id === DAYBREAK_BLUE_ALIAS);
+	const blue = enabled.find((model) => model.id === DAYBREAK_BLUE_ID);
 	assert.equal(blue?.provider, "openai-codex");
 	assert.equal(blue?.api, "openai-codex-responses");
 
-	const standard = buildManagedModels([sol], { longContext: false, daybreak: false });
+	const standard = buildManagedModels([sol], sol.provider, { longContext: false, daybreak: false });
 	assert.equal(standard.find((model) => model.id === sol.id)?.contextWindow, 272_000);
 	assert.equal(
-		standard.some((model) => model.id === DAYBREAK_BLUE_ALIAS),
+		standard.some((model) => model.id === DAYBREAK_BLUE_ID),
 		false,
 	);
 });
