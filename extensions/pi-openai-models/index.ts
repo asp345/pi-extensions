@@ -34,6 +34,10 @@ function unwrap(current: WrappedProvider | undefined): Provider | undefined {
 	return current?.[BASE_PROVIDER] ?? current;
 }
 
+function isManagedProvider(providerId: string): providerId is (typeof PROVIDER_IDS)[number] {
+	return (PROVIDER_IDS as readonly string[]).includes(providerId);
+}
+
 export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 	let settings = await loadSettings();
 
@@ -44,18 +48,32 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 		}
 	}
 
+	async function syncCurrentModel(ctx: ExtensionContext): Promise<void> {
+		const current = ctx.model;
+		if (!current || !isManagedProvider(current.provider)) return;
+		const refreshed = ctx.modelRegistry.find(current.provider, current.id);
+		if (!refreshed) return;
+		if (refreshed.contextWindow === current.contextWindow) return;
+		await pi.setModel(refreshed);
+	}
+
 	async function applySettings(ctx: ExtensionContext, next: OpenAISettings): Promise<void> {
 		const catalogChanged = next.contextMode !== settings.contextMode || next.daybreak !== settings.daybreak;
 		settings = next;
 		registerProviders(ctx);
 		await saveSettings(settings);
 		if (!catalogChanged) return;
-		if (!ctx.model || !PROVIDER_IDS.includes(ctx.model.provider as (typeof PROVIDER_IDS)[number])) return;
-		const refreshed = ctx.modelRegistry.find(ctx.model.provider, ctx.model.id);
-		if (refreshed) await pi.setModel(refreshed);
+		await syncCurrentModel(ctx);
 	}
 
-	pi.on("session_start", (_event, ctx) => registerProviders(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		registerProviders(ctx);
+		await syncCurrentModel(ctx);
+	});
+
+	pi.on("model_select", async (_event, ctx) => {
+		await syncCurrentModel(ctx);
+	});
 
 	pi.registerCommand(COMMAND, {
 		description: "Configure OpenAI context, Daybreak Blue, and service tier",
