@@ -23,10 +23,6 @@ export const TOKEN_PLANS: TokenPlan[] = [
 	antigravityQuotaPlan,
 ];
 
-export function resolveTokenPlan(provider: string, configuredPlanId: string | null | undefined): TokenPlan | null {
-	if (configuredPlanId === null) return null;
-	if (configuredPlanId) {
-		return TOKEN_PLANS.find((plan) => plan.id === configuredPlanId) ?? null;
-	}
+export function resolveTokenPlan(provider: string): TokenPlan | null {
 	return TOKEN_PLANS.find((plan) => plan.matchProviders.includes(provider)) ?? null;
 }

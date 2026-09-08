@@ -5,7 +5,6 @@ My personal Pi monorepo.
 
 ## Extensions
 
-- `extensions/pi-github-copilot/`
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
@@ -19,7 +18,7 @@ My personal Pi monorepo.
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-openai-models/`
-- `extensions/pi-stats/`
+- `extensions/pi-footer/`
 - `extensions/pi-model-thinking/`
 - `extensions/pi-question/`
 - `extensions/pi-themes/`

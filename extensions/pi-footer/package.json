@@ -1,8 +1,8 @@
 {
-	"name": "@asp345/pi-github-copilot",
+	"name": "@asp345/pi-footer",
 	"version": "0.0.0",
-	"description": "Auto-approve GitHub Copilot OAuth for pi",
-	"license": "MIT",
+	"description": "Pi footer with timing, token statistics, and provider quotas",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -11,9 +11,11 @@
 	],
 	"files": [
 		"*.ts",
+		"providers/*.ts",
 		"!*.test.ts",
 		"LICENSE",
-		"README.md"
+		"README.md",
+		"THIRD_PARTY_NOTICES.md"
 	],
 	"pi": {
 		"extensions": [
@@ -22,6 +24,7 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-ai": "*",
-		"@earendil-works/pi-coding-agent": "*"
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
 	}
 }

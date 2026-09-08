@@ -1,14 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export interface TeamCredential {
-	organization: string;
-	project: string;
-}
-
-export interface QuotaFetchExtra {
-	team?: TeamCredential | null;
-}
-
 type QuotaSegmentKey = "fiveHour" | "day" | "week" | "month" | "balance" | "reset";
 
 export type QuotaSegments = Partial<Record<QuotaSegmentKey, string>>;
@@ -30,7 +21,7 @@ export interface TokenPlan {
 	baseUrl: string;
 	quotaPath: string;
 	authHeader: (key: string) => Record<string, string>;
-	fetchQuota: (plan: TokenPlan, key: string, extra?: QuotaFetchExtra) => Promise<unknown>;
+	fetchQuota: (plan: TokenPlan, key: string) => Promise<unknown>;
 	fetchQuotaWithContext?: (ctx: ExtensionContext) => Promise<unknown>;
 	format: (data: unknown) => QuotaDisplay;
 }

@@ -1,6 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { StatsConfigStore } from "./config-store.ts";
+import { FooterConfigStore } from "./config-store.ts";
 import registerFooterCommand from "./footer-command.ts";
 import { type MetricPartOptions, renderMetricParts } from "./metric-parts.ts";
 import { QuotaController } from "./quota-controller.ts";
@@ -14,7 +14,7 @@ interface TokenStatsHandle {
 
 export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenStatsHandle {
 	const accountant = new UsageAccountant();
-	const store = new StatsConfigStore();
+	const store = new FooterConfigStore();
 	const quota = new QuotaController({
 		getConfig: () => store.current,
 		isSessionActive: () => shared.sessionActive,

@@ -26,17 +26,12 @@ export interface DisplayConfig {
 	speedStyle: SpeedStyle;
 }
 
-export interface PiStatsConfig {
-	providerPlans: Record<string, string | null>;
-	teamCredential?: { organization: string; project: string };
+export interface PiFooterConfig {
 	ttl: number;
 	display: DisplayConfig;
 }
 
-const CONFIG_FILE = join(getAgentDir(), "pi-stats.json");
-const LEGACY_DIR = join(getAgentDir(), "extensions", "pi-stats");
-const LEGACY_TOKEN_CONFIG_FILE = join(LEGACY_DIR, "config.json");
-const LEGACY_DISPLAY_CONFIG_FILE = join(LEGACY_DIR, "display-config.json");
+const CONFIG_FILE = join(getAgentDir(), "pi-footer.json");
 
 export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 	items: {
@@ -58,8 +53,7 @@ export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 	speedStyle: "t/s",
 };
 
-export const DEFAULT_CONFIG: PiStatsConfig = {
-	providerPlans: {},
+export const DEFAULT_CONFIG: PiFooterConfig = {
 	ttl: 60,
 	display: DEFAULT_DISPLAY_CONFIG,
 };
@@ -84,26 +78,12 @@ function parseDisplay(value: unknown): DisplayConfig {
 	return { items, contextStyle, speedStyle };
 }
 
-function parseConfig(value: unknown, legacyDisplay?: unknown): PiStatsConfig {
+function parseConfig(value: unknown): PiFooterConfig {
 	const source = isRecord(value) ? value : {};
-	const providerPlans = isRecord(source.providerPlans)
-		? Object.fromEntries(
-				Object.entries(source.providerPlans).filter(
-					(entry): entry is [string, string | null] => typeof entry[1] === "string" || entry[1] === null,
-				),
-			)
-		: {};
-	const team = isRecord(source.teamCredential) ? source.teamCredential : undefined;
-	const teamCredential =
-		typeof team?.organization === "string" && typeof team.project === "string"
-			? { organization: team.organization, project: team.project }
-			: undefined;
 	const ttl = typeof source.ttl === "number" && source.ttl >= 10 ? source.ttl : DEFAULT_CONFIG.ttl;
 	return {
-		providerPlans,
-		...(teamCredential ? { teamCredential } : {}),
 		ttl,
-		display: parseDisplay(source.display ?? legacyDisplay),
+		display: parseDisplay(source.display),
 	};
 }
 
@@ -111,31 +91,21 @@ async function readJson(file: string): Promise<unknown> {
 	return JSON.parse(await readFile(file, "utf-8")) as unknown;
 }
 
-export async function loadConfig(): Promise<PiStatsConfig> {
+export async function loadConfig(): Promise<PiFooterConfig> {
 	try {
 		if (existsSync(CONFIG_FILE)) return parseConfig(await readJson(CONFIG_FILE));
-		const legacyToken = existsSync(LEGACY_TOKEN_CONFIG_FILE) ? await readJson(LEGACY_TOKEN_CONFIG_FILE) : {};
-		const legacyDisplay = existsSync(LEGACY_DISPLAY_CONFIG_FILE)
-			? await readJson(LEGACY_DISPLAY_CONFIG_FILE)
-			: undefined;
-		const migrated = parseConfig(legacyToken, legacyDisplay);
-		if (existsSync(LEGACY_TOKEN_CONFIG_FILE) || existsSync(LEGACY_DISPLAY_CONFIG_FILE)) {
-			try {
-				await saveConfig(migrated);
-			} catch {
-				// Keep the migrated values in memory when the new file cannot be written.
-			}
-		}
-		return migrated;
+		return {
+			...DEFAULT_CONFIG,
+			display: { ...DEFAULT_DISPLAY_CONFIG, items: { ...DEFAULT_DISPLAY_CONFIG.items } },
+		};
 	} catch {
 		return {
 			...DEFAULT_CONFIG,
-			providerPlans: {},
 			display: { ...DEFAULT_DISPLAY_CONFIG, items: { ...DEFAULT_DISPLAY_CONFIG.items } },
 		};
 	}
 }
 
-export async function saveConfig(config: PiStatsConfig): Promise<void> {
+export async function saveConfig(config: PiFooterConfig): Promise<void> {
 	await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
 }

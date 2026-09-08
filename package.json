@@ -22,7 +22,6 @@
 	],
 	"pi": {
 		"extensions": [
-			"./extensions/pi-github-copilot/index.ts",
 			"./extensions/pi-question/index.ts",
 			"./extensions/pi-goal/index.ts",
 			"./extensions/pi-gpt-search/index.ts",
@@ -37,7 +36,7 @@
 			"./extensions/pi-compaction/index.ts",
 			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-openai-models/index.ts",
-			"./extensions/pi-stats/index.ts",
+			"./extensions/pi-footer/index.ts",
 			"./extensions/pi-model-thinking/index.ts"
 		],
 		"prompts": [

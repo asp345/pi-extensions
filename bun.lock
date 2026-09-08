@@ -12,7 +12,7 @@
         "@sinclair/typebox": "^0.34.52",
         "@types/node": "^26.4.1",
         "bun-types": "^1.4.2",
-        "typebox": "^1.3.27",
+        "typebox": "^1.3.28",
         "typescript": "7.0.2",
       },
     },
@@ -69,12 +69,13 @@
         "@earendil-works/pi-coding-agent": "*",
       },
     },
-    "extensions/pi-github-copilot": {
-      "name": "@asp345/pi-github-copilot",
+    "extensions/pi-footer": {
+      "name": "@asp345/pi-footer",
       "version": "0.0.0",
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
       },
     },
     "extensions/pi-goal": {
@@ -139,15 +140,6 @@
         "@earendil-works/pi-coding-agent": "*",
       },
     },
-    "extensions/pi-stats": {
-      "name": "@asp345/pi-stats",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
     "extensions/pi-subagents": {
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
@@ -181,7 +173,7 @@
 
     "@asp345/pi-direnv": ["@asp345/pi-direnv@workspace:extensions/pi-direnv"],
 
-    "@asp345/pi-github-copilot": ["@asp345/pi-github-copilot@workspace:extensions/pi-github-copilot"],
+    "@asp345/pi-footer": ["@asp345/pi-footer@workspace:extensions/pi-footer"],
 
     "@asp345/pi-goal": ["@asp345/pi-goal@workspace:extensions/pi-goal"],
 
@@ -198,8 +190,6 @@
     "@asp345/pi-question": ["@asp345/pi-question@workspace:extensions/pi-question"],
 
     "@asp345/pi-sensitive-guard": ["@asp345/pi-sensitive-guard@workspace:extensions/pi-sensitive-guard"],
-
-    "@asp345/pi-stats": ["@asp345/pi-stats@workspace:extensions/pi-stats"],
 
     "@asp345/pi-subagents": ["@asp345/pi-subagents@workspace:extensions/pi-subagents"],
 

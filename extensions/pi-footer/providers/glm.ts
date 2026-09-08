@@ -1,4 +1,4 @@
-import type { QuotaFetchExtra, TokenPlan } from "../quota.ts";
+import type { TokenPlan } from "../quota.ts";
 import { formatQuotaSegments, formatTokenPlanDisplay, type QuotaSegments } from "../quota.ts";
 import { quotaColor } from "./quota-color.ts";
 
@@ -20,19 +20,12 @@ export const glmQuotaPlan: TokenPlan = {
 	baseUrl: "https://open.bigmodel.cn",
 	quotaPath: "/api/monitor/usage/quota/limit",
 	authHeader: (key) => ({ Authorization: key }),
-	fetchQuota: async (plan: TokenPlan, key: string, extra?: QuotaFetchExtra) => {
-		const team = extra?.team;
+	fetchQuota: async (plan: TokenPlan, key: string) => {
 		const headers: Record<string, string> = {
 			...plan.authHeader(key),
 			"Content-Type": "application/json",
 		};
-		// Team plans use ?type=2 and require organization and project headers.
-		// The API key, organization ID, and project ID are all required; team plans are available only on open.bigmodel.cn.
-		if (team) {
-			headers["Bigmodel-Organization"] = team.organization;
-			headers["Bigmodel-Project"] = team.project;
-		}
-		const url = plan.baseUrl + plan.quotaPath + (team ? "?type=2" : "");
+		const url = plan.baseUrl + plan.quotaPath;
 		const r = await fetch(url, {
 			method: "GET",
 			headers,

@@ -18,11 +18,10 @@ test("registers every supported provider", () => {
 		"xai",
 	]);
 });
-test("automatically resolves a provider plan unless explicitly disabled", () => {
-	assert.equal(resolveTokenPlan("openai-codex", undefined)?.id, "openai-codex");
-	assert.equal(resolveTokenPlan("google-antigravity", undefined)?.id, "antigravity");
-	assert.equal(resolveTokenPlan("openai-codex", null), null);
-	assert.equal(resolveTokenPlan("openai-codex", "xai")?.id, "xai");
+test("automatically resolves a provider plan", () => {
+	assert.equal(resolveTokenPlan("openai-codex")?.id, "openai-codex");
+	assert.equal(resolveTokenPlan("google-antigravity")?.id, "antigravity");
+	assert.equal(resolveTokenPlan("unknown-provider"), null);
 });
 
 test("formats daily and weekly windows", () => {

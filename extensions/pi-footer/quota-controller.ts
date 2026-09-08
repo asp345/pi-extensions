@@ -2,9 +2,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { PiStatsConfig } from "./config.ts";
+import type { PiFooterConfig } from "./config.ts";
 import { resolveTokenPlan } from "./plans.ts";
-import type { QuotaSegments, TeamCredential, TokenPlan } from "./quota.ts";
+import type { QuotaSegments, TokenPlan } from "./quota.ts";
 
 interface QuotaCacheEntry {
 	fetchedAt: number;
@@ -31,7 +31,7 @@ interface QuotaDisplayState {
 }
 
 interface QuotaControllerOptions {
-	getConfig(): PiStatsConfig;
+	getConfig(): PiFooterConfig;
 	isSessionActive(): boolean;
 	requestRender(): void;
 }
@@ -47,7 +47,7 @@ export class QuotaController {
 
 	private resolvePlan(provider?: string): TokenPlan | null {
 		if (!provider) return null;
-		return resolveTokenPlan(provider, this.options.getConfig().providerPlans[provider]);
+		return resolveTokenPlan(provider);
 	}
 
 	private resolveApiKey(plan: TokenPlan): string | null {
@@ -64,14 +64,6 @@ export class QuotaController {
 			return null;
 		}
 		return null;
-	}
-
-	private resolveTeamCredential(plan: TokenPlan): TeamCredential | null {
-		if (plan.id !== "glm") return null;
-		const team = this.options.getConfig().teamCredential;
-		const organization = team?.organization.trim() ?? "";
-		const project = team?.project.trim() ?? "";
-		return organization && project ? { organization, project } : null;
 	}
 
 	private detectProvider(ctx: ExtensionContext): boolean {
@@ -144,7 +136,7 @@ export class QuotaController {
 		try {
 			const data = plan.fetchQuotaWithContext
 				? await plan.fetchQuotaWithContext(ctx)
-				: await plan.fetchQuota(plan, key ?? "", { team: this.resolveTeamCredential(plan) });
+				: await plan.fetchQuota(plan, key ?? "");
 			if (version !== this.refreshVersion || provider !== this.provider) return;
 			this.cache[plan.id] = { fetchedAt: Date.now(), ttl, data };
 			const formatted = plan.format(data);

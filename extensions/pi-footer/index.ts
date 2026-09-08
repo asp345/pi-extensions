@@ -10,7 +10,7 @@ const shared: SharedState = {
 	requestRender: null,
 };
 
-export default function piStatsExtension(pi: ExtensionAPI): void {
+export default function piFooterExtension(pi: ExtensionAPI): void {
 	const stats = createTokenStats(pi, shared);
 	createStepTimer(pi);
 
