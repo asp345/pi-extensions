@@ -98,6 +98,52 @@ test("goal-owned task that starts after agent finishes still defers continuation
 	assert.equal(sent.length, 2);
 });
 
+test("continuation dropped during compaction is re-driven after compaction", async () => {
+	const { runtime, ctx, sent } = harness();
+	let idle = false;
+	ctx.isIdle = () => idle;
+
+	await runtime.startPrompt(ctx);
+	assert.equal(sent.length, 0);
+
+	idle = true;
+	await runtime.settleAfterCompaction(ctx);
+	assert.equal(sent.length, 1);
+});
+
+test("compaction re-drive does not resume a paused goal", async () => {
+	const { runtime, ctx, sent } = harness();
+	let idle = false;
+	ctx.isIdle = () => idle;
+
+	await runtime.startPrompt(ctx);
+	runtime.pause(ctx);
+	idle = true;
+	await runtime.settleAfterCompaction(ctx);
+
+	assert.equal(sent.length, 0);
+	assert.equal(runtime.goal?.status, "paused");
+});
+
+test("goal-owned background task completion during compaction is re-driven after compaction", async () => {
+	const { runtime, ctx, sent } = harness();
+	await runtime.startPrompt(ctx);
+	runtime.beforeAgentStart(sent[0] ?? "");
+	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
+	runtime.finishAgent([assistant("waiting for background work")]);
+	await runtime.settled(ctx);
+	assert.equal(sent.length, 1);
+
+	let idle = false;
+	ctx.isIdle = () => idle;
+	await runtime.setRunningBackgroundTasks([], ctx);
+	assert.equal(sent.length, 1);
+
+	idle = true;
+	await runtime.settleAfterCompaction(ctx);
+	assert.equal(sent.length, 2);
+});
+
 test("foreign prompts with a forged marker are not treated as owned", () => {
 	const { runtime, ctx } = harness();
 	const goal = runtime.goal;

@@ -181,6 +181,12 @@ export class GoalRuntime {
 		);
 	}
 
+	async settleAfterCompaction(ctx: GoalContext) {
+		// Pi clears its compaction state after session_compact fires, so wait one tick before checking idle.
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		await this.settled(ctx);
+	}
+
 	clearGoal(ctx: GoalContext) {
 		const abortOwnedRun = this.currentRunOwnsGoal;
 		this.setGoal(undefined, ctx);
