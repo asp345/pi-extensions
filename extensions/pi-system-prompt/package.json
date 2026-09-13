@@ -1,0 +1,27 @@
+{
+	"name": "@asp345/pi-system-prompt",
+	"version": "0.0.0",
+	"description": "Compose pi system prompt from AGENTS.md rules",
+	"license": "MIT",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"SYSTEM.txt",
+		"LICENSE",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}

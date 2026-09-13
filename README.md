@@ -21,6 +21,7 @@ My personal Pi monorepo.
 - `extensions/pi-footer/`
 - `extensions/pi-model-thinking/`
 - `extensions/pi-question/`
+- `extensions/pi-system-prompt/`
 - `extensions/pi-themes/`
 
 Each extension's details are documented in its own `README.md`.
