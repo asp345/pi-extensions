@@ -56,6 +56,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"After starting a background_task, continue independent work or end the turn; completion will be delivered and wake you again. Never run sleep command or poll Do other jobs or end the turn.",
 			"Use list or read only when you need status or output before completion arrives.",
+			"Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it. Run the command normally; it is already a managed background task.",
 		],
 		parameters: Type.Object({
 			action: Type.Union([
