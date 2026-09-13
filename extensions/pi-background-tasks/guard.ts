@@ -138,7 +138,7 @@ export function sleepBlockReason(command: string): string | null {
 }
 
 const PROCESS_POLL_GUIDANCE =
-	"Do not poll process names. Wait on the pid instead: background_task reports the pid at start and notifies when it completes.";
+	"Do not poll process names. Wait on the pid instead: background_task reports the pid at start and notifies when it completes. Find any other pid with pgrep <name> without -f.";
 
 const BRACKET_RE = /\[[^\]]+\]/;
 const PGREP_FALLBACK_RE = /(^|[|&;()`])\s*(pgrep|pkill)\b[^|&;]*?(?:\s--full(?:=|\s|$)|\s-[A-Za-z]*f)/;
