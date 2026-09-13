@@ -60,6 +60,31 @@ function regexInspection(command: string): SleepInspection {
 	return state;
 }
 
+/** Walk every command in the unbash AST, covering nested substitutions, function bodies, and heredoc bodies. */
+function walkCommands(root: ParsedScript, checkCommand: (node: Command) => void, mergeFallback: () => void): void {
+	const visited = new WeakSet<object>();
+	const walk = (value: unknown): void => {
+		if (typeof value !== "object" || value === null) return;
+		if (visited.has(value)) return;
+		visited.add(value);
+		const node = value as Record<string, unknown>;
+		if (node.type === "Command") checkCommand(value as Command);
+		if (node.type === "Script" && Array.isArray(node.errors) && node.errors.length > 0) mergeFallback();
+		if ("parts" in node) {
+			const parts = (value as Word).parts;
+			if (parts) for (const part of parts) walk(part);
+		}
+		for (const child of Object.values(node)) {
+			if (Array.isArray(child)) {
+				for (const item of child) walk(item);
+			} else {
+				walk(child);
+			}
+		}
+	};
+	walk(root);
+}
+
 /**
  * Inspect a shell command for `sleep` invocations. Walks the unbash AST,
  * including nested command substitutions, function bodies, and heredoc bodies,
@@ -82,7 +107,6 @@ function inspectSleep(command: string): SleepInspection {
 		state.totalSeconds += fallback.totalSeconds;
 		state.hasUnknown ||= fallback.hasUnknown;
 	};
-	const visited = new WeakSet<object>();
 	const checkCommand = (node: Command): void => {
 		if (node.name?.value !== "sleep") return;
 		if (node.suffix[0]?.value === "--") return;
@@ -97,26 +121,7 @@ function inspectSleep(command: string): SleepInspection {
 		}
 		state.totalSeconds += total;
 	};
-	const walk = (value: unknown): void => {
-		if (typeof value !== "object" || value === null) return;
-		if (visited.has(value)) return;
-		visited.add(value);
-		const node = value as Record<string, unknown>;
-		if (node.type === "Command") checkCommand(value as Command);
-		if (node.type === "Script" && Array.isArray(node.errors) && node.errors.length > 0) mergeFallback();
-		if ("parts" in node) {
-			const parts = (value as Word).parts;
-			if (parts) for (const part of parts) walk(part);
-		}
-		for (const child of Object.values(node)) {
-			if (Array.isArray(child)) {
-				for (const item of child) walk(item);
-			} else {
-				walk(child);
-			}
-		}
-	};
-	walk(root);
+	walkCommands(root, checkCommand, mergeFallback);
 	return state;
 }
 
@@ -130,4 +135,103 @@ export function sleepBlockReason(command: string): string | null {
 		return `Blocked: sleep ${formatSeconds(totalSeconds)} (max ${MAX_SLEEP_SECONDS}s). ${GUIDANCE}`;
 	}
 	return null;
+}
+
+const PROCESS_POLL_GUIDANCE =
+	"Do not poll process names. Wait on the pid instead: background_task reports the pid at start and notifies when it completes.";
+
+const BRACKET_RE = /\[[^\]]+\]/;
+const PGREP_FALLBACK_RE = /(^|[|&;()`])\s*(pgrep|pkill)\b[^|&;]*?(?:\s--full(?:=|\s|$)|\s-[A-Za-z]*f)/;
+
+function isFullFlag(text: string): boolean {
+	if (text === "--full" || text.startsWith("--full=")) return true;
+	if (!text.startsWith("-") || text.startsWith("--")) return false;
+	return text.slice(1).includes("f");
+}
+
+function processName(value: string | undefined): string | null {
+	if (!value) return null;
+	if (value === "pgrep" || value === "pkill") return value;
+	if (value.endsWith("/pgrep")) return "pgrep";
+	if (value.endsWith("/pkill")) return "pkill";
+	return null;
+}
+
+interface ProcessPollInspection {
+	matched: boolean;
+	name: string;
+	sample: string;
+}
+
+const NO_PROCESS_POLL: ProcessPollInspection = { matched: false, name: "", sample: "" };
+
+function regexProcessPoll(command: string): ProcessPollInspection {
+	const unquoted = command.replace(QUOTED_RE, "");
+	const match = PGREP_FALLBACK_RE.exec(unquoted);
+	if (!match) return { ...NO_PROCESS_POLL };
+	return { matched: true, name: match[2] ?? "pgrep", sample: "" };
+}
+
+/**
+ * Inspect a shell command for `pgrep -f` / `pkill -f` process-name polls.
+ * The watching shell is spawned as `bash -c '<command>'`, so its own argv
+ * contains the searched pattern and `-f` (full command line) matching always
+ * finds the watcher itself. The `[x]` bracket trick is the only exempt form:
+ * the literal brackets in argv do not match the expanded regex.
+ */
+function inspectProcessPoll(command: string): ProcessPollInspection {
+	const state: ProcessPollInspection = { ...NO_PROCESS_POLL };
+	let root: ParsedScript;
+	try {
+		root = parse(command);
+	} catch {
+		return regexProcessPoll(command);
+	}
+	let fallbackApplied = false;
+	const mergeFallback = (): void => {
+		if (fallbackApplied) return;
+		fallbackApplied = true;
+		const fallback = regexProcessPoll(command);
+		if (fallback.matched && !state.matched) {
+			state.matched = true;
+			state.name = fallback.name;
+		}
+	};
+	const checkCommand = (node: Command): void => {
+		if (state.matched) return;
+		const name = processName(node.name?.value);
+		if (name === null) return;
+		let full = false;
+		let endOfOptions = false;
+		let unsafe: string | null = null;
+		let hasOperand = false;
+		for (const arg of node.suffix) {
+			const text = arg.value;
+			if (!endOfOptions && text === "--") {
+				endOfOptions = true;
+				continue;
+			}
+			if (!endOfOptions && text.startsWith("-") && text.length > 1) {
+				if (isFullFlag(text)) full = true;
+				continue;
+			}
+			hasOperand = true;
+			if (unsafe === null && !BRACKET_RE.test(text)) unsafe = text;
+		}
+		if (full && hasOperand && unsafe !== null) {
+			state.matched = true;
+			state.name = name;
+			state.sample = unsafe.length > 80 ? `${unsafe.slice(0, 80)}...` : unsafe;
+		}
+	};
+	walkCommands(root, checkCommand, mergeFallback);
+	return state;
+}
+
+/** Block reason when the command polls process names via pgrep/pkill -f, or null when it may run. */
+export function processPollBlockReason(command: string): string | null {
+	const { matched, name, sample } = inspectProcessPoll(command);
+	if (!matched) return null;
+	const detail = sample ? `${name} -f "${sample}"` : `${name} -f`;
+	return `Blocked: ${detail} matches the watching shell itself and never clears. ${PROCESS_POLL_GUIDANCE}`;
 }

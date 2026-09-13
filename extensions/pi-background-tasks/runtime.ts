@@ -3,7 +3,7 @@ import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getShellConfig } from "@earendil-works/pi-coding-agent";
-import { sleepBlockReason } from "./guard.ts";
+import { processPollBlockReason, sleepBlockReason } from "./guard.ts";
 import { TaskOutput } from "./output.ts";
 import { TaskTimers } from "./timers.ts";
 
@@ -121,7 +121,7 @@ export class BackgroundRuntime {
 		} = {},
 	): TaskSnapshot {
 		const timeoutMs = resolveTimeoutMs(options.timeout);
-		const reason = sleepBlockReason(command);
+		const reason = sleepBlockReason(command) ?? processPollBlockReason(command);
 		if (reason !== null) throw new Error(reason);
 		const id = `bg-${++this.counter}`;
 		const now = Date.now();
