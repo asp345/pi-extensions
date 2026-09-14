@@ -1,4 +1,4 @@
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { RpcMessage, RpcProcess } from "./rpc.ts";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ThinkingSetting = ThinkingLevel | "parent";
@@ -59,7 +59,8 @@ export interface AgentRecord {
 	usedFallback?: boolean;
 	fallbackReason?: string;
 	thinking?: ThinkingLevel;
-	session?: AgentSession;
+	messages: RpcMessage[];
+	proc?: RpcProcess;
 	sessionFile?: string;
 	abortController: AbortController;
 	pendingSteers: string[];

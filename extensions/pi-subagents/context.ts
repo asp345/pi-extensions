@@ -165,7 +165,7 @@ function renderBlock(entries: readonly unknown[], width: number, record: AgentRe
 					part.id,
 					part.arguments,
 					{ showImages: false },
-					record.session?.getToolDefinition(part.name),
+					undefined,
 					tui,
 					record.worktree?.cwd ?? cwd,
 				);
@@ -216,7 +216,7 @@ export function buildAgentContextFullLines(
 		blockCaches.set(record.id, cache);
 	}
 
-	const messages = record.session?.messages ?? [];
+	const messages = record.messages ?? [];
 	const blocks = groupMessagesIntoBlocks(messages);
 	const allLines: string[] = [];
 

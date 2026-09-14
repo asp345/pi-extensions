@@ -4,13 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const { discoverDefinitions } = await import("./definitions.ts");
 
 import { delegationPrompt } from "./delegation.ts";
+import type { RpcProcess } from "./rpc.ts";
 
-const { promptWithFallbacks, resolveModel, resolveThinking, resumeSession, turnLimitAction } = await import(
+const { driveRun, finalError, lastAssistantText, resolveModel, resolveThinking, turnLimitAction } = await import(
 	"./runner.ts"
 );
 
@@ -55,8 +56,21 @@ test("the parent model can be selected explicitly", () => {
 	assert.equal(resolveThinking("low", ctx), "low");
 });
 
+test("assistant text and errors are read from cached RPC messages", () => {
+	const messages = [
+		{ role: "user", content: [{ type: "text", text: "hello" }] },
+		{ role: "assistant", content: [{ type: "text", text: "answer" }], stopReason: "stop" },
+	] as never;
+	assert.equal(lastAssistantText(messages), "answer");
+	assert.equal(finalError(messages), undefined);
+	const failed = [{ role: "assistant", content: [], stopReason: "error", errorMessage: "rate limited" }] as never;
+	assert.equal(lastAssistantText(failed), "");
+	assert.equal(finalError(failed), "rate limited");
+});
+
 const callbacks = {
 	onSession: () => undefined,
+	onMessages: () => undefined,
 	onFallback: () => undefined,
 	onText: () => undefined,
 	onTurn: () => undefined,
@@ -64,112 +78,101 @@ const callbacks = {
 	onReport: () => undefined,
 };
 
+function fakeProc(overrides: Partial<RpcProcess> = {}): RpcProcess {
+	return {
+		closed: false,
+		onEvent: () => () => undefined,
+		prompt: async () => undefined,
+		steer: async () => undefined,
+		followUp: async () => undefined,
+		abort: async () => undefined,
+		waitForIdle: async () => undefined,
+		getMessages: async () => [],
+		getLastAssistantText: async () => null,
+		getState: async () => ({}),
+		setModel: async (provider: string, modelId: string) => ({ provider, id: modelId }),
+		setThinkingLevel: async () => undefined,
+		setSessionName: async () => undefined,
+		stop: async () => undefined,
+		...overrides,
+	};
+}
+
 test("a failed model tries later models until one succeeds", async () => {
 	const primary = { provider: "primary", id: "model" } as Model<Api>;
 	const unavailable = { provider: "backup", id: "unavailable" } as Model<Api>;
 	const backup = { provider: "backup", id: "model" } as Model<Api>;
 	const prompts: string[] = [];
 	const fallbacks: string[] = [];
-	const fake = {
-		messages: [] as Array<Record<string, unknown>>,
-		model: primary,
-		async setModel(model: Model<Api>) {
-			if (model === unavailable) throw new Error("unavailable");
-			this.model = model;
+	const messages: Array<Record<string, unknown>> = [];
+	let model: Model<Api> = primary;
+	const proc = fakeProc({
+		async setModel(provider: string, modelId: string) {
+			if (provider === unavailable.provider && modelId === unavailable.id) {
+				throw new Error("unavailable");
+			}
+			model = { provider, id: modelId } as Model<Api>;
+			return { provider, id: modelId };
+		},
+		async getState() {
+			return { model: { provider: model.provider, id: model.id } };
 		},
 		async prompt(prompt: string) {
 			prompts.push(prompt);
 			if (prompts.length === 1) {
-				this.messages.push({ role: "assistant", content: [], stopReason: "error", errorMessage: "rate limited" });
+				messages.push({ role: "assistant", content: [], stopReason: "error", errorMessage: "rate limited" });
 			} else {
-				this.messages.push({
+				messages.push({
 					role: "assistant",
 					content: [{ type: "text", text: "backup-ok" }],
 					stopReason: "stop",
 				});
 			}
 		},
-	};
-	const result = await promptWithFallbacks(fake as unknown as AgentSession, "original task", 0, {
+		async getMessages() {
+			return messages as never;
+		},
+	});
+	const result = await driveRun(proc, "original task", {
 		models: () => [primary, unavailable, backup],
 		callbacks: {
 			...callbacks,
-			onFallback: (model, reason) => fallbacks.push(`${model.provider}/${model.id}: ${reason}`),
+			onFallback: (fallback, reason) => fallbacks.push(`${fallback.provider}/${fallback.id}: ${reason}`),
 		},
 	});
-	assert.deepEqual(result, { text: "backup-ok" });
-	assert.equal(fake.model, backup);
+	assert.equal(result.text, "backup-ok");
+	assert.equal(result.error, undefined);
+	assert.equal(result.aborted, false);
+	assert.equal(model.provider, backup.provider);
+	assert.equal(model.id, backup.id);
 	assert.equal(prompts[0], "original task");
 	assert.match(prompts[1] ?? "", /Continue the original task/u);
 	assert.deepEqual(fallbacks, ["backup/model: rate limited"]);
 });
 
-test("compaction-owned abort waits for continuation without switching models", async () => {
-	const primary = { provider: "primary", id: "model" } as Model<Api>;
-	const backup = { provider: "backup", id: "model" } as Model<Api>;
-	let compacting = false;
-	let listener: ((event: { type: string; aborted?: boolean; errorMessage?: string }) => void) | undefined;
-	let modelChanges = 0;
-	const fake = {
-		messages: [] as Array<Record<string, unknown>>,
-		model: primary,
-		get isCompacting() {
-			return compacting;
-		},
-		subscribe(next: typeof listener) {
-			listener = next;
-			return () => {
-				listener = undefined;
-			};
-		},
-		async prompt() {
-			compacting = true;
-			setImmediate(() => {
-				compacting = false;
-				listener?.({ type: "compaction_end", aborted: false });
-			});
-			throw new DOMException("The operation was aborted.", "AbortError");
-		},
-		async waitForIdle() {
-			this.messages.push({
-				role: "assistant",
-				content: [{ type: "text", text: "continued-after-compaction" }],
-				stopReason: "stop",
-			});
-		},
-		async setModel(model: Model<Api>) {
-			modelChanges += 1;
-			this.model = model;
-		},
-	};
-	const result = await promptWithFallbacks(fake as unknown as AgentSession, "task", 0, {
-		models: () => [primary, backup],
-		callbacks,
-	});
-	assert.deepEqual(result, { text: "continued-after-compaction" });
-	assert.equal(modelChanges, 0);
-	assert.equal(fake.model, primary);
-});
-
 test("unavailable optional models are ignored", async () => {
 	const primary = { provider: "primary", id: "model" } as Model<Api>;
-	const fake = {
-		messages: [] as Array<Record<string, unknown>>,
-		model: primary,
-		async setModel() {
-			throw new Error("must not switch");
+	const messages: Array<Record<string, unknown>> = [];
+	const proc = fakeProc({
+		async getState() {
+			return { model: { provider: primary.provider, id: primary.id } };
 		},
 		async prompt() {
-			this.messages.push({ role: "assistant", content: [], stopReason: "error", errorMessage: "primary failed" });
+			messages.push({ role: "assistant", content: [], stopReason: "error", errorMessage: "primary failed" });
 		},
-	};
-	const result = await promptWithFallbacks(fake as unknown as AgentSession, "task", 0, {
+		async getMessages() {
+			return messages as never;
+		},
+	});
+	const result = await driveRun(proc, "task", {
 		models: () => {
 			throw new Error("models unavailable");
 		},
 		callbacks,
 	});
-	assert.deepEqual(result, { text: "", error: "Primary model failed: primary failed" });
+	assert.equal(result.text, "");
+	assert.equal(result.error, "Primary model failed: primary failed");
+	assert.equal(result.aborted, false);
 });
 
 test("cancellation suppresses turn-limit follow-ups", () => {
@@ -178,30 +181,53 @@ test("cancellation suppresses turn-limit follow-ups", () => {
 	assert.equal(turnLimitAction(3, 2, true, false), "abort");
 });
 
-test("resume keeps using the currently selected fallback model", async () => {
-	const backup = { provider: "backup", id: "model" } as Model<Api>;
-	let modelChanges = 0;
-	const fake = {
-		messages: [] as Array<Record<string, unknown>>,
-		model: backup,
-		subscribe: () => () => undefined,
-		async setModel(model: Model<Api>) {
-			modelChanges += 1;
-			this.model = model;
-		},
-		async prompt() {
-			this.messages.push({
-				role: "assistant",
-				content: [{ type: "text", text: "resumed-on-backup" }],
-				stopReason: "stop",
+test("report_to_parent tool calls reach the parent as progress reports", async () => {
+	const reports: string[] = [];
+	let tools = 0;
+	const proc = fakeProc({
+		onEvent: (listener: (event: Record<string, unknown>) => void) => {
+			listener({
+				type: "tool_execution_start",
+				toolCallId: "call-1",
+				toolName: "report_to_parent",
+				args: { summary: "half done" },
 			});
+			listener({
+				type: "tool_execution_end",
+				toolCallId: "call-1",
+				toolName: "report_to_parent",
+				result: {},
+				isError: false,
+			});
+			return () => undefined;
 		},
-	};
-	const result = await resumeSession(fake as unknown as AgentSession, "continue", {
-		models: () => [backup],
-		callbacks,
 	});
-	assert.deepEqual(result, { text: "resumed-on-backup" });
-	assert.equal(modelChanges, 0);
-	assert.equal(fake.model, backup);
+	const result = await driveRun(proc, "task", {
+		callbacks: {
+			...callbacks,
+			onReport: (summary) => reports.push(summary),
+			onTool: () => {
+				tools += 1;
+			},
+		},
+	});
+	assert.deepEqual(reports, ["half done"]);
+	assert.equal(tools, 1);
+	assert.equal(result.text, "");
+});
+
+test("an aborted run reports no error", async () => {
+	const messages: Array<Record<string, unknown>> = [];
+	const controller = new AbortController();
+	const proc = fakeProc({
+		async prompt() {
+			controller.abort();
+		},
+		async getMessages() {
+			return messages as never;
+		},
+	});
+	const result = await driveRun(proc, "task", { callbacks, signal: controller.signal });
+	assert.equal(result.text, "");
+	assert.equal(result.aborted, true);
 });

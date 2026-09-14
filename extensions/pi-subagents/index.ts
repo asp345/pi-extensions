@@ -79,6 +79,7 @@ export default function subagents(pi: ExtensionAPI): void {
 				{
 					...state,
 					status: state.status === "running" ? "stopped" : state.status,
+					messages: [],
 					abortController: new AbortController(),
 					pendingSteers: [],
 				} satisfies AgentRecord,

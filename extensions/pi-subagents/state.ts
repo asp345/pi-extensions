@@ -47,7 +47,7 @@ export function storeRecord(record: AgentRecord): StoredAgentState {
 		usedFallback: record.usedFallback,
 		fallbackReason: record.fallbackReason,
 		thinking: record.thinking,
-		sessionFile: record.session?.sessionFile ?? record.sessionFile,
+		sessionFile: record.sessionFile,
 		worktree: record.worktree,
 		worktreeBranch: record.worktreeBranch,
 		resultConsumed: record.resultConsumed,

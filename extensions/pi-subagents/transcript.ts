@@ -1,10 +1,10 @@
-import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import type { RpcMessage } from "./rpc.ts";
 import { compact, contentText } from "./util.ts";
 
 /** Bounded transcript: user/assistant text plus one-line tool status markers. */
-export function compactTranscript(session: AgentSession): string {
+export function compactTranscript(messages: readonly RpcMessage[]): string {
 	const results = new Map<string, { error: boolean; summary: string }>();
-	for (const message of session.messages) {
+	for (const message of messages) {
 		if (message.role !== "toolResult") continue;
 		results.set(message.toolCallId, {
 			error: message.isError === true,
@@ -12,7 +12,7 @@ export function compactTranscript(session: AgentSession): string {
 		});
 	}
 	const lines: string[] = [];
-	for (const message of session.messages) {
+	for (const message of messages) {
 		if (message.role === "user") {
 			const text = contentText(message.content).trim();
 			if (text) lines.push(`User:\n${text}`);

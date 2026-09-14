@@ -36,7 +36,7 @@ function record(messages: unknown[]): AgentRecord {
 		toolUses: 0,
 		model: "provider/model",
 		models: [],
-		session: { messages, getToolDefinition: () => undefined } as never,
+		messages: messages as never,
 		abortController: new AbortController(),
 		pendingSteers: [],
 	};

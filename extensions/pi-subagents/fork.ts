@@ -1,4 +1,6 @@
 import type { AgentSession, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { RpcMessage } from "./rpc.ts";
+import { compactTranscript } from "./transcript.ts";
 import { contentText, isRecord } from "./util.ts";
 
 type SessionMessage = AgentSession["messages"][number];
@@ -8,8 +10,8 @@ function isSessionMessage(value: unknown): value is ContentMessage {
 	return isRecord(value) && typeof value.role === "string" && "content" in value;
 }
 
-/** Copy the parent conversation into the child session, truncated to a bounded tail. */
-export function copyParentConversation(ctx: ExtensionContext, session: AgentSession): void {
+/** Render the parent conversation tail as read-only reference text for an RPC subagent. */
+export function buildParentTranscriptText(ctx: ExtensionContext): string {
 	const manager = ctx.sessionManager as unknown as {
 		buildContextEntries?: () => unknown[];
 		getBranch: () => unknown[];
@@ -58,7 +60,8 @@ export function copyParentConversation(ctx: ExtensionContext, session: AgentSess
 		if (message.role === "assistant" && Array.isArray(message.content)) return message.content.length > 0;
 		return true;
 	});
-	if (consistent.length) session.agent.state.messages = structuredClone(consistent);
+	if (!consistent.length) return "";
+	return compactTranscript(consistent as RpcMessage[]);
 }
 
 function compactForkMessage(message: ContentMessage): ContentMessage {
