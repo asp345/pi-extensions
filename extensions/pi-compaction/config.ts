@@ -14,7 +14,7 @@ export interface CompactionConfig {
 
 const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
-	textModel: { provider: "antigravity", id: "gemini-3.7-flash" },
+	textModel: { provider: "openai-codex", id: "gpt-5.6-luna" },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
