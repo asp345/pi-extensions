@@ -1,6 +1,6 @@
 ---
 description: Implement a small, well-specified change whose approach is already decided. Returns focused edits and verification results.
-tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix
+tools: read, bash, edit, write, grep, find, ls
 extensions: true
 skills: true
 models: openai-codex/gpt-5.6-luna, openrouter/z-ai/glm-5.3-flash

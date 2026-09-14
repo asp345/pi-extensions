@@ -1,6 +1,6 @@
 ---
 description: Peer agent that runs the same model with parent. Used for general tasks.
-tools: read, bash, edit, write, grep, find, ls, lsp_diagnostics, lsp_fix, web
+tools: read, bash, edit, write, grep, find, ls, web
 extensions: true
 skills: true
 models: parent
