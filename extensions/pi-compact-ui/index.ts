@@ -1195,7 +1195,7 @@ class TurnDividerComponent implements Component {
 	render(width: number): string[] {
 		const theme = currentTheme;
 		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
-		const middle = `worked for ${this.timeLabel} · ended ${this.endLabel}`;
+		const middle = `worked for ${this.timeLabel} · ${this.endLabel}`;
 		const avail = Math.max(6, width - middle.length - 2);
 		const left = Math.floor(avail / 2);
 		const right = avail - left;
