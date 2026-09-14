@@ -803,15 +803,35 @@ class ToolGroupComponent extends Container {
 	thinkingTokensFrozen = 0;
 	thinkingTokensFrozenExact = false;
 	private previewCache = new Map<string, MarkdownPreview>();
+	private renderRevision = 0;
+	private renderCache:
+		| { width: number; expanded: boolean; theme: Theme | null; revision: number; lines: string[] }
+		| undefined;
 
 	setExpanded(expanded: boolean): void {
 		this._expanded = expanded;
+		this.renderRevision++;
 		for (const tool of this.children) asToolView(tool)?.setExpanded?.(expanded);
 		this.invalidate();
 	}
 
 	addTool(tool: ToolView): void {
 		this.children.push(tool);
+		this.renderRevision++;
+	}
+
+	/** Freeze the block with a thinking snapshot. Render output is static afterwards. */
+	seal(thinking: string, tokens: number, exact: boolean): void {
+		this.sealed = true;
+		this.thinkingFrozen = thinking;
+		this.thinkingTokensFrozen = tokens;
+		this.thinkingTokensFrozenExact = exact;
+		this.renderRevision++;
+	}
+
+	setAnchored(anchored: boolean): void {
+		this.anchored = anchored;
+		this.renderRevision++;
 	}
 
 	hasPending(): boolean {
@@ -990,6 +1010,28 @@ class ToolGroupComponent extends Container {
 	}
 
 	render(width: number): string[] {
+		// A sealed group never changes (frozen thinking, settled tools), so reuse
+		// the built lines while idle. Keystrokes otherwise rebuild thousands of
+		// lines per render on the single UI thread.
+		if (this.sealed) {
+			const cached = this.renderCache;
+			if (
+				cached &&
+				cached.width === width &&
+				cached.expanded === this._expanded &&
+				cached.theme === currentTheme &&
+				cached.revision === this.renderRevision
+			) {
+				return cached.lines.slice();
+			}
+			const lines = this.renderInner(width);
+			this.renderCache = { width, expanded: this._expanded, theme: currentTheme, revision: this.renderRevision, lines };
+			return lines;
+		}
+		return this.renderInner(width);
+	}
+
+	renderInner(width: number): string[] {
 		const lines = this._expanded ? this.renderExpanded(width) : this.renderCollapsed(width);
 		// Indent compact blocks from the transcript edge while keeping every line
 		// within the terminal width (including mobile / narrow terminals).
@@ -1090,10 +1132,7 @@ function flushPendingTextSeal(): void {
 		if (pendingTextOrdinal !== null) {
 			anchorGroupBeforeCurrentText(lastActiveGroup, pendingTextOrdinal);
 		}
-		lastActiveGroup.sealed = true;
-		lastActiveGroup.thinkingFrozen = thinkingText;
-		lastActiveGroup.thinkingTokensFrozen = thinkingTokenCount;
-		lastActiveGroup.thinkingTokensFrozenExact = thinkingTokenCountExact;
+		lastActiveGroup.seal(thinkingText, thinkingTokenCount, thinkingTokenCountExact);
 		lastActiveGroup.invalidate();
 		pendingTextSeal = false;
 		pendingTextOrdinal = null;
@@ -1313,7 +1352,7 @@ function placeAnchoredGroupBeforeText(container: Container, target: Markdown, gr
 	if (targetIndex > spacerStart) {
 		container.children.splice(spacerStart, targetIndex - spacerStart);
 	}
-	group.anchored = true;
+	group.setAnchored(true);
 	container.children.splice(spacerStart, 0, new Spacer(1), group, new Spacer(1));
 }
 
@@ -1382,7 +1421,7 @@ function anchorGroupBeforeCurrentText(group: ToolGroupComponent, ordinal: number
 	const replaced = state.anchors.get(ordinal);
 	if (replaced && replaced !== group) {
 		removeGroupFromContainer(contentContainer, replaced);
-		replaced.anchored = false;
+		replaced.setAnchored(false);
 		groupAnchors.delete(replaced);
 	}
 	state.anchors.set(ordinal, group);
@@ -1621,10 +1660,7 @@ export default function (pi: ExtensionAPI) {
 		// open. Assistant/toolResult message boundaries do NOT seal — thinking and
 		// tool calls stay in one block until real (non-thinking) text appears.
 		if (role === "user" && lastActiveGroup && !lastActiveGroup.sealed) {
-			lastActiveGroup.sealed = true;
-			lastActiveGroup.thinkingFrozen = thinkingText;
-			lastActiveGroup.thinkingTokensFrozen = thinkingTokenCount;
-			lastActiveGroup.thinkingTokensFrozenExact = thinkingTokenCountExact;
+			lastActiveGroup.seal(thinkingText, thinkingTokenCount, thinkingTokenCountExact);
 		}
 		if (role === "user") {
 			turnStartMs = Date.now();
@@ -1711,10 +1747,7 @@ export default function (pi: ExtensionAPI) {
 		// Turn finished: freeze the final block so it stops spinning and shows a
 		// stable summary until the user starts the next turn.
 		if (lastActiveGroup && !lastActiveGroup.sealed) {
-			lastActiveGroup.sealed = true;
-			lastActiveGroup.thinkingFrozen = thinkingText;
-			lastActiveGroup.thinkingTokensFrozen = thinkingTokenCount;
-			lastActiveGroup.thinkingTokensFrozenExact = thinkingTokenCountExact;
+			lastActiveGroup.seal(thinkingText, thinkingTokenCount, thinkingTokenCountExact);
 		}
 		// Separate the final visible text from the preceding work with a divider
 		// that reports how long this turn ran.
