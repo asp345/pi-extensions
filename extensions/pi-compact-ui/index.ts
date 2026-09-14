@@ -21,6 +21,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
@@ -38,9 +39,11 @@ import {
 	getAgentDir,
 	getMarkdownTheme,
 	getSettingsListTheme,
+	type Theme,
+	type ThemeColor,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import type { Component, DefaultTextStyle, MarkdownTheme, SettingItem } from "@earendil-works/pi-tui";
+import type { Component, DefaultTextStyle, MarkdownTheme, SettingItem, TUI } from "@earendil-works/pi-tui";
 import {
 	Container,
 	Key,
@@ -68,9 +71,15 @@ try {
 	// first run — use defaults
 }
 
+type ConfigKey = keyof typeof config;
+
+function isConfigKey(id: string): id is ConfigKey {
+	return id in config;
+}
+
 function saveConfig(): void {
 	try {
-		writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
+		writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`);
 	} catch {
 		// ignore
 	}
@@ -110,13 +119,13 @@ function makeStepper(
 	title: string,
 	initial: number,
 	meta: { min: number; max: number; step: number },
-	theme: any,
+	theme: Theme,
 	done: (value?: string) => void,
 ): Component {
 	let value = initial;
 	let cachedWidth: number | undefined;
 	let cachedLines: string[] | undefined;
-	const fg = (color: string, t: string) => theme?.fg?.(color, t) ?? t;
+	const fg = (color: ThemeColor, t: string): string => theme.fg(color, t);
 
 	return {
 		render(width: number): string[] {
@@ -125,7 +134,7 @@ function makeStepper(
 			const ratio = (value - meta.min) / Math.max(1, meta.max - meta.min);
 			const filled = Math.round(ratio * barLen);
 			const bar = "█".repeat(filled) + "░".repeat(Math.max(0, barLen - filled));
-			const titleText = theme?.bold ? theme.bold(title) : title;
+			const titleText = theme.bold(title);
 			cachedLines = [
 				fg("accent", titleText),
 				"",
@@ -165,12 +174,10 @@ const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", 
 const SPINNER_MS = 100;
 const GROUP_PADDING_X = 1;
 const spinnerStart = Date.now();
-const PARENT_KEY = Symbol.for("compact-ui.group-parent");
 const PATCH_KEY = Symbol.for("compact-ui.group-patch");
-const MARKDOWN_RENDER_PATCH_KEY = Symbol.for("compact-ui.markdown-render-patch");
 const COMPACTION_STYLE_PATCH_KEY = Symbol.for("compact-ui.compaction-style-patch");
 
-let currentTheme: any = null;
+let currentTheme: Theme | null = null;
 let thinkingActive = false;
 let thinkingText = "";
 // Most providers report reasoning usage only when the response finishes. While
@@ -187,8 +194,8 @@ let pendingTextOrdinal: number | null = null;
 let lastActiveGroup: ToolGroupComponent | null = null;
 // Track the current assistant message's component + the container it lives in,
 // so a thinking-only group can be inserted right after it (before any tool).
-let lastStreamingComp: any = null;
-let lastChatContainer: any = null;
+let lastStreamingComp: AssistantMessageComponent | null = null;
+let lastChatContainer: Container | null = null;
 const toolStarts = new Map<string, number>();
 // Wall-clock start of the current turn (user message), used to render the
 // "worked for Xm Ys" divider before the final visible text.
@@ -220,8 +227,16 @@ function formatTokenK(tokens: number): string {
 	return value < 100 ? `${value.toFixed(1)}K` : `${Math.round(value)}K`;
 }
 
-function updateThinkingTokenCount(message: any): void {
-	const reported = Number(message?.usage?.reasoning);
+function themeFg(theme: Theme | null, color: ThemeColor, text: string): string {
+	return theme?.fg(color, text) ?? text;
+}
+
+function themeBold(theme: Theme | null, text: string): string {
+	return theme?.bold(text) ?? text;
+}
+
+function updateThinkingTokenCount(message: AssistantMessage): void {
+	const reported = Number(message.usage?.reasoning);
 	if (Number.isFinite(reported) && reported > 0) {
 		thinkingTokenCount = reported;
 		thinkingTokenCountExact = true;
@@ -231,49 +246,112 @@ function updateThinkingTokenCount(message: any): void {
 	thinkingTokenCountExact = false;
 }
 
-function toolSummary(name: string, args: any): { name: string; content: string } {
+function argString(args: unknown, key: string): string {
+	if (typeof args !== "object" || args === null) return "";
+	const value = (args as Record<string, unknown>)[key];
+	return typeof value === "string" ? value : "";
+}
+
+function toolSummary(name: string, args: unknown): { name: string; content: string } {
 	switch (name) {
 		case "bash":
-			return { name: "bash", content: oneLine(args?.command || "…") };
+			return { name: "bash", content: oneLine(argString(args, "command") || "…") };
 		case "read":
-			return { name: "read", content: shortenPath(args?.path || "…") };
+			return { name: "read", content: shortenPath(argString(args, "path") || "…") };
 		case "write":
 		case "edit":
-			return { name, content: shortenPath(args?.path || "…") };
+			return { name, content: shortenPath(argString(args, "path") || "…") };
 		case "find":
-			return { name: "find", content: `${oneLine(args?.pattern || "")} in ${shortenPath(args?.path || ".")}` };
+			return {
+				name: "find",
+				content: `${oneLine(argString(args, "pattern"))} in ${shortenPath(argString(args, "path") || ".")}`,
+			};
 		case "grep":
-			return { name: "grep", content: `${oneLine(args?.pattern || "")} in ${shortenPath(args?.path || ".")}` };
+			return {
+				name: "grep",
+				content: `${oneLine(argString(args, "pattern"))} in ${shortenPath(argString(args, "path") || ".")}`,
+			};
 		case "ls":
-			return { name: "ls", content: shortenPath(args?.path || ".") };
+			return { name: "ls", content: shortenPath(argString(args, "path") || ".") };
 		case "web_search":
-			return { name: "web_search", content: oneLine(args?.query || "…") };
+			return { name: "web_search", content: oneLine(argString(args, "query") || "…") };
 		case "subagent":
-			return { name: "subagent", content: oneLine(args?.agent || args?.task || "…") };
+			return { name: "subagent", content: oneLine(argString(args, "agent") || argString(args, "task") || "…") };
 		default: {
-			const preferred = args?.path ?? args?.query ?? args?.name ?? args?.description ?? args?.url;
+			const record = typeof args === "object" && args !== null ? (args as Record<string, unknown>) : undefined;
+			const preferred = record?.path ?? record?.query ?? record?.name ?? record?.description ?? record?.url;
 			return { name, content: oneLine(preferred ?? "…") };
 		}
 	}
 }
 
 type ToolStatus = "pending" | "success" | "error";
-function toolStatus(tool: any): ToolStatus {
-	if (tool?.result?.isError) return "error";
-	if (tool?.isPartial === true || (tool?.executionStarted && !tool?.result)) return "pending";
-	return tool?.result ? "success" : "pending";
+
+function statusIcon(status: ToolStatus, frame: string): string {
+	return status === "pending" ? frame : status === "error" ? "✗" : "✓";
 }
 
-function toolElapsed(tool: any): string {
+function statusColor(status: ToolStatus): ThemeColor {
+	return status === "pending" ? "accent" : status === "error" ? "error" : "success";
+}
+
+interface GroupHeadState {
+	pending: boolean;
+	thinking: boolean;
+	openEmpty: boolean;
+}
+
+function groupHead(frame: string, state: GroupHeadState): { icon: string; label: string; color: ThemeColor } {
+	if (state.pending) return { icon: frame, label: "tool calling...", color: "accent" };
+	if (state.thinking || state.openEmpty) return { icon: frame, label: "thinking...", color: "thinkingText" };
+	return { icon: "✓", label: "tools done", color: "success" };
+}
+
+interface ToolResultView {
+	readonly isError?: boolean;
+	readonly content?: readonly unknown[];
+}
+
+interface ToolView extends Component {
+	readonly toolCallId: string;
+	readonly toolName: string;
+	readonly args: unknown;
+	readonly isPartial?: boolean;
+	readonly executionStarted?: boolean;
+	readonly result?: ToolResultView;
+	setExpanded?(expanded: boolean): void;
+}
+
+function asToolView(component: Component): ToolView | undefined {
+	if (component instanceof ToolExecutionComponent) return component as unknown as ToolView;
+	return undefined;
+}
+
+function toolStatus(tool: ToolView): ToolStatus {
+	if (tool.result?.isError) return "error";
+	if (tool.isPartial === true || (tool.executionStarted && !tool.result)) return "pending";
+	return tool.result ? "success" : "pending";
+}
+
+const toolEndAts = new Map<string, number>();
+
+function toolElapsed(tool: ToolView): string {
 	const start = toolStarts.get(tool.toolCallId) ?? Date.now();
-	const end = tool?.result ? (tool._groupEndAt ?? Date.now()) : Date.now();
+	const end = tool.result ? (toolEndAts.get(tool.toolCallId) ?? Date.now()) : Date.now();
 	return ((end - start) / 1000).toFixed(1);
 }
 
-function toolResultText(tool: any): string {
-	return (tool?.result?.content ?? [])
-		.filter((c: any) => c.type === "text")
-		.map((c: any) => String(c.text))
+function isTextPart(part: unknown): part is { type: unknown; text?: unknown } {
+	return typeof part === "object" && part !== null;
+}
+
+function toolResultText(tool: ToolView): string {
+	const content = tool.result?.content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter(isTextPart)
+		.filter((part) => part.type === "text")
+		.map((part) => (typeof part.text === "string" ? part.text : ""))
 		.join("\n")
 		.trim();
 }
@@ -388,7 +466,7 @@ export function normalizeCompactCodeBlockLines(lines: string[], width: number, p
 export type CompactExternalTool = {
 	id: string;
 	name: string;
-	args: any;
+	args: unknown;
 	status: ToolStatus;
 	resultText: string;
 	startedAt: number;
@@ -415,7 +493,7 @@ export class CompactExternalGroupComponent implements Component {
 
 	constructor(
 		readonly state: CompactExternalGroup,
-		private readonly theme: any,
+		private readonly theme: Theme | null,
 	) {}
 
 	setExpanded(expanded: boolean): void {
@@ -424,24 +502,16 @@ export class CompactExternalGroupComponent implements Component {
 
 	invalidate(): void {}
 
-	private icon(tool: CompactExternalTool, frame: string): string {
-		return tool.status === "pending" ? frame : tool.status === "error" ? "✗" : "✓";
-	}
-
-	private color(tool: CompactExternalTool): string {
-		return tool.status === "pending" ? "accent" : tool.status === "error" ? "error" : "success";
-	}
-
 	private elapsed(tool: CompactExternalTool): string {
 		const end = tool.endedAt ?? Date.now();
 		return `${Math.max(0, (end - tool.startedAt) / 1000).toFixed(1)}s`;
 	}
 
 	private toolRow(rail: string, tool: CompactExternalTool, frame: string): string {
-		const fg = (color: string, text: string) => this.theme?.fg?.(color, text) ?? text;
-		const bold = this.theme?.bold ? (text: string) => this.theme.bold(text) : (text: string) => text;
+		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
+		const bold = (text: string): string => themeBold(this.theme, text);
 		const summary = toolSummary(tool.name, tool.args);
-		return `${fg("dim", rail)}${fg(this.color(tool), this.icon(tool, frame))} ${fg("toolTitle", bold(summary.name))} ${fg("dim", summary.content)} ${fg("muted", `(${this.elapsed(tool)})`)}`;
+		return `${fg("dim", rail)}${fg(statusColor(tool.status), statusIcon(tool.status, frame))} ${fg("toolTitle", bold(summary.name))} ${fg("dim", summary.content)} ${fg("muted", `(${this.elapsed(tool)})`)}`;
 	}
 
 	private tokenLabel(): string {
@@ -449,7 +519,7 @@ export class CompactExternalGroupComponent implements Component {
 		return `${this.state.thinkingTokensExact ? "" : "≈"}${formatTokenK(tokens)} tok`;
 	}
 
-	private markdownLines(source: string, width: number, maxLines: number, color: string, italic = false): string[] {
+	private markdownLines(source: string, width: number, maxLines: number, color: ThemeColor, italic = false): string[] {
 		if (!source.trim()) return [];
 		const lineLimit = Math.max(1, maxLines);
 		const sourceRows = source.split("\n");
@@ -458,26 +528,25 @@ export class CompactExternalGroupComponent implements Component {
 			.join("\n")
 			.slice(0, Math.max(4096, lineLimit * Math.max(40, width) * 4));
 		const markdown = new Markdown(bounded, 0, 0, getCompactMarkdownTheme(), {
-			color: (text) => this.theme?.fg?.(color, text) ?? text,
+			color: (text: string): string => themeFg(this.theme, color, text),
 			italic,
 		});
 		const rendered = normalizeCompactCodeBlockLines(markdown.render(Math.max(1, width)), Math.max(1, width));
 		const lines = rendered.slice(0, lineLimit);
 		if (rendered.length > lineLimit || bounded.length < source.length) {
-			lines.push(this.theme?.fg?.("muted", "…") ?? "…");
+			lines.push(themeFg(this.theme, "muted", "…"));
 		}
 		return lines;
 	}
 
 	private renderCollapsed(width: number, frame: string): string[] {
-		const fg = (color: string, text: string) => this.theme?.fg?.(color, text) ?? text;
-		const pending = this.state.tools.some((tool) => tool.status === "pending");
-		const openThinking = this.state.thinkingActive && !this.state.sealed;
-		const openEmpty = !this.state.sealed && this.state.tools.length === 0;
-		const working = pending || openThinking || openEmpty;
-		const label = pending ? "tool calling..." : openThinking || openEmpty ? "thinking..." : "tools done";
-		const color = pending ? "accent" : openThinking || openEmpty ? "thinkingText" : "success";
-		const lines = [`${fg(color, working ? frame : "✓")} ${fg(color, label)}`];
+		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
+		const head = groupHead(frame, {
+			pending: this.state.tools.some((tool) => tool.status === "pending"),
+			thinking: this.state.thinkingActive && !this.state.sealed,
+			openEmpty: !this.state.sealed && this.state.tools.length === 0,
+		});
+		const lines = [`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`];
 		const maxLines = Math.max(2, config.collapsedMaxLines);
 		const thinking = this.state.thinking.trim().replace(/[*_#`>]+/g, "");
 		const reserveThinking = thinking.length > 0;
@@ -485,7 +554,8 @@ export class CompactExternalGroupComponent implements Component {
 		for (let index = this.state.tools.length - 1; index >= 0; index--) {
 			if (lines.length >= maxLines - (reserveThinking ? 1 : 0)) break;
 			const isOldest = index === 0 && !reserveThinking;
-			lines.push(this.toolRow(isOldest ? "└  " : "│  ", this.state.tools[index]!, frame));
+			const row = this.state.tools[index];
+			if (row) lines.push(this.toolRow(isOldest ? "└  " : "│  ", row, frame));
 			shown++;
 		}
 		if (shown < this.state.tools.length && lines.length < maxLines) {
@@ -501,16 +571,16 @@ export class CompactExternalGroupComponent implements Component {
 	}
 
 	private renderExpanded(width: number, frame: string): string[] {
-		const fg = (color: string, text: string) => this.theme?.fg?.(color, text) ?? text;
-		const pending = this.state.tools.some((tool) => tool.status === "pending");
-		const openThinking = this.state.thinkingActive && !this.state.sealed;
-		const openEmpty = !this.state.sealed && this.state.tools.length === 0;
-		const working = pending || openThinking || openEmpty;
-		const label = pending ? "tool calling..." : openThinking || openEmpty ? "thinking..." : "tools done";
-		const color = pending ? "accent" : openThinking || openEmpty ? "thinkingText" : "success";
-		const lines = [`${fg(color, working ? frame : "✓")} ${fg(color, label)}`];
+		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
+		const head = groupHead(frame, {
+			pending: this.state.tools.some((tool) => tool.status === "pending"),
+			thinking: this.state.thinkingActive && !this.state.sealed,
+			openEmpty: !this.state.sealed && this.state.tools.length === 0,
+		});
+		const lines = [`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`];
 		for (let index = 0; index < this.state.tools.length; index++) {
-			const tool = this.state.tools[index]!;
+			const tool = this.state.tools[index];
+			if (!tool) continue;
 			const last = index === this.state.tools.length - 1;
 			const sub = last ? "    " : "│   ";
 			lines.push(this.toolRow(last ? "└─ " : "├─ ", tool, frame));
@@ -541,7 +611,7 @@ export class CompactExternalGroupComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length]!;
+		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const source = this.expanded ? this.renderExpanded(width, frame) : this.renderCollapsed(width, frame);
 		const padding = " ".repeat(Math.min(GROUP_PADDING_X, Math.max(0, width - 1)));
 		const contentWidth = Math.max(1, width - padding.length);
@@ -553,15 +623,27 @@ export class CompactExternalGroupComponent implements Component {
 // pi's stock Markdown theme intentionally displays literal ``` fence rows.
 // Replace only visible assistant Markdown instances with compact code borders;
 // user/custom messages and hidden thinking Markdown retain their native theme.
+const patchedMarkdown = new WeakSet<Markdown>();
+
+interface MarkdownInternals {
+	theme: MarkdownTheme;
+	paddingX: unknown;
+}
+
+function markdownInternals(component: Markdown): MarkdownInternals {
+	return component as unknown as MarkdownInternals;
+}
+
 function installVisibleAssistantMarkdownRendering(component: Markdown): void {
-	const markdown = component as any;
-	if (markdown[MARKDOWN_RENDER_PATCH_KEY]) return;
-	markdown.theme = getCompactMarkdownTheme();
-	const originalRender = markdown.render.bind(markdown);
-	markdown.render = (width: number): string[] =>
-		normalizeCompactCodeBlockLines(originalRender(width), width, Number(markdown.paddingX) || 0);
-	markdown[MARKDOWN_RENDER_PATCH_KEY] = { originalRender };
-	markdown.invalidate();
+	if (patchedMarkdown.has(component)) return;
+	patchedMarkdown.add(component);
+	const internals = markdownInternals(component);
+	internals.theme = getCompactMarkdownTheme();
+	const originalRender = component.render.bind(component);
+	const paddingX = Number(internals.paddingX) || 0;
+	component.render = (width: number): string[] =>
+		normalizeCompactCodeBlockLines(originalRender(width), width, paddingX);
+	component.invalidate();
 }
 
 class CompactionHeaderComponent implements Component {
@@ -569,7 +651,7 @@ class CompactionHeaderComponent implements Component {
 
 	render(width: number): string[] {
 		const theme = currentTheme;
-		const fg = (color: string, text: string) => theme?.fg?.(color, text) ?? text;
+		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
 		const exactTokens = Math.max(0, this.tokensBefore).toLocaleString();
 		const icon = fg("success", "›‹");
 		const title = fg("success", "Context compacted");
@@ -585,40 +667,58 @@ class CompactionHeaderComponent implements Component {
 	invalidate(): void {}
 }
 
+interface CompactionPatch {
+	originalUpdateDisplay?: () => void;
+	originalSetExpanded?: (expanded: boolean) => void;
+	installedUpdateDisplay?: () => void;
+	installedSetExpanded?: (expanded: boolean) => void;
+}
+
+interface CompactionPrototype {
+	updateDisplay(): void;
+	setExpanded(expanded: boolean): void;
+	clear(): void;
+	addChild(component: Component): void;
+	[COMPACTION_STYLE_PATCH_KEY]?: CompactionPatch;
+}
+
+interface CompactionInternals {
+	message?: { tokensBefore?: unknown };
+	paddingX: number;
+	paddingY: number;
+	setBgFn(bgFn?: (text: string) => string): void;
+}
+
+function compactionInternals(host: CompactionPrototype): CompactionInternals {
+	return host as unknown as CompactionInternals;
+}
+
 function installCompactionSummaryRendering(): void {
-	const prototype = CompactionSummaryMessageComponent.prototype as any;
-	const previous = prototype[COMPACTION_STYLE_PATCH_KEY] as
-		| {
-				original?: (this: any) => void;
-				installed?: (this: any) => void;
-				originalUpdateDisplay?: (this: any) => void;
-				originalSetExpanded?: (this: any, expanded: boolean) => void;
-				installedUpdateDisplay?: (this: any) => void;
-				installedSetExpanded?: (this: any, expanded: boolean) => void;
-		  }
-		| undefined;
+	const prototype = CompactionSummaryMessageComponent.prototype as unknown as CompactionPrototype;
+	const previous = prototype[COMPACTION_STYLE_PATCH_KEY];
 	// Replace the previous compact-ui closure on hot reload while retaining
 	// pi's original renderer for a future replacement.
-	const previousInstalledUpdate = previous?.installedUpdateDisplay ?? previous?.installed;
+	const previousInstalledUpdate = previous?.installedUpdateDisplay;
 	const originalUpdateDisplay =
 		previous && previousInstalledUpdate && prototype.updateDisplay === previousInstalledUpdate
-			? (previous.originalUpdateDisplay ?? previous.original)!
-			: (prototype.updateDisplay as (this: any) => void);
+			? (previous.originalUpdateDisplay ?? prototype.updateDisplay)
+			: prototype.updateDisplay;
 	const originalSetExpanded =
 		previous?.installedSetExpanded && prototype.setExpanded === previous.installedSetExpanded
-			? previous.originalSetExpanded!
-			: (prototype.setExpanded as (this: any, expanded: boolean) => void);
-	const installedUpdateDisplay = function (this: any): void {
-		this.paddingX = GROUP_PADDING_X;
-		this.paddingY = 0;
-		this.setBgFn(undefined);
+			? (previous.originalSetExpanded ?? prototype.setExpanded)
+			: prototype.setExpanded;
+	const installedUpdateDisplay = function (this: CompactionPrototype): void {
+		const internals = compactionInternals(this);
+		internals.paddingX = GROUP_PADDING_X;
+		internals.paddingY = 0;
+		internals.setBgFn(undefined);
 		this.clear();
 
-		const tokensBefore = Number(this.message?.tokensBefore);
+		const tokensBefore = Number(internals.message?.tokensBefore);
 		const safeTokens = Number.isFinite(tokensBefore) && tokensBefore > 0 ? tokensBefore : 0;
 		this.addChild(new CompactionHeaderComponent(safeTokens));
 	};
-	const installedSetExpanded = function (this: any, _expanded: boolean): void {
+	const installedSetExpanded = function (this: CompactionPrototype, _expanded: boolean): void {
 		// Context compaction is a static transcript event. Global Ctrl+O remains
 		// available for compact thinking/tool groups but does not alter this row.
 	};
@@ -653,31 +753,19 @@ class ToolGroupComponent extends Container {
 	thinkingTokensFrozenExact = false;
 	private markdownPreviewCache = new Map<string, MarkdownPreview>();
 
-	constructor() {
-		super();
-	}
-
 	setExpanded(expanded: boolean): void {
 		this._expanded = expanded;
-		for (const tool of this.children) (tool as { setExpanded?: (expanded: boolean) => void }).setExpanded?.(expanded);
+		for (const tool of this.children) asToolView(tool)?.setExpanded?.(expanded);
 		this.invalidate();
 	}
 
-	addTool(tool: any): void {
+	addTool(tool: ToolView): void {
 		this.children.push(tool);
-		if ((tool as any)._groupedAt === undefined) (tool as any)._groupedAt = Date.now();
-		(tool as any)[PARENT_KEY] = this;
-	}
-
-	removeTool(tool: any): void {
-		const index = this.children.indexOf(tool);
-		if (index >= 0) this.children.splice(index, 1);
-		if ((tool as any)?.[PARENT_KEY] === this) delete (tool as any)[PARENT_KEY];
 	}
 
 	hasPending(): boolean {
 		// Running tools only — global thinking alone must not keep the bar repainting.
-		return this.children.some((tool) => toolStatus(tool) === "pending");
+		return groupTools(this).some((tool) => toolStatus(tool) === "pending");
 	}
 
 	/** True while this group should keep its spinner animating. */
@@ -734,21 +822,14 @@ class ToolGroupComponent extends Container {
 		return preview;
 	}
 
-	private iconFor(tool: any, frame: string): string {
-		const st = toolStatus(tool);
-		return st === "pending" ? frame : st === "error" ? "✗" : "✓";
-	}
-	private colorFor(status: string): string {
-		return status === "pending" ? "accent" : status === "error" ? "error" : "success";
-	}
 	// Tool name in bold accent, tool payload in dim.
-	private toolRow(rail: string, tool: any, frame: string): string {
+	private toolRow(rail: string, tool: ToolView, frame: string): string {
 		const theme = currentTheme;
-		const fg = (color: string, text: string) => theme?.fg?.(color, text) ?? text;
-		const bold = theme?.bold ? theme.bold : (t: string) => t;
+		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
+		const bold = (text: string): string => themeBold(theme, text);
 		const st = toolStatus(tool);
 		const s = toolSummary(tool.toolName, tool.args);
-		return `${fg("dim", rail)}${fg(this.colorFor(st), this.iconFor(tool, frame))} ${fg("toolTitle", bold(s.name))} ${fg("dim", s.content)} ${fg("muted", `(${toolElapsed(tool)}s)`)}`;
+		return `${fg("dim", rail)}${fg(statusColor(st), statusIcon(st, frame))} ${fg("toolTitle", bold(s.name))} ${fg("dim", s.content)} ${fg("muted", `(${toolElapsed(tool)}s)`)}`;
 	}
 	// Live state only applies to the not-yet-sealed (active) block.
 	private liveThinking(): string {
@@ -762,31 +843,26 @@ class ToolGroupComponent extends Container {
 	private liveThinkingActive(): boolean {
 		return !this.sealed && thinkingActive;
 	}
-	private livePending(): boolean {
-		return !this.sealed && this.children.some((t) => toolStatus(t) === "pending");
-	}
 
 	// Folded: header + up to collapsedMaxLines total, ellipsis when exceeding.
 	private renderCollapsed(width: number): string[] {
 		const theme = currentTheme;
-		const fg = (color: string, text: string) => theme?.fg?.(color, text) ?? text;
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length]!;
+		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
+		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const lines: string[] = [];
 
-		const hasPendingTool = this.hasPending();
-		const isThinking = this.liveThinkingActive();
 		// An open block with no tools yet is still "thinking" (waiting for tools or
 		// a text seal); only sealed / tool-bearing blocks show a completion mark.
-		const openNoTools = !this.sealed && this.children.length === 0;
-		const working = hasPendingTool || isThinking || openNoTools;
-		const state = hasPendingTool ? "tool calling..." : isThinking || openNoTools ? "thinking..." : "tools done";
-		const stateColor = hasPendingTool ? "accent" : isThinking || openNoTools ? "thinkingText" : "success";
-		// Left icon: spinner while working, completion mark once the group is done.
-		const leftIcon = working ? frame : "✓";
-		lines.push(`${fg(stateColor, leftIcon)} ${fg(stateColor, state)}`);
+		const head = groupHead(frame, {
+			pending: this.hasPending(),
+			thinking: this.liveThinkingActive(),
+			openEmpty: !this.sealed && this.children.length === 0,
+		});
+		lines.push(`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`);
 
 		const maxLines = Math.max(2, config.collapsedMaxLines);
-		const total = this.children.length;
+		const tools = groupTools(this);
+		const total = tools.length;
 		const tText = this.liveThinking()
 			.trim()
 			.replace(/[*_#`>]+/g, "");
@@ -798,7 +874,8 @@ class ToolGroupComponent extends Container {
 		for (let index = 0; index < total; index++) {
 			const room = maxLines - (keepThinking ? 1 : 0);
 			if (lines.length >= room) break;
-			const tool = this.children[total - 1 - index];
+			const tool = tools[total - 1 - index];
+			if (!tool) continue;
 			const isLastTool = index === total - 1 && !keepThinking;
 			const rail = isLastTool ? "└  " : "│  ";
 			lines.push(this.toolRow(rail, tool, frame));
@@ -822,23 +899,22 @@ class ToolGroupComponent extends Container {
 	// Expanded: per-tool detail + thinking, line counts configurable.
 	private renderExpanded(width: number): string[] {
 		const theme = currentTheme;
-		const fg = (color: string, text: string) => theme?.fg?.(color, text) ?? text;
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length]!;
+		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
+		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const lines: string[] = [];
 
-		const hasPendingTool = this.hasPending();
-		const isThinking = this.liveThinkingActive();
-		const openNoTools = !this.sealed && this.children.length === 0;
-		const working = hasPendingTool || isThinking || openNoTools;
-		const state = hasPendingTool ? "tool calling..." : isThinking || openNoTools ? "thinking..." : "tools done";
-		const stateColor = hasPendingTool ? "accent" : isThinking || openNoTools ? "thinkingText" : "success";
-		// Left icon: spinner while working, completion mark once the group is done.
-		const leftIcon = working ? frame : "✓";
-		lines.push(`${fg(stateColor, leftIcon)} ${fg(stateColor, state)}`);
+		const head = groupHead(frame, {
+			pending: this.hasPending(),
+			thinking: this.liveThinkingActive(),
+			openEmpty: !this.sealed && this.children.length === 0,
+		});
+		lines.push(`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`);
 
-		const total = this.children.length;
+		const tools = groupTools(this);
+		const total = tools.length;
 		for (let index = 0; index < total; index++) {
-			const tool = this.children[index];
+			const tool = tools[index];
+			if (!tool) continue;
 			const isLast = index === total - 1;
 			const rail = isLast ? "└─ " : "├─ ";
 			const sub = isLast ? "    " : "│   ";
@@ -847,11 +923,11 @@ class ToolGroupComponent extends Container {
 			if (result) {
 				const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
 				const preview = this.renderMarkdownPreview(
-					`tool:${(tool as { toolCallId?: unknown }).toolCallId ?? index}`,
+					`tool:${tool.toolCallId ?? index}`,
 					result,
 					markdownWidth,
 					config.expandedToolLines,
-					{ color: (text) => currentTheme?.fg?.("toolOutput", text) ?? text },
+					{ color: (text: string): string => themeFg(currentTheme, "toolOutput", text) },
 				);
 				for (const row of preview.lines) {
 					lines.push(`${fg("dim", sub)}${row}`);
@@ -870,7 +946,7 @@ class ToolGroupComponent extends Container {
 			const sub = "    ";
 			const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
 			const preview = this.renderMarkdownPreview("thinking", tText, markdownWidth, config.expandedThinkingLines, {
-				color: (text) => currentTheme?.fg?.("thinkingText", text) ?? text,
+				color: (text: string): string => themeFg(currentTheme, "thinkingText", text),
 				italic: true,
 			});
 			for (const row of preview.lines) {
@@ -900,6 +976,15 @@ class ToolGroupComponent extends Container {
 	}
 }
 
+function groupTools(group: ToolGroupComponent): ToolView[] {
+	const views: ToolView[] = [];
+	for (const child of group.children) {
+		const view = asToolView(child);
+		if (view) views.push(view);
+	}
+	return views;
+}
+
 // =============================================================================
 // Animation scheduling. The TUI instance is captured via setWidget's factory
 // (extensions can't requestRender directly). We tick at 300ms and call the
@@ -907,23 +992,21 @@ class ToolGroupComponent extends Container {
 // spinner/elapsed cells — no full-screen repaint, no scroll fight.
 // =============================================================================
 let animTimer: ReturnType<typeof setTimeout> | null = null;
-let capturedTui: any = null;
+let capturedTui: Pick<TUI, "requestRender"> | null = null;
 
 function scheduleAnimation(): void {
 	if (animTimer) return;
 	animTimer = setTimeout(() => {
 		animTimer = null;
-		let any = false;
-		for (const g of groups) {
-			const running = g.children.some((t) => toolStatus(t) === "pending");
-			const liveThinking = g === lastActiveGroup && !g.sealed && thinkingActive;
+		let active = false;
+		for (const group of groups) {
+			const running = groupTools(group).some((tool) => toolStatus(tool) === "pending");
+			const liveThinking = group === lastActiveGroup && !group.sealed && thinkingActive;
 			if (running || liveThinking) {
-				any = true;
+				active = true;
 			}
 		}
-		if (any && capturedTui) {
-			capturedTui.requestRender();
-		}
+		if (active) capturedTui?.requestRender();
 	}, SPINNER_MS);
 }
 
@@ -932,11 +1015,7 @@ function scheduleAnimation(): void {
 // =============================================================================
 const groups = new Set<ToolGroupComponent>();
 
-function isGroupable(value: any): boolean {
-	return value instanceof ToolExecutionComponent;
-}
-
-function previousGroupable(children: any[], start: number): { child: any; index: number } | undefined {
+function previousGroupable(children: Component[], start: number): { child: Component; index: number } | undefined {
 	for (let i = start; i >= 0; i--) {
 		const child = children[i];
 		if (child instanceof Spacer) continue;
@@ -956,14 +1035,13 @@ function ensureThinkingGroup(): void {
 	if (!lastChatContainer || !lastStreamingComp) return;
 	const parent = lastChatContainer;
 	const children = parent.children;
-	if (!Array.isArray(children)) return;
 	const idx = children.indexOf(lastStreamingComp);
 	const group = new ToolGroupComponent();
 	children.splice(idx >= 0 ? idx + 1 : children.length, 0, group);
 	groups.add(group);
 	lastActiveGroup = group;
-	parent.invalidate?.();
-	capturedTui?.requestRender?.();
+	parent.invalidate();
+	capturedTui?.requestRender();
 }
 
 // A text stream is a boundary between compact blocks. The message_update event
@@ -1008,10 +1086,10 @@ function flushPendingTextSeal(): void {
 	}
 }
 
-function maybeGroup(parent: any, component: any): void {
-	if (!isGroupable(component) || parent instanceof ToolGroupComponent) return;
-	const children = parent?.children;
-	if (!Array.isArray(children)) return;
+function maybeGroup(parent: Container, component: Component): void {
+	const view = asToolView(component);
+	if (!view || parent instanceof ToolGroupComponent) return;
+	const children = parent.children;
 	const index = children.indexOf(component);
 	if (index < 0) return;
 	const prior = previousGroupable(children, index - 1);
@@ -1019,16 +1097,17 @@ function maybeGroup(parent: any, component: any): void {
 	// Previous sibling is an open (not-yet-sealed) group → join it.
 	if (prior?.child instanceof ToolGroupComponent && !prior.child.sealed) {
 		children.splice(index, 1);
-		prior.child.addTool(component);
+		prior.child.addTool(view);
 		lastActiveGroup = prior.child;
 		return;
 	}
 	// Previous sibling is a bare tool → merge both into a new group.
-	if (prior && isGroupable(prior.child)) {
+	const priorView = prior ? asToolView(prior.child) : undefined;
+	if (prior && priorView) {
 		const group = new ToolGroupComponent();
-		group.addTool(prior.child);
-		group.addTool(component);
-		(parent as any).children[prior.index] = group;
+		group.addTool(priorView);
+		group.addTool(view);
+		parent.children[prior.index] = group;
 		children.splice(index, 1);
 		groups.add(group);
 		lastActiveGroup = group;
@@ -1037,18 +1116,22 @@ function maybeGroup(parent: any, component: any): void {
 	// Otherwise (sealed group before, or nothing groupable) → wrap the tool in a
 	// fresh open group so it stays visible.
 	const group = new ToolGroupComponent();
-	group.addTool(component);
-	(parent as any).children[index] = group;
+	group.addTool(view);
+	parent.children[index] = group;
 	groups.add(group);
 	lastActiveGroup = group;
 }
 
-type PatchState = {
-	active: boolean;
-	original: { addChild: Function; removeChild: Function; clear: Function };
-	installed: { addChild: Function; removeChild: Function; clear: Function };
-	prototype: any;
-};
+interface ContainerPatch {
+	addChild(component: Component): void;
+	removeChild(component: Component): void;
+	clear(): void;
+}
+
+interface PatchState {
+	original: ContainerPatch;
+	installed: ContainerPatch;
+}
 
 // AssistantMessageComponent content containers that may carry a "phantom" blank
 // line. With hiddenThinkingLabel set to "", pi still adds
@@ -1064,7 +1147,7 @@ type AssistantContentState = {
 	/** Visible Markdown ordinal while AssistantMessageComponent rebuilds. */
 	nextTextOrdinal: number;
 	/** Turn-duration divider bound to the final visible Markdown ordinal. */
-	finalDivider?: { ordinal: number; component: any };
+	finalDivider?: { ordinal: number; component: TurnDividerComponent };
 };
 const assistantContentStates = new WeakMap<Container, AssistantContentState>();
 const groupAnchors = new WeakMap<ToolGroupComponent, { container: Container; ordinal: number }>();
@@ -1078,18 +1161,14 @@ function getAssistantContentState(container: Container): AssistantContentState {
 	return state;
 }
 
-function removeGroupFromContainer(container: any, group: ToolGroupComponent): void {
-	const children = container?.children;
-	if (!Array.isArray(children)) return;
-	const index = children.indexOf(group);
-	if (index >= 0) children.splice(index, 1);
+function removeGroupFromContainer(container: Container, group: ToolGroupComponent): void {
+	const index = container.children.indexOf(group);
+	if (index >= 0) container.children.splice(index, 1);
 }
 
-function removeComponentFromContainer(container: any, component: any): void {
-	const children = container?.children;
-	if (!Array.isArray(children)) return;
-	const index = children.indexOf(component);
-	if (index >= 0) children.splice(index, 1);
+function removeComponentFromContainer(container: Container, component: Component): void {
+	const index = container.children.indexOf(component);
+	if (index >= 0) container.children.splice(index, 1);
 }
 
 function formatWorkedTime(elapsedMs: number): string {
@@ -1104,7 +1183,7 @@ function formatWorkedTime(elapsedMs: number): string {
 
 // Static horizontal rule with the turn's elapsed time in the middle:
 //   ──── worked for 0m 42s ────
-class TurnDividerComponent {
+class TurnDividerComponent implements Component {
 	private readonly timeLabel: string;
 
 	constructor(timeLabel: string) {
@@ -1113,7 +1192,7 @@ class TurnDividerComponent {
 
 	render(width: number): string[] {
 		const theme = currentTheme;
-		const fg = (color: string, text: string) => theme?.fg?.(color, text) ?? text;
+		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
 		const middle = `worked for ${this.timeLabel}`;
 		const avail = Math.max(6, width - middle.length - 2);
 		const left = Math.floor(avail / 2);
@@ -1129,7 +1208,7 @@ class TurnDividerComponent {
 // Insert the turn divider directly before the final visible Markdown, keeping
 // the anchored group's trailing Spacer as the gap: ... group, Spacer, divider,
 // final text. Re-inserting is idempotent (the old instance is removed first).
-function placeTurnDividerBeforeText(container: Container, target: Markdown, divider: any): void {
+function placeTurnDividerBeforeText(container: Container, target: Markdown, divider: TurnDividerComponent): void {
 	const targetIndex = container.children.indexOf(target);
 	if (targetIndex < 0) return;
 	removeComponentFromContainer(container, divider);
@@ -1140,25 +1219,26 @@ function placeTurnDividerBeforeText(container: Container, target: Markdown, divi
 // assistant message so it survives cumulative rebuilds (like anchored groups).
 function insertTurnDivider(elapsedMs: number): void {
 	if (elapsedMs < 1000) return;
-	let comp: any = lastStreamingComp;
+	let comp: AssistantMessageComponent | null = lastStreamingComp;
 	if (!comp || !(comp instanceof AssistantMessageComponent)) {
 		if (!lastChatContainer) return;
-		const children = (lastChatContainer as any)?.children;
-		if (!Array.isArray(children)) return;
+		const children = lastChatContainer.children;
 		for (let i = children.length - 1; i >= 0; i--) {
-			if (children[i] instanceof AssistantMessageComponent) {
-				comp = children[i];
+			const child = children[i];
+			if (child instanceof AssistantMessageComponent) {
+				comp = child;
 				break;
 			}
 		}
 	}
 	if (!comp) return;
-	const contentContainer = (comp as any).contentContainer;
-	if (!(contentContainer instanceof Container)) return;
+	const contentContainer = assistantContentOf(comp);
+	if (!contentContainer) return;
 
 	const markdowns = contentContainer.children.filter(isVisibleTextMarkdown);
 	if (markdowns.length === 0) return;
 	const final = markdowns[markdowns.length - 1];
+	if (!final) return;
 	const finalIndex = contentContainer.children.indexOf(final);
 	// Only separate the final text from preceding work (an anchored tool/thinking
 	// group). A plain text-only answer gets no divider.
@@ -1173,16 +1253,16 @@ function insertTurnDivider(elapsedMs: number): void {
 	const divider = new TurnDividerComponent(formatWorkedTime(elapsedMs));
 	state.finalDivider = { ordinal, component: divider };
 	placeTurnDividerBeforeText(contentContainer, final, divider);
-	contentContainer.invalidate?.();
-	capturedTui?.requestRender?.();
+	contentContainer.invalidate();
+	capturedTui?.requestRender();
 }
 
-function isVisibleTextMarkdown(component: any): component is Markdown {
+function isVisibleTextMarkdown(component: Component): component is Markdown {
 	// Thinking Markdown receives a defaultTextStyle ({ color, italic }) from
 	// AssistantMessageComponent; normal assistant text does not. Count only
 	// normal text blocks so anchors remain correct if thinking visibility is
 	// toggled on.
-	return component instanceof Markdown && !(component as any).defaultTextStyle;
+	return component instanceof Markdown && !hasDefaultTextStyle(component);
 }
 
 function placeAnchoredGroupBeforeText(container: Container, target: Markdown, group: ToolGroupComponent): void {
@@ -1215,11 +1295,34 @@ function insertAnchoredGroup(container: Container, ordinal: number, group: ToolG
 	placeAnchoredGroupBeforeText(container, target, group);
 }
 
+interface AssistantInternals {
+	readonly contentContainer?: unknown;
+	setExpanded?(expanded: boolean): void;
+}
+
+function assistantInternals(component: AssistantMessageComponent): AssistantInternals {
+	return component as unknown as AssistantInternals;
+}
+
+function assistantContentOf(component: AssistantMessageComponent): Container | undefined {
+	const container = assistantInternals(component).contentContainer;
+	return container instanceof Container ? container : undefined;
+}
+
+function textOf(component: Text): string {
+	const internals = component as unknown as { text?: unknown };
+	return typeof internals.text === "string" ? internals.text : "";
+}
+
+function hasDefaultTextStyle(component: Markdown): boolean {
+	return (component as unknown as { defaultTextStyle?: unknown }).defaultTextStyle !== undefined;
+}
+
 function installAssistantExpansion(component: AssistantMessageComponent, contentContainer: Container): void {
 	// Ctrl+O only visits top-level chat children. Once compact groups are
 	// anchored inside an AssistantMessageComponent, make that top-level
 	// component expandable and delegate the state to its nested groups.
-	(component as any).setExpanded = (expanded: boolean) => {
+	assistantInternals(component).setExpanded = (expanded: boolean) => {
 		const state = assistantContentStates.get(contentContainer);
 		if (!state) return;
 		for (const group of state.anchors.values()) group.setExpanded(expanded);
@@ -1229,8 +1332,8 @@ function installAssistantExpansion(component: AssistantMessageComponent, content
 
 function anchorGroupBeforeCurrentText(group: ToolGroupComponent, ordinal: number): void {
 	if (!lastStreamingComp || !lastChatContainer) return;
-	const contentContainer = (lastStreamingComp as any).contentContainer;
-	if (!(contentContainer instanceof Container)) return;
+	const contentContainer = assistantContentOf(lastStreamingComp);
+	if (!contentContainer) return;
 
 	// An open group normally lives directly in the chat container. Remove it
 	// there before nesting it at the exact text boundary.
@@ -1255,12 +1358,13 @@ function anchorGroupBeforeCurrentText(group: ToolGroupComponent, ordinal: number
 	state.anchors.set(ordinal, group);
 	groupAnchors.set(group, { container: contentContainer, ordinal });
 	insertAnchoredGroup(contentContainer, ordinal, group);
-	lastChatContainer.invalidate?.();
-	capturedTui?.requestRender?.();
+	lastChatContainer.invalidate();
+	capturedTui?.requestRender();
 }
 
-function restoreAssistantAnchor(parent: any, component: any): void {
-	if (!assistantContentContainers.has(parent) || !isVisibleTextMarkdown(component)) return;
+function restoreAssistantAnchor(parent: Component, component: Component): void {
+	if (!(parent instanceof Container) || !assistantContentContainers.has(parent)) return;
+	if (!isVisibleTextMarkdown(component)) return;
 	installVisibleAssistantMarkdownRendering(component);
 	const state = getAssistantContentState(parent);
 	const ordinal = state.nextTextOrdinal++;
@@ -1275,14 +1379,13 @@ function restoreAssistantAnchor(parent: any, component: any): void {
 	}
 }
 
-function releaseAssistantAnchors(component: any): void {
+function releaseAssistantAnchors(component: Component): void {
 	if (!(component instanceof AssistantMessageComponent)) return;
-	const contentContainer = (component as any).contentContainer;
-	if (!(contentContainer instanceof Container)) return;
+	const contentContainer = assistantContentOf(component);
+	if (!contentContainer) return;
 	const state = assistantContentStates.get(contentContainer);
 	if (!state) return;
 	for (const group of state.anchors.values()) {
-		for (const tool of [...group.children]) delete (tool as any)[PARENT_KEY];
 		groupAnchors.delete(group);
 		groups.delete(group);
 	}
@@ -1290,7 +1393,7 @@ function releaseAssistantAnchors(component: any): void {
 	state.finalDivider = undefined;
 }
 
-function stripAssistantPhantomPadding(parent: any, component: any): void {
+function stripAssistantPhantomPadding(parent: Component, component: Component): void {
 	// Mark the plain Container that an AssistantMessageComponent owns as its
 	// content container so we can trim its children later.
 	if (
@@ -1303,7 +1406,7 @@ function stripAssistantPhantomPadding(parent: any, component: any): void {
 		installAssistantExpansion(parent, component);
 		return;
 	}
-	if (!assistantContentContainers.has(parent)) return;
+	if (!(parent instanceof Container) || !assistantContentContainers.has(parent)) return;
 	// Drop any Text child whose visible content is empty (only ANSI styling).
 	// This is the hidden-thinking label pi renders even when the label is "".
 	// Also remove the trailing Spacer run that preceded the label. Otherwise
@@ -1311,9 +1414,7 @@ function stripAssistantPhantomPadding(parent: any, component: any): void {
 	// one-line blank component; moving the final group into a later text message
 	// then exposes all of those accumulated blank lines as a huge gap.
 	if (component instanceof Text) {
-		const visible = String((component as any).text ?? "")
-			.replace(/\x1b\[[0-9;]*m/g, "")
-			.trim();
+		const visible = stripTerminalSequences(textOf(component)).trim();
 		if (visible === "") {
 			const index = parent.children.indexOf(component);
 			if (index >= 0) parent.children.splice(index, 1);
@@ -1323,9 +1424,9 @@ function stripAssistantPhantomPadding(parent: any, component: any): void {
 }
 
 function installGrouping(): void {
-	const host = globalThis as any;
-	const prototype = Container.prototype as any;
-	const previous = host[PATCH_KEY] as PatchState | undefined;
+	const host = globalThis as unknown as Record<symbol, PatchState | undefined>;
+	const prototype = Container.prototype;
+	const previous = host[PATCH_KEY];
 	// Always (re-)install. On hot-reload (/reload) the old instance's prototype
 	// patch stays on Container.prototype but its closures reference the OLD
 	// module state (groups/lastActiveGroup). Skipping here would leave the new
@@ -1334,7 +1435,7 @@ function installGrouping(): void {
 	// with the preserved original so future addChild calls use THIS instance's
 	// closures.
 
-	const original = {
+	const original: ContainerPatch = {
 		addChild:
 			previous && prototype.addChild === previous.installed.addChild ? previous.original.addChild : prototype.addChild,
 		removeChild:
@@ -1343,90 +1444,85 @@ function installGrouping(): void {
 				: prototype.removeChild,
 		clear: previous && prototype.clear === previous.installed.clear ? previous.original.clear : prototype.clear,
 	};
-	const state: PatchState = {
-		active: true,
-		prototype,
-		original,
-		installed: undefined as any,
+
+	function patchedAddChild(this: Container, component: Component): void {
+		original.addChild.call(this, component);
+		// Remember where the current assistant message component lives so a
+		// thinking-only group can be inserted right after it later.
+		if (component instanceof AssistantMessageComponent) {
+			lastChatContainer = this;
+			lastStreamingComp = component;
+			flushPendingTextSeal();
+		}
+		maybeGroup(this, component);
+		stripAssistantPhantomPadding(this, component);
+		restoreAssistantAnchor(this, component);
+	}
+
+	function patchedRemoveChild(this: Container, component: Component): void {
+		releaseAssistantAnchors(component);
+		original.removeChild.call(this, component);
+	}
+
+	function patchedClear(this: Container): void {
+		if (assistantContentContainers.has(this)) {
+			// AssistantMessageComponent rebuilds this container for every
+			// cumulative stream update. Keep sealed compact groups in the
+			// anchor map; restoreAssistantAnchor() reinserts each one before
+			// its matching Markdown child as the rebuild proceeds.
+			getAssistantContentState(this).nextTextOrdinal = 0;
+			original.clear.call(this);
+			return;
+		}
+		for (const child of [...this.children]) {
+			if (child instanceof ToolGroupComponent) groups.delete(child);
+			releaseAssistantAnchors(child);
+		}
+		original.clear.call(this);
+	}
+
+	const installed: ContainerPatch = {
+		addChild: patchedAddChild,
+		removeChild: patchedRemoveChild,
+		clear: patchedClear,
 	};
-	state.installed = {
-		addChild: function (this: any, component: any) {
-			const result = state.original.addChild.call(this, component);
-			if (component && typeof component === "object") {
-				// Remember where the current assistant message component lives so a
-				// thinking-only group can be inserted right after it later.
-				if (component instanceof AssistantMessageComponent) {
-					lastChatContainer = this;
-					lastStreamingComp = component;
-					flushPendingTextSeal();
-				}
-				maybeGroup(this, component);
-				stripAssistantPhantomPadding(this, component);
-				restoreAssistantAnchor(this, component);
-			}
-			return result;
-		},
-		removeChild: function (this: any, component: any) {
-			const group = component?.[PARENT_KEY];
-			if (group instanceof ToolGroupComponent && (group as any)[PARENT_KEY] === this) {
-				group.removeTool(component);
-				if (group.children.length === 0) groups.delete(group);
-				return;
-			}
-			releaseAssistantAnchors(component);
-			return state.original.removeChild.call(this, component);
-		},
-		clear: function (this: any) {
-			if (assistantContentContainers.has(this)) {
-				// AssistantMessageComponent rebuilds this container for every
-				// cumulative stream update. Keep sealed compact groups in the
-				// anchor map; restoreAssistantAnchor() reinserts each one before
-				// its matching Markdown child as the rebuild proceeds.
-				getAssistantContentState(this).nextTextOrdinal = 0;
-				return state.original.clear.call(this);
-			}
-			for (const child of [...(this.children ?? [])]) {
-				if (child instanceof ToolGroupComponent) {
-					for (const tool of [...child.children]) delete (tool as any)[PARENT_KEY];
-					groups.delete(child);
-				}
-				releaseAssistantAnchors(child);
-			}
-			return state.original.clear.call(this);
-		},
-	};
-	prototype.addChild = state.installed.addChild;
-	prototype.removeChild = state.installed.removeChild;
-	prototype.clear = state.installed.clear;
-	host[PATCH_KEY] = state;
+	prototype.addChild = installed.addChild;
+	prototype.removeChild = installed.removeChild;
+	prototype.clear = installed.clear;
+	host[PATCH_KEY] = { original, installed };
 }
 
 // =============================================================================
 // Built-in tool delegation (render nothing natively)
 // =============================================================================
-type AnyTool = {
-	parameters: TSchema;
-	execute: (
-		toolCallId: string,
-		params: any,
-		signal?: AbortSignal,
-		onUpdate?: any,
-		ctx?: unknown,
-	) => Promise<AgentToolResult<unknown>>;
-};
+type ToolName = "read" | "bash" | "edit" | "write" | "find" | "grep" | "ls";
 
-const toolCache = new Map<string, Record<string, AnyTool>>();
-function getTools(cwd: string): Record<string, AnyTool> {
+interface DelegatedTool {
+	readonly parameters: TSchema;
+	execute(
+		toolCallId: string,
+		params: unknown,
+		signal?: AbortSignal,
+		onUpdate?: AgentToolUpdateCallback<unknown>,
+	): Promise<AgentToolResult<unknown>>;
+}
+
+function eraseToolType(tool: object): DelegatedTool {
+	return tool as DelegatedTool;
+}
+
+const toolCache = new Map<string, Record<ToolName, DelegatedTool>>();
+function getTools(cwd: string): Record<ToolName, DelegatedTool> {
 	let tools = toolCache.get(cwd);
 	if (!tools) {
 		tools = {
-			read: createReadTool(cwd),
-			bash: createBashTool(cwd),
-			edit: createEditTool(cwd),
-			write: createWriteTool(cwd),
-			find: createFindTool(cwd),
-			grep: createGrepTool(cwd),
-			ls: createLsTool(cwd),
+			read: eraseToolType(createReadTool(cwd)),
+			bash: eraseToolType(createBashTool(cwd)),
+			edit: eraseToolType(createEditTool(cwd)),
+			write: eraseToolType(createWriteTool(cwd)),
+			find: eraseToolType(createFindTool(cwd)),
+			grep: eraseToolType(createGrepTool(cwd)),
+			ls: eraseToolType(createLsTool(cwd)),
 		};
 		toolCache.set(cwd, tools);
 	}
@@ -1438,7 +1534,7 @@ export default function (pi: ExtensionAPI) {
 	installCompactionSummaryRendering();
 
 	const delegate =
-		(name: keyof ReturnType<typeof getTools>) =>
+		(name: ToolName) =>
 		async (
 			toolCallId: string,
 			params: unknown,
@@ -1466,9 +1562,9 @@ export default function (pi: ExtensionAPI) {
 		ctx.ui.setHiddenThinkingLabel("");
 		// Capture the TUI instance via setWidget's factory so the animation can
 		// call its throttled requestRender() to repaint just the changed cells.
-		ctx.ui.setWidget("compact-anim", (tui: any) => {
+		ctx.ui.setWidget("compact-anim", (tui) => {
 			capturedTui = tui;
-			return { render: () => [] as string[], invalidate() {} };
+			return { render: (): string[] => [], invalidate(): void {} };
 		});
 		installGrouping();
 		installCompactionSummaryRendering();
@@ -1480,16 +1576,17 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("tool_execution_end", async (event) => {
-		for (const g of groups) {
-			for (const t of g.children as any[]) {
-				if (t.toolCallId === event.toolCallId) t._groupEndAt = Date.now();
+		for (const group of groups) {
+			for (const child of group.children) {
+				const view = asToolView(child);
+				if (view?.toolCallId === event.toolCallId) toolEndAts.set(view.toolCallId, Date.now());
 			}
 		}
 		lastActiveGroup?.invalidate();
 	});
 
 	pi.on("message_start", async (event) => {
-		const role = (event.message as any)?.role;
+		const role = event.message.role;
 		// A new user message is a hard turn boundary: seal whatever block is still
 		// open. Assistant/toolResult message boundaries do NOT seal — thinking and
 		// tool calls stay in one block until real (non-thinking) text appears.
@@ -1527,13 +1624,15 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("message_update", async (event) => {
-		const msg = event.message as any;
-		if (!msg || msg.role !== "assistant") return;
-		const content = Array.isArray(msg.content) ? msg.content : [];
-		const streamEvent = event.assistantMessageEvent as any;
-		const streamType = String(streamEvent?.type ?? "");
+		const msg = event.message.role === "assistant" ? (event.message as AssistantMessage) : undefined;
+		if (!msg) return;
+		const streamEvent = event.assistantMessageEvent;
 
-		if (streamType.startsWith("thinking_")) {
+		if (
+			streamEvent.type === "thinking_start" ||
+			streamEvent.type === "thinking_delta" ||
+			streamEvent.type === "thinking_end"
+		) {
 			// Only read the block targeted by this stream event. The surrounding
 			// message is cumulative and may still contain thinking from before a
 			// text boundary; scanning all content would resurrect that old block.
@@ -1541,37 +1640,34 @@ export default function (pi: ExtensionAPI) {
 				thinkingBlocks.clear();
 				assistantThinkingStarted = true;
 			}
-			const contentIndex = Number(streamEvent.contentIndex);
-			const block = Number.isInteger(contentIndex) ? content[contentIndex] : undefined;
+			const block = msg.content[streamEvent.contentIndex];
 			const blockText =
-				block?.type === "thinking"
-					? String(block.thinking ?? "")
-					: streamType === "thinking_end"
-						? String(streamEvent.content ?? "")
-						: "";
-			if (Number.isInteger(contentIndex)) thinkingBlocks.set(contentIndex, blockText);
+				block?.type === "thinking" ? block.thinking : streamEvent.type === "thinking_end" ? streamEvent.content : "";
+			thinkingBlocks.set(streamEvent.contentIndex, blockText);
 			thinkingText = [...thinkingBlocks.values()].filter((text) => text.trim()).join("\n\n");
 			updateThinkingTokenCount(msg);
-			thinkingActive = streamType !== "thinking_end";
+			thinkingActive = streamEvent.type !== "thinking_end";
 			// Show a collapsed block as soon as thinking appears (no tool needed).
 			ensureThinkingGroup();
-		} else if (streamType.startsWith("text_")) {
-			const contentIndex = Number(streamEvent.contentIndex);
-			const block = Number.isInteger(contentIndex) ? content[contentIndex] : undefined;
-			const text = block?.type === "text" ? String(block.text ?? "").trim() : "";
+		} else if (
+			streamEvent.type === "text_start" ||
+			streamEvent.type === "text_delta" ||
+			streamEvent.type === "text_end"
+		) {
+			const block = msg.content[streamEvent.contentIndex];
+			const text = block?.type === "text" ? block.text.trim() : "";
 			// The first non-whitespace text is a boundary. Deduplicate by content
 			// index so every later cumulative delta extends the same text block.
-			if (text.length > 0 && !handledTextIndexes.has(contentIndex)) {
+			if (text.length > 0 && !handledTextIndexes.has(streamEvent.contentIndex)) {
 				if (thinkingText.trim()) updateThinkingTokenCount(msg);
-				handledTextIndexes.add(contentIndex);
+				handledTextIndexes.add(streamEvent.contentIndex);
 				pendingTextSeal = true;
 				pendingTextOrdinal =
-					content
-						.slice(0, Number.isInteger(contentIndex) ? contentIndex + 1 : content.length)
-						.filter((item: any) => item?.type === "text" && String(item.text ?? "").trim()).length - 1;
+					msg.content.slice(0, streamEvent.contentIndex + 1).filter((item) => item.type === "text" && item.text.trim())
+						.length - 1;
 				flushPendingTextSeal();
 			}
-		} else if (streamType === "done" || streamType === "error") {
+		} else if (streamEvent.type === "done" || streamEvent.type === "error") {
 			if (thinkingText.trim()) updateThinkingTokenCount(msg);
 			thinkingActive = false;
 		}
@@ -1622,7 +1718,7 @@ export default function (pi: ExtensionAPI) {
 				const items: SettingItem[] = CONFIG_KEYS.map((meta) => ({
 					id: meta.id,
 					label: meta.label,
-					currentValue: String((config as any)[meta.id]),
+					currentValue: String(config[meta.id]),
 					description: meta.description,
 					submenu: (currentValue: string, subDone: (value?: string) => void) =>
 						makeStepper(meta.label, Number(currentValue), meta, theme, subDone),
@@ -1633,10 +1729,12 @@ export default function (pi: ExtensionAPI) {
 					getSettingsListTheme(),
 					(id, newValue) => {
 						// Persist and refresh the live groups when SettingsList commits a change.
-						(config as any)[id] = Number(newValue);
-						saveConfig();
-						anyChanged = true;
-						for (const g of groups) g.invalidate();
+						if (isConfigKey(id)) {
+							config[id] = Number(newValue);
+							saveConfig();
+							anyChanged = true;
+							for (const group of groups) group.invalidate();
+						}
 					},
 					() => done(anyChanged),
 				);

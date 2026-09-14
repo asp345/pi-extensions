@@ -28,13 +28,5 @@
 		"rules": {
 			"preset": "recommended"
 		}
-	},
-	"overrides": [
-		{
-			"includes": ["extensions/pi-compact-ui/**/*.ts"],
-			"linter": {
-				"enabled": false
-			}
-		}
-	]
+	}
 }
