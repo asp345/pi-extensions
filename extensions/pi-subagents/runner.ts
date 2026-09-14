@@ -53,7 +53,7 @@ export interface ResumeRequest {
 
 const REPORT_EXTENSION_PATH = fileURLToPath(new URL("./report-tool.ts", import.meta.url));
 const TURN_LIMIT_STEER = "You reached the configured turn limit. Give your final answer now without more tool calls.";
-const MESSAGE_POLL_MS = 1_000;
+const MESSAGE_POLL_MS = 3_000;
 
 export async function runNew(ctx: ExtensionContext, request: RunRequest, callbacks: RpcCallbacks): Promise<RunResult> {
 	const definition = request.definition;
