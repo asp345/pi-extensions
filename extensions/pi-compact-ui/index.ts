@@ -15,7 +15,7 @@
  * Expand line counts are configurable via /compact-config (interactive
  * settings menu, arrows to select, Enter to adjust, Esc to close) and are
  * persisted to ~/.pi/agent/compact-ui.json:
- *   { "collapsedMaxLines": 3, "expandedToolLines": 5, "expandedThinkingLines": 10 }
+ *   { "collapsedMaxLines": 3 }
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -64,7 +64,7 @@ import type { TSchema } from "typebox";
 // Config
 // =============================================================================
 const CONFIG_PATH = join(getAgentDir(), "compact-ui.json");
-const DEFAULT_CONFIG = { collapsedMaxLines: 3, expandedToolLines: 5, expandedThinkingLines: 10 };
+const DEFAULT_CONFIG = { collapsedMaxLines: 3 };
 let config = { ...DEFAULT_CONFIG };
 try {
 	config = { ...DEFAULT_CONFIG, ...JSON.parse(readFileSync(CONFIG_PATH, "utf-8")) };
@@ -94,22 +94,6 @@ const CONFIG_KEYS = [
 		description: "Max lines shown when a tool group is collapsed",
 		min: 2,
 		max: 20,
-		step: 1,
-	},
-	{
-		id: "expandedToolLines",
-		label: "Expanded tool lines",
-		description: "Result lines shown per tool when expanded",
-		min: 1,
-		max: 50,
-		step: 1,
-	},
-	{
-		id: "expandedThinkingLines",
-		label: "Expanded thinking lines",
-		description: "Thinking lines shown when expanded",
-		min: 1,
-		max: 100,
 		step: 1,
 	},
 ] as const;
@@ -351,11 +335,10 @@ function toolDiffText(tool: ToolView): string {
 	return typeof diff === "string" ? diff.trim() : "";
 }
 
-function renderDiffLines(diff: string, width: number, maxLines: number): { lines: string[]; truncated: boolean } {
-	const rows = renderDiff(diff).split("\n");
-	const limit = Math.max(1, maxLines);
-	const shown = rows.slice(0, limit).map((row) => truncateToWidth(row, Math.max(1, width), "…"));
-	return { lines: shown, truncated: rows.length > shown.length };
+function renderDiffLines(diff: string, width: number): string[] {
+	return renderDiff(diff)
+		.split("\n")
+		.map((row) => truncateToWidth(row, Math.max(1, width), "…"));
 }
 
 function isTextPart(part: unknown): part is { type: unknown; text?: unknown } {
@@ -376,9 +359,7 @@ function toolResultText(tool: ToolView): string {
 type MarkdownPreview = {
 	source: string;
 	width: number;
-	maxLines: number;
 	lines: string[];
-	truncated: boolean;
 };
 
 // Compact code fence markers are exactly "┌─" or "┌─ <language>", and the
@@ -536,24 +517,13 @@ export class CompactExternalGroupComponent implements Component {
 		return `${this.state.thinkingTokensExact ? "" : "≈"}${formatTokenK(tokens)} tok`;
 	}
 
-	private markdownLines(source: string, width: number, maxLines: number, color: ThemeColor, italic = false): string[] {
+	private markdownLines(source: string, width: number, color: ThemeColor, italic = false): string[] {
 		if (!source.trim()) return [];
-		const lineLimit = Math.max(1, maxLines);
-		const sourceRows = source.split("\n");
-		const bounded = sourceRows
-			.slice(0, Math.max(lineLimit * 4, lineLimit + 20))
-			.join("\n")
-			.slice(0, Math.max(4096, lineLimit * Math.max(40, width) * 4));
-		const markdown = new Markdown(bounded, 0, 0, getCompactMarkdownTheme(), {
+		const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), {
 			color: (text: string): string => themeFg(this.theme, color, text),
 			italic,
 		});
-		const rendered = normalizeCompactCodeBlockLines(markdown.render(Math.max(1, width)), Math.max(1, width));
-		const lines = rendered.slice(0, lineLimit);
-		if (rendered.length > lineLimit || bounded.length < source.length) {
-			lines.push(themeFg(this.theme, "muted", "…"));
-		}
-		return lines;
+		return normalizeCompactCodeBlockLines(markdown.render(Math.max(1, width)), Math.max(1, width));
 	}
 
 	private renderCollapsed(width: number, frame: string): string[] {
@@ -604,7 +574,6 @@ export class CompactExternalGroupComponent implements Component {
 			for (const row of this.markdownLines(
 				tool.resultText,
 				Math.max(1, width - GROUP_PADDING_X - sub.length),
-				config.expandedToolLines,
 				"toolOutput",
 			)) {
 				lines.push(`${fg("dim", sub)}${row}`);
@@ -617,7 +586,6 @@ export class CompactExternalGroupComponent implements Component {
 			for (const row of this.markdownLines(
 				this.state.thinking,
 				Math.max(1, width - GROUP_PADDING_X - 4),
-				config.expandedThinkingLines,
 				"thinkingText",
 				true,
 			)) {
@@ -803,38 +771,17 @@ class ToolGroupComponent extends Container {
 		cacheKey: string,
 		source: string,
 		width: number,
-		maxLines: number,
 		defaultTextStyle?: DefaultTextStyle,
 	): MarkdownPreview {
 		const renderWidth = Math.max(1, width);
-		const lineLimit = Math.max(1, maxLines);
 		const cached = this.markdownPreviewCache.get(cacheKey);
-		if (cached && cached.source === source && cached.width === renderWidth && cached.maxLines === lineLimit) {
+		if (cached && cached.source === source && cached.width === renderWidth) {
 			return cached;
 		}
 
-		// Only a bounded prefix can become visible. This prevents a very large
-		// command result from being reparsed in full merely to display a handful
-		// of expanded lines. Incomplete closing fences are supported by pi-tui.
-		const sourceRows = source.split("\n");
-		const sourceLineLimit = Math.max(lineLimit * 4, lineLimit + 20);
-		const sourceCharLimit = Math.max(4096, lineLimit * Math.max(40, renderWidth) * 4);
-		let markdownSource = sourceRows.slice(0, sourceLineLimit).join("\n");
-		let sourceTruncated = sourceRows.length > sourceLineLimit;
-		if (markdownSource.length > sourceCharLimit) {
-			markdownSource = markdownSource.slice(0, sourceCharLimit);
-			sourceTruncated = true;
-		}
-
-		const markdown = new Markdown(markdownSource, 0, 0, getCompactMarkdownTheme(), defaultTextStyle);
+		const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), defaultTextStyle);
 		const rendered = normalizeCompactCodeBlockLines(markdown.render(renderWidth), renderWidth);
-		const preview: MarkdownPreview = {
-			source,
-			width: renderWidth,
-			maxLines: lineLimit,
-			lines: rendered.slice(0, lineLimit),
-			truncated: sourceTruncated || rendered.length > lineLimit,
-		};
+		const preview: MarkdownPreview = { source, width: renderWidth, lines: rendered };
 		this.markdownPreviewCache.set(cacheKey, preview);
 		return preview;
 	}
@@ -939,30 +886,19 @@ class ToolGroupComponent extends Container {
 			const diff = toolDiffText(tool);
 			if (diff) {
 				const diffWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
-				const rendered = renderDiffLines(diff, diffWidth, config.expandedToolLines);
-				for (const row of rendered.lines) {
+				for (const row of renderDiffLines(diff, diffWidth)) {
 					lines.push(`${fg("dim", sub)}${row}`);
-				}
-				if (rendered.truncated) {
-					lines.push(`${fg("dim", sub)}${fg("muted", "…")}`);
 				}
 				continue;
 			}
 			const result = toolResultText(tool);
 			if (result) {
 				const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
-				const preview = this.renderMarkdownPreview(
-					`tool:${tool.toolCallId ?? index}`,
-					result,
-					markdownWidth,
-					config.expandedToolLines,
-					{ color: (text: string): string => themeFg(currentTheme, "toolOutput", text) },
-				);
+				const preview = this.renderMarkdownPreview(`tool:${tool.toolCallId ?? index}`, result, markdownWidth, {
+					color: (text: string): string => themeFg(currentTheme, "toolOutput", text),
+				});
 				for (const row of preview.lines) {
 					lines.push(`${fg("dim", sub)}${row}`);
-				}
-				if (preview.truncated) {
-					lines.push(`${fg("dim", sub)}${fg("muted", "…")}`);
 				}
 			}
 		}
@@ -974,15 +910,12 @@ class ToolGroupComponent extends Container {
 			);
 			const sub = "    ";
 			const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
-			const preview = this.renderMarkdownPreview("thinking", tText, markdownWidth, config.expandedThinkingLines, {
+			const preview = this.renderMarkdownPreview("thinking", tText, markdownWidth, {
 				color: (text: string): string => themeFg(currentTheme, "thinkingText", text),
 				italic: true,
 			});
 			for (const row of preview.lines) {
 				lines.push(`${fg("dim", sub)}${row}`);
-			}
-			if (preview.truncated) {
-				lines.push(`${fg("dim", sub)}${fg("muted", "…")}`);
 			}
 		}
 
@@ -1737,10 +1670,7 @@ export default function (pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			// Non-TUI modes (print/json) can't show the interactive menu.
 			if (!ctx.hasUI) {
-				ctx.ui.notify(
-					`compact: collapsedMaxLines=${config.collapsedMaxLines}, expandedToolLines=${config.expandedToolLines}, expandedThinkingLines=${config.expandedThinkingLines}`,
-					"info",
-				);
+				ctx.ui.notify(`compact: collapsedMaxLines=${config.collapsedMaxLines}`, "info");
 				return;
 			}
 

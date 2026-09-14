@@ -7,7 +7,7 @@ Compact tree-shaped reasoning and tool-call UI for the Pi Coding Agent.
 
 ## Behavior
 
-Consecutive reasoning and tool calls collapse into one visual group (max 3 lines by default). `Ctrl+O` expands a group to show tool arguments, result previews, and reasoning text. `/compact-ui-config` opens the settings menu. Settings persist to `compact-ui.json` under the agent directory.
+Consecutive reasoning and tool calls collapse into one visual group (max 3 lines by default). `Ctrl+O` expands a group to show full tool results, diffs, and reasoning text without truncation. `/compact-ui-config` opens the settings menu (collapsed line count). Settings persist to `compact-ui.json` under the agent directory.
 
 ## Vendor adaptations
 
