@@ -192,15 +192,11 @@ function cachedMetadataOverride(value: Record<string, unknown>): MetadataOverrid
 	const result: MetadataOverride = {};
 	const name = displayName(value.name);
 	const thinking = cachedThinkingLevelMap(value.thinkingLevelMap);
-	const contextWindow = positiveInteger(value.contextWindow);
-	const maxTokens = positiveInteger(value.maxTokens);
 	if (name) result.name = name;
 	if (value.reasoning === true) result.reasoning = true;
 	if (thinking) result.thinkingLevelMap = thinking;
 	if (input.length) result.input = input;
 	if (Object.keys(cost).length) result.cost = cost;
-	if (contextWindow) result.contextWindow = contextWindow;
-	if (maxTokens) result.maxTokens = maxTokens;
 	return result;
 }
 

@@ -1,6 +1,6 @@
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import type { CostOverride, MetadataOverride, OpenRouterModel } from "./types.ts";
-import { displayName, EFFORT_LEVELS, positiveInteger, price, record, string, stringArray } from "./validate.ts";
+import { displayName, EFFORT_LEVELS, price, record, string, stringArray } from "./validate.ts";
 
 const MAX_CATALOG_BYTES = 16_000_000;
 
@@ -41,8 +41,6 @@ export function applyMetadataOverrides(
 			thinkingLevelMap: value.thinkingLevelMap ? { ...value.thinkingLevelMap } : cloned.thinkingLevelMap,
 			input: value.input ? [...value.input] : cloned.input,
 			cost: value.cost ? { ...cloned.cost, ...value.cost } : cloned.cost,
-			contextWindow: value.contextWindow ?? cloned.contextWindow,
-			maxTokens: value.maxTokens ?? cloned.maxTokens,
 		};
 	});
 }
@@ -84,7 +82,6 @@ function metadataOverride(value: Record<string, unknown>): MetadataOverride {
 	const reasoning = record(value.reasoning);
 	const pricing = record(value.pricing);
 	const architecture = record(value.architecture);
-	const topProvider = record(value.top_provider);
 	const input = stringArray(architecture?.input_modalities).filter(
 		(item): item is "text" | "image" => item === "text" || item === "image",
 	);
@@ -105,8 +102,6 @@ function metadataOverride(value: Record<string, unknown>): MetadataOverride {
 		thinkingLevelMap: thinkingLevelMap(reasoning),
 		input: input.length ? input : undefined,
 		cost: Object.keys(cost).length ? cost : undefined,
-		contextWindow: positiveInteger(value.context_length) ?? positiveInteger(topProvider?.context_length),
-		maxTokens: positiveInteger(topProvider?.max_completion_tokens),
 	};
 }
 

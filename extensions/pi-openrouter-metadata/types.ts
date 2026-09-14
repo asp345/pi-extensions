@@ -10,6 +10,4 @@ export interface MetadataOverride {
 	thinkingLevelMap?: ThinkingLevelMap;
 	input?: ("text" | "image")[];
 	cost?: CostOverride;
-	contextWindow?: number;
-	maxTokens?: number;
 }

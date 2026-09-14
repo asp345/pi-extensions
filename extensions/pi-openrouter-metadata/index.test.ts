@@ -109,8 +109,8 @@ test("live metadata overlays runtime fields while preserving bundled compatibili
 	});
 	assert.ok(model);
 	assert.equal(model.name, "MoonshotAI: Kimi K3");
-	assert.equal(model.contextWindow, 1_048_576);
-	assert.equal(model.maxTokens, 131_072);
+	assert.equal(model.contextWindow, bundled.contextWindow);
+	assert.equal(model.maxTokens, bundled.maxTokens);
 	assert.deepEqual(model.input, ["text", "image"]);
 	assert.deepEqual(model.cost, { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 0 });
 	assert.deepEqual(model.thinkingLevelMap, {
@@ -146,10 +146,10 @@ test("file cache writes atomically and validates its stored schema", async () =>
 		const cache = fileMetadataCache(path);
 		const entry: OpenRouterMetadataCacheEntry = {
 			version: 1,
-			models: [{ id: bundled.id, contextWindow: 1234, cost: { input: 3 } }],
+			models: [{ id: bundled.id, cost: { input: 3 } }],
 			checkedAt: Date.now(),
 		};
-		const newer = { ...entry, models: [{ id: bundled.id, contextWindow: 5678 }], checkedAt: entry.checkedAt + 1 };
+		const newer = { ...entry, models: [{ id: bundled.id, cost: { input: 4 } }], checkedAt: entry.checkedAt + 1 };
 		await Promise.all([cache.write(entry), cache.write(newer)]);
 		assert.deepEqual(await cache.read(), newer);
 		assert.equal((await readFile(path, "utf8")).endsWith("\n"), true);
