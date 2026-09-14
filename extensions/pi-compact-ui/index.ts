@@ -1185,15 +1185,17 @@ function formatWorkedTime(elapsedMs: number): string {
 //   ──── worked for 0m 42s ────
 class TurnDividerComponent implements Component {
 	private readonly timeLabel: string;
+	private readonly endLabel: string;
 
-	constructor(timeLabel: string) {
+	constructor(timeLabel: string, endTime: Date) {
 		this.timeLabel = timeLabel;
+		this.endLabel = endTime.toTimeString().slice(0, 8);
 	}
 
 	render(width: number): string[] {
 		const theme = currentTheme;
 		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
-		const middle = `worked for ${this.timeLabel}`;
+		const middle = `worked for ${this.timeLabel} · ended ${this.endLabel}`;
 		const avail = Math.max(6, width - middle.length - 2);
 		const left = Math.floor(avail / 2);
 		const right = avail - left;
@@ -1250,7 +1252,7 @@ function insertTurnDivider(elapsedMs: number): void {
 	const state = getAssistantContentState(contentContainer);
 	if (state.finalDivider && contentContainer.children.includes(state.finalDivider.component)) return;
 	const ordinal = markdowns.length - 1;
-	const divider = new TurnDividerComponent(formatWorkedTime(elapsedMs));
+	const divider = new TurnDividerComponent(formatWorkedTime(elapsedMs), new Date());
 	state.finalDivider = { ordinal, component: divider };
 	placeTurnDividerBeforeText(contentContainer, final, divider);
 	contentContainer.invalidate();
