@@ -18,7 +18,7 @@ The global configuration file is `pi-compaction.json` in Pi's agent configuratio
 
 `nativeCodex` defaults to `true`. It controls native compaction when the active model uses provider `openai-codex` and API `openai-codex-responses`.
 
-`textModel` overrides the packaged default model used for every prompt-based compaction. The configured provider and model must exist in Pi's model registry and have valid authentication. A resolution or authentication error cancels compaction instead of selecting another model.
+`textModel` selects the model used for prompt-based compaction. When it is omitted, the active session model is used. The configured provider and model must exist in Pi's model registry and have valid authentication. A resolution or authentication error cancels compaction instead of selecting another model.
 
 A model selected through `textModel` is always called with Pi's ordinary summarization prompt, including when its provider is `openai-codex`. This call uses the provider's `streamSimple` implementation and does not append `compaction_trigger`, so it does not request native encrypted compaction. `nativeCodex` applies only to compaction of the active session model. Set it to `false` when active Codex sessions must also use prompt-based compaction.
 
@@ -53,7 +53,7 @@ Prompt-based compaction uses Pi's text summarizer. Its additional instructions p
 
 Native compaction sends the current Codex conversation to the ChatGPT Codex Responses endpoint. OpenAI returns `encrypted_content`, which is persisted in the local session JSONL and replayed to OpenAI Codex models.
 
-Prompt-based compaction sends the text selected by Pi's compaction preparation to `textModel`. Its plaintext summary is persisted in the session JSONL.
+Prompt-based compaction sends the text selected by Pi's compaction preparation to the active session model, or to `textModel` when configured. Its plaintext summary is persisted in the session JSONL.
 
 ## Source
 
