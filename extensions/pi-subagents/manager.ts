@@ -211,6 +211,9 @@ export class AgentManager {
 		record.status = "stopped";
 		record.completedAt = Date.now();
 		record.abortController.abort();
+		// The stop action itself acknowledges the outcome (tool result or UI
+		// confirmation), so the background completion notification must not fire.
+		record.resultConsumed = true;
 		void record.proc?.abort().catch(() => undefined);
 		this.changed();
 		this.persisted(record);

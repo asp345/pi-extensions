@@ -121,6 +121,7 @@ test("stopped subagents retain their ID and process when resumed", async () => {
 	assert.equal(manager.stop("agent-id"), true);
 	assert.equal(aborted, true);
 	assert.equal(manager.get("agent-id")?.status, "stopped");
+	assert.equal(manager.get("agent-id")?.resultConsumed, true);
 
 	const resumed = await manager.resume({} as ExtensionContext, "agent-id", "continue", {
 		title: "Task title",
