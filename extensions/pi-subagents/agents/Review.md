@@ -1,6 +1,6 @@
 ---
 description: Review a diff or specified code for bugs, security risks, and regressions. Returns severity-ranked findings with triggering conditions, impact, and evidence.
-tools: read, bash, grep, find, ls, lsp_diagnostics, web
+tools: read, bash, grep, find, ls, web
 extensions: true
 skills: true
 models: openai-codex/gpt-5.6-sol, opencode-go/glm-5.3

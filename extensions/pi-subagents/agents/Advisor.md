@@ -1,6 +1,6 @@
 ---
 description: Diagnose difficult cross-system behavior and root causes to inform a fix. Returns evidence, conclusions, and recommended actions.
-tools: read, bash, grep, find, ls, lsp_diagnostics, web
+tools: read, bash, grep, find, ls, web
 extensions: true
 skills: true
 models: openai-codex/gpt-6-astra, openrouter/moonshotai/kimi-k3
