@@ -32,7 +32,7 @@ export function metadata(record: AgentRecord): Record<string, unknown> {
 	return {
 		...completionDetails(record),
 		background: record.background,
-		model: record.session?.model ? `${record.session.model.provider}/${record.session.model.id}` : record.model,
+		model: record.model,
 		models: record.models,
 		usedFallback: record.usedFallback === true,
 		fallbackReason: record.fallbackReason,

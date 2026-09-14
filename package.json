@@ -39,7 +39,8 @@
 			"./extensions/pi-openai-models/index.ts",
 			"./extensions/pi-footer/index.ts",
 			"./extensions/pi-model-thinking/index.ts",
-			"./extensions/pi-tool-loop-guard/index.ts"
+			"./extensions/pi-tool-loop-guard/index.ts",
+			"./extensions/pi-compact-ui/index.ts"
 		],
 		"prompts": [
 			"./prompts"

@@ -5,7 +5,8 @@ import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { clearAgentContextCache } from "./context.ts";
-import { openPersistedSession, resolveModels, resolveThinking, resumeSession, runNew } from "./runner.ts";
+import type { RpcMessage, RpcProcess } from "./rpc.ts";
+import { type RpcCallbacks, type RunResult, resolveThinking, resumeProc, runNew } from "./runner.ts";
 import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.ts";
 import { message, onAbort } from "./util.ts";
 import { createWorktree, saveWorktree } from "./worktree.ts";
@@ -65,6 +66,7 @@ export class AgentManager {
 			model: options.model ?? definition.models[0] ?? "parent",
 			models: definition.models,
 			thinking: resolveThinking(definition.thinking, ctx),
+			messages: [],
 			abortController: new AbortController(),
 			pendingSteers: [],
 		};
@@ -84,8 +86,32 @@ export class AgentManager {
 		if (record.promise !== previousRun) {
 			throw new Error(`Subagent ${id} is already running.`);
 		}
-		if (!record.session && !record.sessionFile && !options.definition) {
+		const live = record.proc && !record.proc.closed ? record.proc : undefined;
+		if (!live && !record.sessionFile && !options.definition) {
 			throw new Error(`Subagent ${id} has no resumable session.`);
+		}
+		if (!live && !record.sessionFile && options.definition) {
+			record.title = options.title;
+			record.prompt = prompt;
+			record.background = options.background;
+			record.status = "running";
+			record.error = undefined;
+			record.result = undefined;
+			record.completedAt = undefined;
+			record.abortController = new AbortController();
+			record.models = options.models;
+			record.thinking = options.thinking ?? record.thinking;
+			record.resultConsumed = false;
+			this.resumed(record);
+			this.changed();
+			this.persisted(record);
+			await this.run(record, ctx, options.definition, prompt, {
+				background: true,
+				maxTurns: options.maxTurns,
+				fork: false,
+				signal: record.abortController.signal,
+			});
+			return record;
 		}
 		record.title = options.title;
 		record.prompt = prompt;
@@ -108,45 +134,33 @@ export class AgentManager {
 		this.persisted(record);
 		const callbacks = this.callbacks(record);
 		record.promise = (async () => {
-			let ranNew = false;
 			const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 			try {
-				if (!record.session && record.sessionFile && options.definition) {
-					record.session = await openPersistedSession(
-						ctx,
-						options.definition,
-						record.sessionFile,
-						record.worktree?.cwd ?? record.cwd,
-						callbacks,
-						record.abortController.signal,
-					);
-				}
-				if (!record.session && options.definition) {
-					ranNew = true;
-					await this.run(record, ctx, options.definition, prompt, {
-						background: true,
+				if (!options.definition) throw new Error(`Subagent ${id} has no resumable session.`);
+				const result = await resumeProc(
+					live,
+					ctx,
+					{
+						id: record.id,
+						cwd: record.worktree?.cwd ?? record.cwd,
+						sessionFile: record.sessionFile,
+						definition: options.definition,
+						prompt,
+						models: options.models,
+						model: options.model,
+						thinking: options.thinking ?? record.thinking,
 						maxTurns: options.maxTurns,
-						fork: false,
 						signal: record.abortController.signal,
-					});
-					return;
-				}
-				if (!record.session) throw new Error(`Subagent ${id} has no resumable session.`);
-				const result = await resumeSession(record.session, prompt, {
-					model: options.model,
-					models: options.models.length ? () => resolveModels(options.models, ctx, options.definition) : undefined,
-					thinking: options.thinking,
-					maxTurns: options.maxTurns,
-					signal: record.abortController.signal,
+					},
 					callbacks,
-				});
-				record.result = result.text;
+				);
+				this.applyResult(record, result);
 				this.settle(record, result.error);
 			} catch (error) {
 				this.settle(record, message(error));
 			} finally {
 				detach();
-				if (!ranNew) this.finish(record, options.definition);
+				this.finish(record, options.definition);
 			}
 		})();
 		if (!options.background) await record.promise;
@@ -179,12 +193,12 @@ export class AgentManager {
 	async steer(id: string, text: string): Promise<boolean> {
 		const record = this.get(id);
 		if (record?.status !== "running") return false;
-		if (!record.session) {
+		if (!record.proc || record.proc.closed) {
 			record.pendingSteers.push(text);
 			return true;
 		}
 		try {
-			await record.session.steer(text);
+			await record.proc.steer(text);
 			return true;
 		} catch {
 			return false;
@@ -197,8 +211,10 @@ export class AgentManager {
 		record.status = "stopped";
 		record.completedAt = Date.now();
 		record.abortController.abort();
-		record.session?.abortCompaction();
-		void record.session?.abort();
+		// The stop action itself acknowledges the outcome (tool result or UI
+		// confirmation), so the background completion notification must not fire.
+		record.resultConsumed = true;
+		void record.proc?.abort().catch(() => undefined);
 		this.changed();
 		this.persisted(record);
 		return true;
@@ -211,16 +227,15 @@ export class AgentManager {
 			record.status = "stopped";
 			record.completedAt = Date.now();
 			record.abortController.abort();
-			record.session?.abortCompaction();
-			void record.session?.abort();
+			void record.proc?.abort().catch(() => undefined);
 			this.persisted(record);
 		}
 		await Promise.race([
 			Promise.allSettled(records.map((record) => record.promise).filter(Boolean)),
 			new Promise((resolve) => setTimeout(resolve, 2_000)),
 		]);
+		await Promise.allSettled(records.map((record) => record.proc?.stop().catch(() => undefined)));
 		for (const record of records) {
-			record.session?.dispose();
 			clearAgentContextCache(record.id);
 		}
 		if (this.renderTimer) clearTimeout(this.renderTimer);
@@ -255,8 +270,7 @@ export class AgentManager {
 				},
 				this.callbacks(record),
 			);
-			record.session = result.session;
-			record.result = result.text;
+			this.applyResult(record, result);
 			this.settle(record, result.error);
 		} catch (error) {
 			this.settle(record, message(error));
@@ -264,6 +278,14 @@ export class AgentManager {
 			detach();
 			this.finish(record, definition);
 		}
+	}
+
+	private applyResult(record: AgentRecord, result: RunResult): void {
+		record.proc = result.proc;
+		record.messages = result.messages;
+		if (result.sessionFile) record.sessionFile = result.sessionFile;
+		if (result.model) record.model = result.model;
+		record.result = result.text;
 	}
 
 	private settle(record: AgentRecord, error: string | undefined): void {
@@ -276,18 +298,24 @@ export class AgentManager {
 		record.error = error;
 	}
 
-	private callbacks(record: AgentRecord) {
+	private callbacks(record: AgentRecord): RpcCallbacks {
 		return {
-			onSession: (session: AgentRecord["session"]) => {
-				record.session = session;
-				record.sessionFile = session?.sessionFile ?? record.sessionFile;
-				if (session?.model) record.model = `${session.model.provider}/${session.model.id}`;
-				record.thinking = session?.thinkingLevel ?? record.thinking;
-				if (session) {
-					for (const message of record.pendingSteers.splice(0)) void session.steer(message).catch(() => undefined);
+			onSession: (proc: RpcProcess, info) => {
+				record.proc = proc;
+				if (info.sessionFile) record.sessionFile = info.sessionFile;
+				if (info.model) record.model = info.model;
+				if (info.thinking) record.thinking = info.thinking;
+				if (record.pendingSteers.length) {
+					for (const pending of record.pendingSteers.splice(0)) {
+						void proc.steer(pending).catch(() => undefined);
+					}
 				}
 				this.changed();
 				this.persisted(record);
+			},
+			onMessages: (messages: RpcMessage[]) => {
+				record.messages = messages;
+				this.changed();
 			},
 			onFallback: (model: Model<Api>, reason: string) => {
 				record.model = `${model.provider}/${model.id}`;
@@ -332,11 +360,11 @@ export class AgentManager {
 				if (record.status !== "stopped") record.status = "error";
 			}
 		}
-		if ((definition?.outputTranscript ?? true) && record.session) {
+		if ((definition?.outputTranscript ?? true) && record.messages.length) {
 			try {
 				const outputFile = outputPath(record);
 				mkdirSync(dirname(outputFile), { recursive: true });
-				writeFileSync(outputFile, JSON.stringify(record.session.messages, null, 2), { mode: 0o600 });
+				writeFileSync(outputFile, JSON.stringify(record.messages, null, 2), { mode: 0o600 });
 			} catch {
 				/* transcript output is best effort */
 			}
@@ -348,6 +376,7 @@ export class AgentManager {
 }
 
 function outputPath(record: AgentRecord): string {
-	const sessionFile = record.session?.sessionFile;
-	return sessionFile ? `${sessionFile}.output.json` : join(tmpdir(), "pi-subagents", `${record.id}.output.json`);
+	return record.sessionFile
+		? `${record.sessionFile}.output.json`
+		: join(tmpdir(), "pi-subagents", `${record.id}.output.json`);
 }

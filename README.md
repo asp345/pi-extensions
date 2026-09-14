@@ -14,6 +14,7 @@ My personal Pi monorepo. This `debian` branch targets Debian GNU/Linux with bash
 - `extensions/pi-gpt-search/`
 - `extensions/pi-nix-store-guard/`
 - `extensions/pi-openrouter-metadata/`
+- `extensions/pi-compact-ui/`
 - `extensions/pi-custom-providers/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`

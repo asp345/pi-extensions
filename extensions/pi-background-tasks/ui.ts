@@ -91,6 +91,15 @@ export class BackgroundUI {
 			(tui, theme) => {
 				this.requestRender = () => tui.requestRender();
 				let timer: ReturnType<typeof setInterval> | null = null;
+				let lastOutputFingerprint = "";
+				const outputFingerprint = (): string =>
+					visibleTasks(this.runtime)
+						.filter((task) => task.status === "running")
+						.map(
+							(task) =>
+								`${task.id}:${task.lastOutputAt ?? task.updatedAt}:${this.runtime.output(task.id)?.length ?? 0}`,
+						)
+						.join("|");
 				return {
 					dispose: () => {
 						if (timer) clearInterval(timer);
@@ -103,7 +112,12 @@ export class BackgroundUI {
 						const current = visibleTasks(this.runtime);
 						const hasRunning = current.some((task) => task.status === "running");
 						if (hasRunning && !timer) {
-							timer = setInterval(() => tui.requestRender(), 1000);
+							timer = setInterval(() => {
+								const fingerprint = outputFingerprint();
+								if (fingerprint === lastOutputFingerprint) return;
+								lastOutputFingerprint = fingerprint;
+								tui.requestRender();
+							}, 1000);
 							timer.unref?.();
 						} else if (!hasRunning && timer) {
 							clearInterval(timer);
@@ -155,7 +169,20 @@ export class BackgroundUI {
 				let taskScroll = 0;
 				let outputScroll = 0;
 				let follow = true;
-				let timer: ReturnType<typeof setInterval> | null = setInterval(() => tui.requestRender(), 1000);
+				const outputFingerprint = (): string =>
+					visibleTasks(this.runtime)
+						.map(
+							(task) =>
+								`${task.id}:${task.status}:${task.lastOutputAt ?? task.updatedAt}:${this.runtime.output(task.id)?.length ?? 0}`,
+						)
+						.join("|");
+				let lastOutputFingerprint = outputFingerprint();
+				let timer: ReturnType<typeof setInterval> | null = setInterval(() => {
+					const fingerprint = outputFingerprint();
+					if (fingerprint === lastOutputFingerprint) return;
+					lastOutputFingerprint = fingerprint;
+					tui.requestRender();
+				}, 1000);
 				timer.unref?.();
 
 				const selected = (): TaskSnapshot | undefined => {

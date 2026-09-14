@@ -146,8 +146,8 @@ export function registerSubagentTools(
 				return result(formatMetadata(record), metadata(record));
 			}
 			const source = params.transcript
-				? record.session
-					? compactTranscript(record.session)
+				? record.messages.length
+					? compactTranscript(record.messages)
 					: "[Transcript unavailable: the subagent session was not created or has been disposed.]"
 				: record.result || record.error || "No final answer.";
 			const page = pageText(source, params.offset ?? 0, params.limit ?? RESULT_BYTES);
@@ -224,7 +224,7 @@ export function registerSubagentTools(
 			const definition = resolveDefinition(registry(), record.type);
 			if (!definition) throw new Error(`Agent configuration error: ${record.type} is unavailable.`);
 			const prompt =
-				record.session || record.sessionFile ? "Continue the assigned task from where it stopped." : record.prompt;
+				record.proc || record.sessionFile ? "Continue the assigned task from where it stopped." : record.prompt;
 			const resumed = await manager.resume(ctx, record.id, prompt, {
 				title: record.title,
 				background: true,
