@@ -736,7 +736,7 @@ class ToolGroupComponent extends Container {
 	/** Token snapshot paired with thinkingFrozen. */
 	thinkingTokensFrozen = 0;
 	thinkingTokensFrozenExact = false;
-	private markdownPreviewCache = new Map<string, MarkdownPreview>();
+	private previewCache = new Map<string, MarkdownPreview>();
 
 	setExpanded(expanded: boolean): void {
 		this._expanded = expanded;
@@ -753,18 +753,20 @@ class ToolGroupComponent extends Container {
 		return groupTools(this).some((tool) => toolStatus(tool) === "pending");
 	}
 
-	/** True while this group should keep its spinner animating. */
-	needsAnimation(): boolean {
-		return (
-			this.hasPending() ||
-			(this === lastActiveGroup && !this.sealed && (thinkingActive || this.liveThinking().trim().length > 0))
-		);
-	}
-
-	invalidate(): void {
-		// Theme changes and tool/thinking updates must rebuild ANSI markdown.
-		this.markdownPreviewCache.clear();
-		super.invalidate();
+	/** Preview entries are keyed by source text, so updates naturally replace
+	stale renders. Never cleared: streaming produces a new source per update. */
+	private cachedPreview(
+		cacheKey: string,
+		source: string,
+		width: number,
+		render: (renderWidth: number) => string[],
+	): string[] {
+		const renderWidth = Math.max(1, width);
+		const cached = this.previewCache.get(cacheKey);
+		if (cached && cached.source === source && cached.width === renderWidth) return cached.lines;
+		const lines = render(renderWidth);
+		this.previewCache.set(cacheKey, { source, width: renderWidth, lines });
+		return lines;
 	}
 
 	private renderMarkdownPreview(
@@ -772,18 +774,15 @@ class ToolGroupComponent extends Container {
 		source: string,
 		width: number,
 		defaultTextStyle?: DefaultTextStyle,
-	): MarkdownPreview {
-		const renderWidth = Math.max(1, width);
-		const cached = this.markdownPreviewCache.get(cacheKey);
-		if (cached && cached.source === source && cached.width === renderWidth) {
-			return cached;
-		}
+	): string[] {
+		return this.cachedPreview(cacheKey, source, width, (renderWidth) => {
+			const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), defaultTextStyle);
+			return normalizeCompactCodeBlockLines(markdown.render(renderWidth), renderWidth);
+		});
+	}
 
-		const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), defaultTextStyle);
-		const rendered = normalizeCompactCodeBlockLines(markdown.render(renderWidth), renderWidth);
-		const preview: MarkdownPreview = { source, width: renderWidth, lines: rendered };
-		this.markdownPreviewCache.set(cacheKey, preview);
-		return preview;
+	private renderDiffPreview(cacheKey: string, diff: string, width: number): string[] {
+		return this.cachedPreview(cacheKey, diff, width, (renderWidth) => renderDiffLines(diff, renderWidth));
 	}
 
 	// Tool name in bold accent, tool payload in dim.
@@ -817,15 +816,16 @@ class ToolGroupComponent extends Container {
 
 		// An open block with no tools yet is still "thinking" (waiting for tools or
 		// a text seal); only sealed / tool-bearing blocks show a completion mark.
+		const tools = groupTools(this);
+		const pending = tools.some((tool) => toolStatus(tool) === "pending");
 		const head = groupHead(frame, {
-			pending: this.hasPending(),
+			pending,
 			thinking: this.liveThinkingActive(),
-			openEmpty: !this.sealed && this.children.length === 0,
+			openEmpty: !this.sealed && tools.length === 0,
 		});
 		lines.push(`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`);
 
 		const maxLines = Math.max(2, config.collapsedMaxLines);
-		const tools = groupTools(this);
 		const total = tools.length;
 		const tText = this.liveThinking()
 			.trim()
@@ -856,7 +856,7 @@ class ToolGroupComponent extends Container {
 			);
 		}
 
-		if (this.hasPending() || this.liveThinkingActive()) scheduleAnimation();
+		if (pending || this.liveThinkingActive()) scheduleAnimation();
 		return lines;
 	}
 
@@ -867,14 +867,14 @@ class ToolGroupComponent extends Container {
 		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const lines: string[] = [];
 
+		const tools = groupTools(this);
 		const head = groupHead(frame, {
-			pending: this.hasPending(),
+			pending: tools.some((tool) => toolStatus(tool) === "pending"),
 			thinking: this.liveThinkingActive(),
-			openEmpty: !this.sealed && this.children.length === 0,
+			openEmpty: !this.sealed && tools.length === 0,
 		});
 		lines.push(`${fg(head.color, head.icon)} ${fg(head.color, head.label)}`);
 
-		const tools = groupTools(this);
 		const total = tools.length;
 		for (let index = 0; index < total; index++) {
 			const tool = tools[index];
@@ -886,7 +886,7 @@ class ToolGroupComponent extends Container {
 			const diff = toolDiffText(tool);
 			if (diff) {
 				const diffWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
-				for (const row of renderDiffLines(diff, diffWidth)) {
+				for (const row of this.renderDiffPreview(`diff:${tool.toolCallId}`, diff, diffWidth)) {
 					lines.push(`${fg("dim", sub)}${row}`);
 				}
 				continue;
@@ -894,10 +894,10 @@ class ToolGroupComponent extends Container {
 			const result = toolResultText(tool);
 			if (result) {
 				const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
-				const preview = this.renderMarkdownPreview(`tool:${tool.toolCallId ?? index}`, result, markdownWidth, {
+				const preview = this.renderMarkdownPreview(`tool:${tool.toolCallId}`, result, markdownWidth, {
 					color: (text: string): string => themeFg(currentTheme, "toolOutput", text),
 				});
-				for (const row of preview.lines) {
+				for (const row of preview) {
 					lines.push(`${fg("dim", sub)}${row}`);
 				}
 			}
@@ -914,7 +914,7 @@ class ToolGroupComponent extends Container {
 				color: (text: string): string => themeFg(currentTheme, "thinkingText", text),
 				italic: true,
 			});
-			for (const row of preview.lines) {
+			for (const row of preview) {
 				lines.push(`${fg("dim", sub)}${row}`);
 			}
 		}
