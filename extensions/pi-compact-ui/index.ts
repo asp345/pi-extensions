@@ -155,8 +155,10 @@ function makeStepper(
 // Shared state
 // =============================================================================
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-// 100ms/frame (10fps) matches pi's default spinner cadence; 300ms felt laggy.
-const SPINNER_MS = 100;
+// Spinner and repaint tick. Kept slow on purpose: only the spinner frame and
+// whole-second elapsed times change between ticks, so identical lines skip
+// repaint in pi's diff renderer.
+const SPINNER_MS = 500;
 const GROUP_PADDING_X = 1;
 const spinnerStart = Date.now();
 const PATCH_KEY = Symbol.for("compact-ui.group-patch");
@@ -324,7 +326,7 @@ const toolEndAts = new Map<string, number>();
 function toolElapsed(tool: ToolView): string {
 	const start = toolStarts.get(tool.toolCallId) ?? Date.now();
 	const end = tool.result ? (toolEndAts.get(tool.toolCallId) ?? Date.now()) : Date.now();
-	return ((end - start) / 1000).toFixed(1);
+	return `${Math.max(0, Math.round((end - start) / 1000))}s`;
 }
 
 function toolDiffText(tool: ToolView): string {
@@ -502,7 +504,7 @@ export class CompactExternalGroupComponent implements Component {
 
 	private elapsed(tool: CompactExternalTool): string {
 		const end = tool.endedAt ?? Date.now();
-		return `${Math.max(0, (end - tool.startedAt) / 1000).toFixed(1)}s`;
+		return `${Math.max(0, Math.round((end - tool.startedAt) / 1000))}s`;
 	}
 
 	private toolRow(rail: string, tool: CompactExternalTool, frame: string): string {
