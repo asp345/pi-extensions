@@ -39,6 +39,7 @@ import {
 	getAgentDir,
 	getMarkdownTheme,
 	getSettingsListTheme,
+	renderDiff,
 	type Theme,
 	type ThemeColor,
 	ToolExecutionComponent,
@@ -310,6 +311,7 @@ function groupHead(frame: string, state: GroupHeadState): { icon: string; label:
 interface ToolResultView {
 	readonly isError?: boolean;
 	readonly content?: readonly unknown[];
+	readonly details?: unknown;
 }
 
 interface ToolView extends Component {
@@ -339,6 +341,21 @@ function toolElapsed(tool: ToolView): string {
 	const start = toolStarts.get(tool.toolCallId) ?? Date.now();
 	const end = tool.result ? (toolEndAts.get(tool.toolCallId) ?? Date.now()) : Date.now();
 	return ((end - start) / 1000).toFixed(1);
+}
+
+function toolDiffText(tool: ToolView): string {
+	if (tool.result?.isError) return "";
+	const details = tool.result?.details;
+	if (typeof details !== "object" || details === null) return "";
+	const diff = (details as Record<string, unknown>).diff;
+	return typeof diff === "string" ? diff.trim() : "";
+}
+
+function renderDiffLines(diff: string, width: number, maxLines: number): { lines: string[]; truncated: boolean } {
+	const rows = renderDiff(diff).split("\n");
+	const limit = Math.max(1, maxLines);
+	const shown = rows.slice(0, limit).map((row) => truncateToWidth(row, Math.max(1, width), "…"));
+	return { lines: shown, truncated: rows.length > shown.length };
 }
 
 function isTextPart(part: unknown): part is { type: unknown; text?: unknown } {
@@ -919,6 +936,18 @@ class ToolGroupComponent extends Container {
 			const rail = isLast ? "└─ " : "├─ ";
 			const sub = isLast ? "    " : "│   ";
 			lines.push(this.toolRow(rail, tool, frame));
+			const diff = toolDiffText(tool);
+			if (diff) {
+				const diffWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
+				const rendered = renderDiffLines(diff, diffWidth, config.expandedToolLines);
+				for (const row of rendered.lines) {
+					lines.push(`${fg("dim", sub)}${row}`);
+				}
+				if (rendered.truncated) {
+					lines.push(`${fg("dim", sub)}${fg("muted", "…")}`);
+				}
+				continue;
+			}
 			const result = toolResultText(tool);
 			if (result) {
 				const markdownWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);

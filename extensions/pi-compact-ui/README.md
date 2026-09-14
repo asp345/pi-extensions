@@ -16,7 +16,6 @@ Kept minimal against upstream `index.ts`:
 - Bare `fs`/`os`/`path` imports use the `node:` prefix (required by `scripts/check.ts`).
 - The config path follows `getAgentDir()` (`<agent-dir>/compact-ui.json`) instead of hardcoded `~/.pi/agent/compact-ui.json`, matching every other extension in this repo. Upstream documents `~/.pi/agent/compact-ui.json`; an existing file there is not migrated automatically.
 - Tool/container internals are typed against `pi-coding-agent` 0.85.1 (`Component`, `Theme`, `AssistantMessage`, tool views) with the pi-private access points isolated in small `*Internals` helpers. No `any` remains; the repo lint preset applies with no exceptions.
-- Dead bookkeeping removed: the parent-pointer symbol on grouped tools (its only read was unreachable), `removeTool`, write-only `_groupedAt`, unused `livePending`, and the legacy hot-reload patch shape.
 - The four copies of the group header (icon/label/color) and the two tool status renderers share `groupHead`/`statusIcon`/`statusColor` helpers.
 
 ## Interactions
