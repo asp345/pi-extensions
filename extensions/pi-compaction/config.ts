@@ -14,7 +14,6 @@ export interface CompactionConfig {
 
 const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
-	textModel: { provider: "openai-codex", id: "gpt-5.6-luna" },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
