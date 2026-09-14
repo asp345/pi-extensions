@@ -51,7 +51,14 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 			return;
 		}
 
-		if (accountant.recordStreamDelta(streamEvent.delta.length, streamEvent.partial?.usage?.output, Date.now())) {
+		if (
+			accountant.recordStreamDelta(
+				streamEvent.delta,
+				streamEvent.partial?.responseId,
+				streamEvent.partial?.usage?.output,
+				Date.now(),
+			)
+		) {
 			shared.requestRender?.();
 		}
 	});
