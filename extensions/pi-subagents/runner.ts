@@ -53,7 +53,6 @@ export interface ResumeRequest {
 
 const REPORT_EXTENSION_PATH = fileURLToPath(new URL("./report-tool.ts", import.meta.url));
 const TURN_LIMIT_STEER = "You reached the configured turn limit. Give your final answer now without more tool calls.";
-const MESSAGE_POLL_MS = 3_000;
 
 export async function runNew(ctx: ExtensionContext, request: RunRequest, callbacks: RpcCallbacks): Promise<RunResult> {
 	const definition = request.definition;
@@ -90,8 +89,6 @@ export async function runNew(ctx: ExtensionContext, request: RunRequest, callbac
 		signal: request.parentSignal,
 		callbacks,
 	});
-	const messages = await safeMessages(proc);
-	callbacks.onMessages(messages);
 	try {
 		sessionFile = (await proc.getState()).sessionFile ?? sessionFile;
 	} catch {}
@@ -99,7 +96,7 @@ export async function runNew(ctx: ExtensionContext, request: RunRequest, callbac
 		proc,
 		text: outcome.text,
 		error: outcome.error,
-		messages,
+		messages: outcome.messages,
 		sessionFile,
 		model: outcome.model ?? `${initial.provider}/${initial.id}`,
 	};
@@ -175,8 +172,7 @@ export async function resumeProc(
 		signal: request.signal,
 		callbacks,
 	});
-	const messages = await safeMessages(active);
-	callbacks.onMessages(messages);
+	const messages = outcome.messages;
 	let sessionFile = request.sessionFile;
 	let model = request.model ? `${request.model.provider}/${request.model.id}` : undefined;
 	try {
@@ -209,6 +205,7 @@ interface DriveOutcome {
 	error?: string;
 	aborted: boolean;
 	model?: string;
+	messages: RpcMessage[];
 }
 
 export async function driveRun(proc: RpcProcess, prompt: string, options: DriveOptions): Promise<DriveOutcome> {
@@ -216,6 +213,7 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 	let turns = 0;
 	let current = "";
 	let wrapping = false;
+	let attemptMessages: RpcMessage[] = [];
 	const unsubscribe = proc.onEvent((event) => {
 		const type = event.type;
 		if (type === "message_start") {
@@ -235,7 +233,13 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 					current = text;
 					callbacks.onText(current);
 				}
+				attemptMessages.push(assistant as unknown as RpcMessage);
 			}
+		} else if (type === "compaction_end") {
+			// The child rewrote its transcript. Re-sync once instead of polling.
+			void safeMessages(proc)
+				.then((messages) => callbacks.onMessages(messages))
+				.catch(() => undefined);
 		} else if (type === "tool_execution_start") {
 			if (event.toolName === REPORT_TOOL_NAME) {
 				const summary = (event.args as { summary?: unknown } | undefined)?.summary;
@@ -255,14 +259,45 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 			}
 		}
 	});
-	const stopPoll = startMessagePoll(proc, callbacks);
 	try {
+		const finishAborted = async (fallbackText: string, model: string | undefined): Promise<DriveOutcome> => {
+			const messages = await safeMessages(proc);
+			callbacks.onMessages(messages);
+			return {
+				text: lastAssistantText(messages) || fallbackText,
+				aborted: true,
+				model,
+				messages,
+			};
+		};
+		const finishSettled = async (fallbackText: string, model: string | undefined): Promise<DriveOutcome> => {
+			const messages = await safeMessages(proc);
+			callbacks.onMessages(messages);
+			const authoritative = finalError(messages);
+			if (authoritative) {
+				return {
+					text: lastAssistantText(messages) || fallbackText,
+					error: authoritative,
+					aborted: false,
+					model,
+					messages,
+				};
+			}
+			return { text: lastAssistantText(messages) || fallbackText, aborted: false, model, messages };
+		};
+		attemptMessages = [];
 		const first = await runAttempt(proc, prompt, signal);
-		let messages = await safeMessages(proc);
 		let model = await currentModelName(proc);
-		if (first.aborted || signal?.aborted) return { text: lastAssistantText(messages), aborted: true, model };
-		let currentError = first.error ?? finalError(messages);
-		if (!currentError) return { text: lastAssistantText(messages), aborted: false, model };
+		if (first.aborted || signal?.aborted) {
+			return finishAborted(lastAssistantText(attemptMessages) || current, model);
+		}
+		if (!first.error && !attemptMessages.length) {
+			// Abnormal: settled without any observed message. Confirm against
+			// the server transcript instead of assuming success.
+			attemptMessages = await safeMessages(proc);
+		}
+		let currentError = first.error ?? finalError(attemptMessages);
+		if (!currentError) return finishSettled(lastAssistantText(attemptMessages) || current, model);
 		const failures = [`Primary model failed: ${currentError}`];
 		for (const fallback of remainingModels(modelRef(model), options.models)) {
 			const name = `${fallback.provider}/${fallback.id}`;
@@ -274,19 +309,32 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 				continue;
 			}
 			callbacks.onFallback(fallback, currentError);
+			attemptMessages = [];
 			const retry = await runAttempt(proc, FALLBACK_CONTINUATION, signal);
-			messages = await safeMessages(proc);
 			model = (await currentModelName(proc)) ?? model;
-			if (retry.aborted || signal?.aborted) return { text: lastAssistantText(messages), aborted: true, model };
-			const retryError = retry.error ?? finalError(messages);
-			if (!retryError) return { text: lastAssistantText(messages), aborted: false, model };
+			if (retry.aborted || signal?.aborted) {
+				return finishAborted(lastAssistantText(attemptMessages) || current, model);
+			}
+			if (!retry.error && !attemptMessages.length) {
+				attemptMessages = await safeMessages(proc);
+			}
+			const retryError = retry.error ?? finalError(attemptMessages);
+			if (!retryError) return finishSettled(lastAssistantText(attemptMessages) || current, model);
 			currentError = retryError;
 			failures.push(`Fallback model ${model ?? name} failed: ${currentError}`);
 		}
-		return { text: lastAssistantText(messages), error: failures.join("; "), aborted: false, model };
+		const messages = await safeMessages(proc);
+		callbacks.onMessages(messages);
+		model = (await currentModelName(proc)) ?? model;
+		return {
+			text: lastAssistantText(messages) || lastAssistantText(attemptMessages),
+			error: failures.join("; "),
+			aborted: false,
+			model,
+			messages,
+		};
 	} finally {
 		unsubscribe();
-		stopPoll();
 	}
 }
 
@@ -313,17 +361,6 @@ async function runAttempt(
 	}
 	if (signal?.aborted) return { aborted: true };
 	return { aborted: false };
-}
-
-function startMessagePoll(proc: RpcProcess, callbacks: RpcCallbacks): () => void {
-	const timer = setInterval(() => {
-		void (async () => {
-			try {
-				callbacks.onMessages(await proc.getMessages());
-			} catch {}
-		})();
-	}, MESSAGE_POLL_MS);
-	return () => clearInterval(timer);
 }
 
 async function safeMessages(proc: RpcProcess): Promise<RpcMessage[]> {
