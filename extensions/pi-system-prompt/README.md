@@ -15,7 +15,7 @@ Builds the pi system prompt from the bundled `SYSTEM.txt` rules instead of appen
 7. Skills via pi core's exported `formatSkillsForPrompt`, excluding `disableModelInvocation`
 8. `Current working directory`
 
-`options.appendSystemPrompt` (`APPEND_SYSTEM.md`) is ignored. The nixos `xdg.configFile "pi/APPEND_SYSTEM.md"` mapping for pi is obsolete once this extension is active and should be removed there; while it remains, its content has no effect on pi.
+`options.appendSystemPrompt` (`APPEND_SYSTEM.md`) is ignored; only the sections above contribute.
 
 ## Overlap with pi core
 
@@ -37,13 +37,9 @@ Extension `promptGuidelines` entries are kept except exact duplicates and lines 
 
 This extension must run before per-turn prompt appenders so later `before_agent_start` handlers chain on top of the rebuilt prompt. It is listed first in root `package.json` `pi.extensions`.
 
-## Syncing rules
+## Source of truth
 
-`SYSTEM.txt` tracks `../nixos/modules/features/AGENTS.md` but is formatted independently (flat `Label:` sections, no title). After changing the source, copy it over and re-apply that formatting:
-
-```bash
-cp ../nixos/modules/features/AGENTS.md extensions/pi-system-prompt/SYSTEM.txt
-```
+On this branch `SYSTEM.txt` is maintained directly. Keep the flat `Label:` sections and the missing title.
 
 ## Verification
 

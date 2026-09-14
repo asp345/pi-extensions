@@ -1,6 +1,6 @@
-# pi-config
+# pi-extensions
 
-My personal Pi monorepo.
+My personal Pi monorepo. This `debian` branch targets Debian GNU/Linux with bash and bun; `main` targets NixOS.
 
 
 ## Extensions
@@ -23,22 +23,30 @@ My personal Pi monorepo.
 - `extensions/pi-question/`
 - `extensions/pi-system-prompt/`
 - `extensions/pi-themes/`
+- `extensions/pi-tool-loop-guard/`
 
 Each extension's details are documented in its own `README.md`.
 
 ## Development
 
+This branch does not use the Nix flake. Install bun (>=1.4) and run:
+
 ```bash
-nix develop
+npm install -g bun        # or: curl -fsSL https://bun.sh/install | bash
 bun install --frozen-lockfile --ignore-scripts
 bun run check
-nix fmt
 ```
 
 Install the package from the GitHub repository after dependencies are available:
 
 ```bash
-pi install git:github.com/asp345/pi-config
+pi install git:github.com/asp345/pi-extensions@debian
+```
+
+Or install the local checkout directly:
+
+```bash
+pi install /path/to/pi-extensions
 ```
 
 Run an offline extension startup check with:

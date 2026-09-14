@@ -37,9 +37,9 @@ Documentation:
 - No disclaimers or guarantee statements.
 
 Environment:
-- NixOS with zsh
+- Debian GNU/Linux with bash
 - Write only in the project directory or `/tmp`.
-- Use project environment (`flake.nix`, venv, container). For temporary tools use `nix shell nixpkgs#<pkg>` or `nix run`.
+- Use the project environment (bun/npm, venv, container). Install temporary tools with `apt` or a project-local package manager.
 - Do not assume paths from your memory (`~/.pi/agent`, `%TEMP%`).
 - Ask the user on network, container, or GPU issues.
 - Prefer built-in tools over bash. Batch tool calls whenever possible.

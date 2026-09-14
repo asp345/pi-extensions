@@ -1,8 +1,8 @@
 {
-	"name": "pi-config",
+	"name": "pi-extensions",
 	"version": "0.1.0",
 	"private": true,
-	"packageManager": "bun@1.3.13",
+	"packageManager": "bun@1.4.2",
 	"description": "Personal Pi monorepo",
 	"license": "UNLICENSED",
 	"type": "module",

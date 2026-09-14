@@ -3,16 +3,16 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "pi-config",
+      "name": "pi-extensions",
       "devDependencies": {
-        "@biomejs/biome": "^2.5.12",
+        "@biomejs/biome": "^2.5.13",
         "@earendil-works/pi-ai": "^0.85.1",
         "@earendil-works/pi-coding-agent": "^0.85.1",
         "@earendil-works/pi-tui": "^0.85.1",
         "@sinclair/typebox": "^0.34.52",
-        "@types/node": "^26.4.1",
+        "@types/node": "^26.5.1",
         "bun-types": "^1.4.2",
-        "typebox": "^1.3.28",
+        "typebox": "^1.3.30",
         "typescript": "7.0.2",
       },
     },
@@ -150,9 +150,23 @@
         "typebox": "*",
       },
     },
+    "extensions/pi-system-prompt": {
+      "name": "@asp345/pi-system-prompt",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "extensions/pi-themes": {
       "name": "@asp345/pi-themes",
       "version": "0.0.0",
+    },
+    "extensions/pi-tool-loop-guard": {
+      "name": "@asp345/pi-tool-loop-guard",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
     },
   },
   "overrides": {
@@ -193,7 +207,11 @@
 
     "@asp345/pi-subagents": ["@asp345/pi-subagents@workspace:extensions/pi-subagents"],
 
+    "@asp345/pi-system-prompt": ["@asp345/pi-system-prompt@workspace:extensions/pi-system-prompt"],
+
     "@asp345/pi-themes": ["@asp345/pi-themes@workspace:extensions/pi-themes"],
+
+    "@asp345/pi-tool-loop-guard": ["@asp345/pi-tool-loop-guard@workspace:extensions/pi-tool-loop-guard"],
 
     "@aws-crypto/crc32": ["@aws-crypto/crc32@5.2.0", "", { "dependencies": { "@aws-crypto/util": "^5.2.0", "@aws-sdk/types": "^3.222.0", "tslib": "^2.6.2" } }, "sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg=="],
 
