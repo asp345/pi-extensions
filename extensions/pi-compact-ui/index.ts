@@ -415,7 +415,71 @@ function renderHorizontalCodeBorders(visibleMarker: string, width: number, openi
 	return [style(line)];
 }
 
-export function normalizeCompactCodeBlockLines(lines: string[], width: number, paddingX = 0): string[] {
+function isFenceLine(line: string): boolean {
+	return line.trimStart().startsWith("```");
+}
+
+const MARKDOWN_CHUNK_LINES = 200;
+const MARKDOWN_CHUNK_HARD_LINES = 400;
+
+function splitProseChunks(lines: string[]): string[][] {
+	const chunks: string[][] = [];
+	let current: string[] = [];
+	for (const line of lines) {
+		current.push(line);
+		if (current.length >= MARKDOWN_CHUNK_HARD_LINES || (current.length >= MARKDOWN_CHUNK_LINES && line.trim() === "")) {
+			chunks.push(current);
+			current = [];
+		}
+	}
+	if (current.length) chunks.push(current);
+	return chunks;
+}
+
+/** Render markdown in bounded chunks. pi-tui's parser slows superlinearly on
+long prose runs (emphasis/links), while fence content parses linearly, so
+fence blocks stay whole and prose splits at blank lines with a hard cap.
+Output matches whole-document parsing except for single prose blocks longer
+than the chunk size spanning a split. */
+function renderMarkdownChunked(source: string, width: number, style?: DefaultTextStyle): string[] {
+	const renderWidth = Math.max(1, width);
+	const segments: { fence: boolean; lines: string[] }[] = [];
+	let prose: string[] = [];
+	let fence: string[] | undefined;
+	for (const line of source.split("\n")) {
+		if (fence) {
+			fence.push(line);
+			if (isFenceLine(line)) {
+				segments.push({ fence: true, lines: fence });
+				fence = undefined;
+			}
+		} else if (isFenceLine(line)) {
+			if (prose.length) {
+				segments.push({ fence: false, lines: prose });
+				prose = [];
+			}
+			fence = [line];
+		} else {
+			prose.push(line);
+		}
+	}
+	if (fence) segments.push({ fence: true, lines: fence });
+	if (prose.length) segments.push({ fence: false, lines: prose });
+
+	const rows: string[] = [];
+	for (const segment of segments) {
+		if (segment.fence) {
+			rows.push(...new Markdown(segment.lines.join("\n"), 0, 0, getCompactMarkdownTheme(), style).render(renderWidth));
+		} else {
+			for (const chunk of splitProseChunks(segment.lines)) {
+				rows.push(...new Markdown(chunk.join("\n"), 0, 0, getCompactMarkdownTheme(), style).render(renderWidth));
+			}
+		}
+	}
+	return rows;
+}
+
+function normalizeCompactCodeBlockLines(lines: string[], width: number, paddingX = 0): string[] {
 	const safeWidth = Math.max(1, width);
 	const horizontalPadding = Math.max(0, Math.floor(paddingX));
 	const leftPadding = " ".repeat(horizontalPadding);
@@ -521,11 +585,11 @@ export class CompactExternalGroupComponent implements Component {
 
 	private markdownLines(source: string, width: number, color: ThemeColor, italic = false): string[] {
 		if (!source.trim()) return [];
-		const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), {
+		const rendered = renderMarkdownChunked(source, width, {
 			color: (text: string): string => themeFg(this.theme, color, text),
 			italic,
 		});
-		return normalizeCompactCodeBlockLines(markdown.render(Math.max(1, width)), Math.max(1, width));
+		return normalizeCompactCodeBlockLines(rendered, Math.max(1, width));
 	}
 
 	private renderCollapsed(width: number, frame: string): string[] {
@@ -778,8 +842,8 @@ class ToolGroupComponent extends Container {
 		defaultTextStyle?: DefaultTextStyle,
 	): string[] {
 		return this.cachedPreview(cacheKey, source, width, (renderWidth) => {
-			const markdown = new Markdown(source, 0, 0, getCompactMarkdownTheme(), defaultTextStyle);
-			return normalizeCompactCodeBlockLines(markdown.render(renderWidth), renderWidth);
+			const rendered = renderMarkdownChunked(source, renderWidth, defaultTextStyle);
+			return normalizeCompactCodeBlockLines(rendered, renderWidth);
 		});
 	}
 
