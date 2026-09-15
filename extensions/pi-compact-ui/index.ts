@@ -380,8 +380,11 @@ function isCompactCodeBlockClose(visible: string): boolean {
 //   ━━ ts ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //   const answer: number = 42;
 //   ─────────────────────────────────────
+let compactMarkdownTheme: MarkdownTheme | undefined;
+
 export function getCompactMarkdownTheme(): MarkdownTheme {
 	const base = getMarkdownTheme();
+	if (compactMarkdownTheme) return compactMarkdownTheme;
 	let insideCodeBlock = false;
 	const theme: MarkdownTheme = {
 		...base,
@@ -397,6 +400,7 @@ export function getCompactMarkdownTheme(): MarkdownTheme {
 			return base.codeBlockBorder(border);
 		},
 	};
+	compactMarkdownTheme = theme;
 	return theme;
 }
 
