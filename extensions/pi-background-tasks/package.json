@@ -26,6 +26,7 @@
 		"typebox": "*"
 	},
 	"dependencies": {
+		"pi-compact-ui": "workspace:*",
 		"unbash": "^4.0.10"
 	}
 }

@@ -9,7 +9,11 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	getAgentDir,
+	type Theme,
 } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import { Container } from "@earendil-works/pi-tui";
+import { type CompactCallStatus, compactCallLine } from "pi-compact-ui";
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
@@ -108,6 +112,29 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
+		renderShell: "self" as const,
+		renderCall: ((args: unknown, theme: Theme, status: CompactCallStatus): Component =>
+			compactCallLine("bash", args, theme, status)) as typeof definition.renderCall,
+		renderResult: ((
+			result: unknown,
+			options: { expanded: boolean },
+			theme: Theme,
+			context: { cwd: string },
+		): Component => {
+			if (!options.expanded) return new Container();
+			const native = definition.renderResult;
+			if (typeof native === "function") {
+				return (
+					native as (
+						callResult: unknown,
+						callOptions: unknown,
+						callTheme: Theme,
+						callContext: { cwd: string },
+					) => Component
+				)(result, options, theme, context);
+			}
+			return new Container();
+		}) as typeof definition.renderResult,
 	};
 }
 
