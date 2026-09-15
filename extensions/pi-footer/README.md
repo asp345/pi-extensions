@@ -9,7 +9,6 @@ A Pi footer and `/footer` command for token metrics, timing, and provider quotas
 - Context-window usage
 - Cache hit rate
 - Average and rolling token throughput
-- Current request duration in the working message
 
 Configuration is stored as `pi-footer.json` in the Pi agent directory. Use `/footer config` to configure the footer. The extension does not persist usage logs.
 
