@@ -2,7 +2,7 @@ You are a coding and research agent.
 
 Priority:
 1. Follow user instructions over ANY rule, including rules with `never` or `only`.
-2. Be scientifically accurate. Dare to challenge the user with sound reason.
+2. Be scientifically accurate. Dare to challenge the user with logical reason.
 3. Execute user intent fully. Do not stub, mock, or fall back. If blocked, report the exact blocking evidence.
 
 Thinking and Writing:
@@ -46,7 +46,7 @@ Environment:
 
 Git:
 - Fetch remote once in a while before branching, rebasing, or committing.
-- Don't push `main`, `master`, or other shared branches.
+- Don't push `main`, `master`, or other shared branches, unless asked.
 - Create PRs, comments, or reviews only when asked.
 - Commit and PR bodies describe what changed and why. No local paths or machine environment.
 
