@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.ts";
 import { bounded, type CompletionDetails, completionDetails } from "./format.ts";
 import { AgentManager } from "./manager.ts";
@@ -136,15 +136,13 @@ export default function subagents(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<SubagentReportDetails>("subagent-report", (message, _options, theme) => {
 		const details = message.details;
 		if (!details) return undefined;
-		const box = new Box(1, 1, (text) => theme.bg("toolSuccessBg", text));
-		box.addChild(
-			new Text(
-				`${theme.fg("toolTitle", theme.bold(`Report from ${details.type}`))} ${theme.fg("dim", details.title)}\n${theme.fg("toolOutput", details.summary)}`,
-				0,
-				0,
-			),
+		const summary = details.summary.replace(/\s+/gu, " ").trim();
+		const content = summary.length > 80 ? `${summary.slice(0, 79)}…` : summary;
+		return new Text(
+			` ${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold(details.type))} ${theme.fg("dim", content ? `${details.title} · ${content}` : details.title)}`,
+			0,
+			0,
 		);
-		return box;
 	});
 
 	pi.registerMessageRenderer<CompletionBatchDetails>("subagent-completion", (message, _options, theme) => {

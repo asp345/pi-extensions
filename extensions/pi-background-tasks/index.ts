@@ -7,7 +7,7 @@ import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
 import { duration, oneLine, taskLine } from "./render.ts";
 import { BackgroundRuntime, resolveTimeoutMs, type TaskSnapshot, tail } from "./runtime.ts";
-import { BackgroundUI, COMMAND, SHORTCUT } from "./ui.ts";
+import { BackgroundUI, COMMAND, MESSAGE, renderTaskEvent, SHORTCUT } from "./ui.ts";
 
 const NO_MATCH = "No background task matched that id.";
 
@@ -80,6 +80,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	};
 	pi.on("session_start", attach);
 	pi.on("agent_settled", async () => ui.flushEvents());
+	pi.registerMessageRenderer(MESSAGE, renderTaskEvent);
 	pi.on("session_shutdown", () => {
 		runtime.shutdown();
 		ui.clearWidget();

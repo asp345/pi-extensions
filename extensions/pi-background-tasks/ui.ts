@@ -1,5 +1,11 @@
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	MessageRenderer,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
+import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	duration,
 	eventText,
@@ -18,10 +24,34 @@ import { tail } from "./runtime.ts";
 
 export const COMMAND = "bg";
 export const SHORTCUT = "ctrl+shift+b";
-const MESSAGE = "pi-background-tasks:event";
+export const MESSAGE = "pi-background-tasks:event";
 const WIDGET = "pi-background-tasks";
 const TASK_ROWS = 8;
 const OUTPUT_ROWS = 10;
+
+export const renderTaskEvent: MessageRenderer<TaskEvent> = (message, _options, theme) => {
+	const event = message.details as TaskEvent | undefined;
+	if (!event || typeof event !== "object" || !("task" in event)) return undefined;
+	const task = event.task;
+	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
+	const command = oneLine(task.command);
+	const shortCommand = command.length > 40 ? `${command.slice(0, 39)}…` : command;
+	if (event.type === "running") {
+		return new Text(
+			` ${theme.fg("dim", "◌")} ${theme.fg("toolTitle", theme.bold("running"))} ${theme.fg("dim", `${task.id} · ${shortCommand} · ${duration(elapsed)}`)}`,
+			0,
+			0,
+		);
+	}
+	const isError = task.status === "failed";
+	const icon = isError ? "✗" : "✓";
+	const color = isError ? "error" : "success";
+	return new Text(
+		` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold("done"))} ${theme.fg("dim", `${task.id} · ${shortCommand} · ${duration(elapsed)}`)}`,
+		0,
+		0,
+	);
+};
 
 export class BackgroundUI {
 	private active: ExtensionContext | null = null;
@@ -40,6 +70,16 @@ export class BackgroundUI {
 	}
 
 	handleEvent(event: TaskEvent): void {
+		if (event.type === "running") {
+			this.active?.ui.notify(eventText(event), "info");
+			try {
+				this.pi.sendMessage(
+					{ customType: MESSAGE, content: eventText(event), details: event, display: false },
+					{ deliverAs: "steer", triggerTurn: true },
+				);
+			} catch {}
+			return;
+		}
 		this.pendingEvents.set(event.task.id, event);
 		this.active?.ui.notify(eventText(event), "info");
 		void this.flushEvents();
