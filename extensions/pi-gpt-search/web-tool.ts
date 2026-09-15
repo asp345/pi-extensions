@@ -23,7 +23,7 @@ interface ToolRenderLabels {
 function renderToolCall(status: string, labels: ToolRenderLabels, theme: Theme): Text {
 	const title = theme?.fg ? theme.fg("toolTitle", theme.bold(labels.name)) : labels.name;
 	const statusText = theme?.fg ? theme.fg("muted", status) : status;
-	return new Text(title + statusText, 0, 0);
+	return new Text(` ${title}${statusText}`, 0, 0);
 }
 
 function renderToolResult(

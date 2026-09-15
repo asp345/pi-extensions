@@ -159,7 +159,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			)
 			.join("; ");
 		return new Text(
-			`${theme.fg(failed ? "warning" : "success", failed ? "!" : "✓")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("dim", stats)}`,
+			` ${theme.fg(failed ? "warning" : "success", failed ? "!" : "✓")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("dim", stats)}`,
 			0,
 			0,
 		);
