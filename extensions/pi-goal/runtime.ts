@@ -118,6 +118,7 @@ export class GoalRuntime {
 			}
 		}
 		const wasWaiting = this.goalBackgroundTaskIds.size > 0;
+		const wasRunning = this.runningBackgroundTaskIds.size > 0;
 		for (const id of this.goalBackgroundTaskIds) {
 			if (!next.has(id)) this.goalBackgroundTaskIds.delete(id);
 		}
@@ -125,7 +126,9 @@ export class GoalRuntime {
 		for (const id of next) this.runningBackgroundTaskIds.add(id);
 		if (this.goalBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
 		else this.clearBackgroundCheckIn();
-		if (wasWaiting && this.goalBackgroundTaskIds.size === 0 && ctx) await this.settled(ctx);
+		const runningEmpty = this.runningBackgroundTaskIds.size === 0;
+		if (ctx && ((wasWaiting && this.goalBackgroundTaskIds.size === 0) || (wasRunning && runningEmpty)))
+			await this.settled(ctx);
 	}
 
 	finishAgent(messages: readonly unknown[]) {
@@ -178,7 +181,7 @@ export class GoalRuntime {
 			await this.sendOwnedPrompt("continue", "Check in on the active /goal and its running background work.");
 			return;
 		}
-		if (this.pendingContinuation !== goal.id || this.goalBackgroundTaskIds.size > 0) return;
+		if (this.pendingContinuation !== goal.id || this.runningBackgroundTaskIds.size > 0) return;
 		const start = this.pendingStart === goal.id;
 		if (!start && goal.noProgressTurns >= NUDGE_NO_PROGRESS_TURNS && !goal.nudgeSent) {
 			goal.nudgeSent = true;
