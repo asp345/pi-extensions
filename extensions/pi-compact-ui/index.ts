@@ -113,7 +113,7 @@ export function compactCallLine(name: string, args: unknown, theme: Theme, statu
 	const icon = status.isError ? "✗" : done ? "✓" : PENDING_ICON;
 	const summary = toolSummary(name, args);
 	return new Text(
-		`${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold(summary.name))} ${theme.fg("dim", summary.content)}`,
+		` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold(summary.name))} ${theme.fg("dim", summary.content)}`,
 		0,
 		0,
 	);
