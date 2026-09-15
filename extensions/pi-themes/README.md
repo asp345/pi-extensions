@@ -4,7 +4,7 @@ Dark-background themes for Pi. Package declares `pi.themes: ["./themes"]`, no co
 
 - `flatland.json` (`flatland`, muted pastel)
 - `noir.json` (`noir`, muted pastel, renamed from mono-black)
-- `harbor.json` (`harbor`, cool slate with amber accent and teal links)
+- `saffron.json` (`saffron`, warm charcoal with gold accent and olive links)
 - `sakura.json` (`sakura`, plum with rose accent and sage links)
 - `cypress.json` (`cypress`, green-gray with peach accent and sky links)
 - `cobalt.json` (`cobalt`, indigo with copper accent and blue links)
