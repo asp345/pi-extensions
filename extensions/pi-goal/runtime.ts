@@ -8,7 +8,7 @@ const NUDGE_PROMPT =
 	"You have made no progress across the last 2 automatic goal runs (no tool calls, repeated output). Do the possible work now: use tools to advance the /goal objective instead of repeating the previous message. If it is truly impossible to proceed, call goal_blocked. If the objective is complete, call goal_complete.";
 const MAX_OWNED_PROMPTS = 16;
 const OWNED_PROMPT_TTL_MS = 10 * 60_000;
-const BACKGROUND_CHECK_IN_INTERVAL_MS = 60 * 60_000;
+const BACKGROUND_CHECK_IN_INTERVAL_MS = 15 * 60_000;
 const MARKER = /<!-- pi-goal:(start|continue):([^\s>]+) -->/u;
 
 function finalAssistant(messages: readonly unknown[]): { stopReason?: string } | undefined {
@@ -49,7 +49,6 @@ export class GoalRuntime {
 	private currentRunOwnsGoal = false;
 	private currentRunUsedTool = false;
 	private readonly runningBackgroundTaskIds = new Set<string>();
-	private readonly goalBackgroundTaskIds = new Set<string>();
 	private settleFailure?: "aborted" | "error";
 	private readonly ownedPrompts = new Map<string, number>();
 
@@ -65,7 +64,6 @@ export class GoalRuntime {
 		this.pendingContinuation = undefined;
 		this.pendingStart = undefined;
 		this.currentRunOwnsGoal = false;
-		this.goalBackgroundTaskIds.clear();
 		this.settleFailure = undefined;
 		this.persist();
 		this.updateStatus(ctx);
@@ -112,23 +110,12 @@ export class GoalRuntime {
 
 	async setRunningBackgroundTasks(taskIds: readonly string[], ctx?: GoalContext) {
 		const next = new Set(taskIds);
-		if (this.goal?.status === "active" && (this.currentRunOwnsGoal || this.pendingContinuation === this.goal.id)) {
-			for (const id of next) {
-				if (!this.runningBackgroundTaskIds.has(id)) this.goalBackgroundTaskIds.add(id);
-			}
-		}
-		const wasWaiting = this.goalBackgroundTaskIds.size > 0;
 		const wasRunning = this.runningBackgroundTaskIds.size > 0;
-		for (const id of this.goalBackgroundTaskIds) {
-			if (!next.has(id)) this.goalBackgroundTaskIds.delete(id);
-		}
 		this.runningBackgroundTaskIds.clear();
 		for (const id of next) this.runningBackgroundTaskIds.add(id);
-		if (this.goalBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
+		if (this.runningBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
 		else this.clearBackgroundCheckIn();
-		const runningEmpty = this.runningBackgroundTaskIds.size === 0;
-		if (ctx && ((wasWaiting && this.goalBackgroundTaskIds.size === 0) || (wasRunning && runningEmpty)))
-			await this.settled(ctx);
+		if (ctx && wasRunning && this.runningBackgroundTaskIds.size === 0) await this.settled(ctx);
 	}
 
 	finishAgent(messages: readonly unknown[]) {
@@ -175,8 +162,9 @@ export class GoalRuntime {
 			this.pause(ctx, `no progress across ${MAX_NO_PROGRESS_TURNS} automatic runs`);
 			return;
 		}
+		if (this.runningBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
 		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.()) return;
-		if (this.backgroundCheckInDue && this.goalBackgroundTaskIds.size > 0) {
+		if (this.backgroundCheckInDue && this.runningBackgroundTaskIds.size > 0) {
 			this.backgroundCheckInDue = false;
 			await this.sendOwnedPrompt("continue", "Check in on the active /goal and its running background work.");
 			return;
@@ -267,7 +255,7 @@ export class GoalRuntime {
 		if (this.backgroundCheckInTimer || !ctx || this.goal?.status !== "active") return;
 		this.backgroundCheckInTimer = setTimeout(() => {
 			this.backgroundCheckInTimer = undefined;
-			if (this.goal?.status !== "active" || this.goalBackgroundTaskIds.size === 0) return;
+			if (this.goal?.status !== "active" || this.runningBackgroundTaskIds.size === 0) return;
 			this.backgroundCheckInDue = true;
 			this.scheduleBackgroundCheckIn(ctx);
 			void this.settled(ctx);
