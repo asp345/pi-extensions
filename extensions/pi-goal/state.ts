@@ -15,6 +15,7 @@ export interface GoalState {
 	automaticTurns: number;
 	noProgressTurns: number;
 	lastOutput?: string;
+	nudgeSent?: boolean;
 	reason?: string;
 }
 
@@ -28,6 +29,7 @@ export function createGoal(objective: string): GoalState {
 		updatedAt: now,
 		automaticTurns: 0,
 		noProgressTurns: 0,
+		nudgeSent: false,
 	};
 }
 
@@ -72,6 +74,7 @@ function parseState(value: unknown): GoalState | undefined {
 		automaticTurns: safeCounter(raw.automaticTurns),
 		noProgressTurns: safeCounter(raw.noProgressTurns),
 		lastOutput: typeof raw.lastOutput === "string" ? raw.lastOutput : undefined,
+		nudgeSent: raw.nudgeSent === true,
 		reason: typeof raw.reason === "string" ? raw.reason : undefined,
 	};
 }

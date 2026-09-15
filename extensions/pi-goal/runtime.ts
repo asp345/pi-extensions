@@ -3,6 +3,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GOAL_STATE_ENTRY, type GoalState, isRecord } from "./state.ts";
 
 const MAX_NO_PROGRESS_TURNS = 3;
+const NUDGE_NO_PROGRESS_TURNS = 2;
+const NUDGE_PROMPT =
+	"You have made no progress across the last 2 automatic goal runs (no tool calls, repeated output). Do the possible work now: use tools to advance the /goal objective instead of repeating the previous message. If it is truly impossible to proceed, call goal_blocked. If the objective is complete, call goal_complete.";
 const MAX_OWNED_PROMPTS = 16;
 const OWNED_PROMPT_TTL_MS = 10 * 60_000;
 const BACKGROUND_CHECK_IN_INTERVAL_MS = 60 * 60_000;
@@ -142,6 +145,10 @@ export class GoalRuntime {
 			if (this.currentRunUsedTool) {
 				goal.noProgressTurns = 0;
 				goal.lastOutput = undefined;
+				goal.nudgeSent = false;
+			} else if (goal.nudgeSent) {
+				goal.noProgressTurns = MAX_NO_PROGRESS_TURNS;
+				goal.lastOutput = fingerprint;
 			} else {
 				goal.noProgressTurns = goal.lastOutput === fingerprint ? goal.noProgressTurns + 1 : 1;
 				goal.lastOutput = fingerprint;
@@ -173,6 +180,13 @@ export class GoalRuntime {
 		}
 		if (this.pendingContinuation !== goal.id || this.goalBackgroundTaskIds.size > 0) return;
 		const start = this.pendingStart === goal.id;
+		if (!start && goal.noProgressTurns >= NUDGE_NO_PROGRESS_TURNS && !goal.nudgeSent) {
+			goal.nudgeSent = true;
+			goal.updatedAt = Date.now();
+			this.persist();
+			await this.sendOwnedPrompt("continue", NUDGE_PROMPT);
+			return;
+		}
 		await this.sendOwnedPrompt(
 			start ? "start" : "continue",
 			start
@@ -236,6 +250,7 @@ export class GoalRuntime {
 			this.goal.automaticTurns = 0;
 			this.goal.noProgressTurns = 0;
 			this.goal.lastOutput = undefined;
+			this.goal.nudgeSent = false;
 			this.persist();
 		}
 	}
