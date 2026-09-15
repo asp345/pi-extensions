@@ -76,11 +76,14 @@ test("goal-owned background task completion re-drives automatic continuation", a
 	assert.equal(sent.length, 2);
 });
 
-test("unowned background tasks do not defer automatic continuation", async () => {
+test("any running background task defers automatic continuation", async () => {
 	const { runtime, ctx, sent } = harness();
 	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
 	runtime.finishAgent([assistant("progress")]);
 	await runtime.settled(ctx);
+	assert.equal(sent.length, 0);
+
+	await runtime.setRunningBackgroundTasks([], ctx);
 	assert.equal(sent.length, 1);
 });
 

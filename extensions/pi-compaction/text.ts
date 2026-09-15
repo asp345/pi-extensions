@@ -1,6 +1,6 @@
 import { compact, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { CompactionConfig } from "./config.ts";
-import { withoutDeletedHeaders } from "./headers.ts";
+import { getOpencodeSessionHeaders, withoutDeletedHeaders } from "./headers.ts";
 import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
 
 const COMMAND_INSTRUCTIONS = `In the \`## Critical Context\` section, preserve a \`Build & Run Commands\` subsection. Record the exact setup, install, build, test, run, and lint commands from successful bash tool calls verbatim. Preserve the working directory, required environment variables, prerequisites, and success criteria for each command. If a category has no applicable command, explicitly write \`none\`. If a command or any of its details has not been verified, explicitly write \`unknown\` instead of guessing. Do not invent, normalize, shorten, or replace commands with equivalent commands. Preserve existing command entries across later compactions unless a newer successful command supersedes one. Also write a \`Mistakes\` subsection to record previous mistakes.`;
@@ -39,6 +39,11 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 			if (!auth.ok) throw new Error(auth.error);
 
 			const requestModel = auth.baseUrl ? { ...model, baseUrl: auth.baseUrl } : model;
+			const sessionId = ctx.sessionManager.getSessionId();
+			const headers = {
+				...getOpencodeSessionHeaders(requestModel, sessionId),
+				...withoutDeletedHeaders(auth.headers),
+			};
 			const streamFn: CompactionStream = (streamModel, context, options) =>
 				provider.streamSimple(streamModel, context, options);
 			const customInstructions = event.customInstructions
@@ -48,12 +53,15 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 				event.preparation,
 				requestModel,
 				auth.apiKey,
-				withoutDeletedHeaders(auth.headers),
+				Object.keys(headers).length > 0 ? headers : undefined,
 				customInstructions,
 				event.signal,
 				config.textModel ? "off" : ctx.thinkingLevel,
 				streamFn,
 				auth.env,
+				undefined,
+				undefined,
+				sessionId,
 			);
 
 			return { compaction: result };

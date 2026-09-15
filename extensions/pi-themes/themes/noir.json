@@ -38,8 +38,8 @@
 		"think-low": "#737373",
 		"think-medium": "#999999",
 		"think-high": "#bfbfbf",
-		"think-xhigh": "#e4e4e4",
-		"think-max": "#ffffff",
+		"think-xhigh": "#cccccc",
+		"think-max": "#dbdbdb",
 		"accent": "#ffffff"
 	},
 	"colors": {
