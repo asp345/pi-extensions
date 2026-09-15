@@ -34,7 +34,6 @@ test("task exits are delivered immediately as steering messages", async () => {
 	const event = exitEvent();
 	const deliveries: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
-		registerMessageRenderer: () => undefined,
 		sendMessage: (message: unknown, options: unknown) => {
 			deliveries.push({ message, options });
 		},

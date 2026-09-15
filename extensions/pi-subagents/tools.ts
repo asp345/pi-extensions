@@ -1,6 +1,8 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { compactCallLine } from "pi-compact-ui";
 import { Type } from "typebox";
 import { definitionSummary, resolveDefinition } from "./definitions.ts";
 import { delegationPrompt } from "./delegation.ts";
@@ -112,19 +114,15 @@ export function registerSubagentTools(
 			record.resultConsumed = true;
 			return foregroundResult(record);
 		},
-		renderCall(args, theme) {
-			const title = `Launch ${args.subagent_type}`;
-			const prompt = args.prompt?.replace(/\s+/gu, " ").trim() || "";
-			return new Text(
-				`${theme.fg("toolTitle", theme.bold(title))}\n${theme.fg("dim", prompt.length > 100 ? `${prompt.slice(0, 99)}…` : prompt)}`,
-				0,
-				0,
-			);
+		renderCall(args, theme, context) {
+			return compactCallLine("launch_subagent", args, theme, context) as Component;
 		},
-		renderResult(toolResult, _options, theme) {
+		renderResult(toolResult, options, theme, _context): Component {
+			if (!options.expanded) return new Container();
 			const text = toolResult.content.find((part) => part.type === "text");
 			return new Text(theme.fg("toolOutput", text?.type === "text" ? text.text : ""), 0, 0);
 		},
+		renderShell: "self",
 	});
 
 	pi.registerTool({

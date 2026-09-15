@@ -77,24 +77,3 @@ export function frame(lines: string[], width: number, theme: Theme, title: strin
 export function visibleTasks(runtime: BackgroundRuntime): TaskSnapshot[] {
 	return runtime.list().filter((task) => task.notify);
 }
-
-export function eventLines(event: TaskEvent, theme: Theme, expanded: boolean): string[] {
-	const running = event.type === "running";
-	const lines = [
-		theme.fg(
-			running ? "accent" : "success",
-			theme.bold(running ? "Background task still running" : "Background task finished"),
-		),
-		`${theme.fg("muted", "Task")}: ${event.task.id} · ${oneLine(event.task.title)}`,
-		`${theme.fg("muted", "Status")}: ${taskStatus(event.task)} · pid ${event.task.pid}`,
-		`${theme.fg("muted", "Started")}: ${relative(event.task.startedAt)} · ${duration(Date.now() - event.task.startedAt)} elapsed`,
-		`${theme.fg("muted", "Command")}: ${oneLine(event.task.command)}`,
-		`${theme.fg("muted", "Log")}: ${event.task.logFile}`,
-		"",
-		theme.fg("accent", theme.bold("Recent output")),
-	];
-	const output = event.output.trim() ? event.output.split(/\r?\n/) : ["(no output yet)"];
-	lines.push(...(expanded ? output : output.slice(-8)));
-	if (!expanded && output.length > 8) lines.push(theme.fg("dim", "Expand to inspect more output."));
-	return lines;
-}

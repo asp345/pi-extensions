@@ -36,6 +36,7 @@
       "name": "@asp345/pi-background-tasks",
       "version": "0.0.0",
       "dependencies": {
+        "pi-compact-ui": "workspace:*",
         "unbash": "^4.0.10",
       },
       "peerDependencies": {
@@ -97,6 +98,9 @@
     "extensions/pi-gpt-search": {
       "name": "@asp345/pi-gpt-search",
       "version": "0.0.0",
+      "dependencies": {
+        "pi-compact-ui": "workspace:*",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
@@ -151,6 +155,9 @@
     "extensions/pi-subagents": {
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
+      "dependencies": {
+        "pi-compact-ui": "workspace:*",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
