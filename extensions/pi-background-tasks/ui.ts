@@ -1,8 +1,7 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	duration,
-	eventLines,
 	eventText,
 	frame,
 	lastOutputLine,
@@ -33,15 +32,7 @@ export class BackgroundUI {
 	constructor(
 		private readonly pi: ExtensionAPI,
 		private readonly runtime: BackgroundRuntime,
-	) {
-		pi.registerMessageRenderer(MESSAGE, (message, { expanded }, theme) => {
-			const details = message.details as TaskEvent | undefined;
-			const body = details?.task
-				? eventLines(details, theme, expanded).join("\n")
-				: String(message.content ?? "Background task finished");
-			return new Text(body, 1, 0, (value) => theme.bg("customMessageBg", value));
-		});
-	}
+	) {}
 
 	attach(ctx: ExtensionContext): void {
 		this.active = ctx;

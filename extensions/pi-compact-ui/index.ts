@@ -47,8 +47,70 @@ function argString(args: unknown, key: string): string {
 	return typeof value === "string" ? value : "";
 }
 
-function toolSummary(name: string, args: unknown): { name: string; content: string } {
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+	if (!Array.isArray(value)) return [];
+	return value.filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null);
+}
+
+function webSummary(args: unknown): string {
+	if (typeof args !== "object" || args === null) return "…";
+	const cmd = args as Record<string, unknown>;
+	const parts: string[] = [];
+	const queries = asRecordArray(cmd.search_query)
+		.map((item) => `"${oneLine(item.q ?? "")}"`)
+		.filter((text) => text.length > 2);
+	if (queries.length > 0) parts.push(queries.join(", "));
+	for (const item of asRecordArray(cmd.open)) {
+		if (typeof item.ref_id === "string" && item.ref_id) parts.push(`open ${item.ref_id}`);
+	}
+	for (const item of asRecordArray(cmd.find)) {
+		const ref = typeof item.ref_id === "string" ? item.ref_id : "";
+		const pattern = typeof item.pattern === "string" ? oneLine(item.pattern, 30) : "";
+		if (pattern && ref) parts.push(`find "${pattern}" in ${ref}`);
+		else if (ref) parts.push(`find in ${ref}`);
+	}
+	for (const item of asRecordArray(cmd.click)) {
+		const ref = typeof item.ref_id === "string" ? item.ref_id : "";
+		if (!ref) continue;
+		parts.push(typeof item.id === "number" ? `click #${item.id} in ${ref}` : `click in ${ref}`);
+	}
+	if (parts.length === 0) return "…";
+	return oneLine(parts.join("; "));
+}
+
+function launchSubagentSummary(args: unknown): string {
+	if (typeof args !== "object" || args === null) return "…";
+	const cmd = args as Record<string, unknown>;
+	const type = typeof cmd.subagent_type === "string" ? cmd.subagent_type : "";
+	const title = typeof cmd.title === "string" ? oneLine(cmd.title) : "";
+	if (type && title) return oneLine(`${type} ${title}`);
+	return oneLine(type || title || "…");
+}
+
+function backgroundTaskSummary(args: unknown): string {
+	if (typeof args !== "object" || args === null) return "…";
+	const cmd = args as Record<string, unknown>;
+	const action = typeof cmd.action === "string" ? cmd.action : "";
+	if (!action) return "…";
+	if (action === "start") {
+		const command = typeof cmd.command === "string" ? oneLine(cmd.command) : "";
+		return command ? `start ${command}` : "start";
+	}
+	if (action === "read" || action === "stop") {
+		const id = typeof cmd.id === "string" ? cmd.id : "";
+		return id ? `${action} ${id}` : action;
+	}
+	return action;
+}
+
+export function toolSummary(name: string, args: unknown): CompactSummary {
 	switch (name) {
+		case "launch_subagent":
+			return { name: "launch_subagent", content: launchSubagentSummary(args) };
+		case "background_task":
+			return { name: "background_task", content: backgroundTaskSummary(args) };
+		case "web":
+			return { name: "web", content: webSummary(args) };
 		case "bash":
 			return { name: "bash", content: oneLine(argString(args, "command") || "…") };
 		case "read":
@@ -107,11 +169,22 @@ export interface CompactCallStatus {
 	isError: boolean;
 }
 
-export function compactCallLine(name: string, args: unknown, theme: Theme, status: CompactCallStatus): Component {
+export interface CompactSummary {
+	name: string;
+	content: string;
+}
+
+export function compactCallLine(
+	name: string,
+	args: unknown,
+	theme: Theme,
+	status: CompactCallStatus,
+	override?: CompactSummary,
+): Component {
 	const done = !status.isPartial;
 	const color: ThemeColor = status.isError ? "error" : done ? "success" : "accent";
 	const icon = status.isError ? "✗" : done ? "✓" : PENDING_ICON;
-	const summary = toolSummary(name, args);
+	const summary = override ?? toolSummary(name, args);
 	return new Text(
 		` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold(summary.name))} ${theme.fg("dim", summary.content)}`,
 		0,

@@ -1,5 +1,7 @@
-import type { AgentToolResult, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { compactCallLine } from "pi-compact-ui";
 import { type WebRunCommand, WebRunCommandSchema } from "./commands.ts";
 import { formatWebToolResult } from "./output.ts";
 import type { WebSearchProvider } from "./provider.ts";
@@ -13,48 +15,6 @@ const BROWSING_GUIDELINES = [
 ];
 
 const WebToolParameters = WebRunCommandSchema;
-
-interface ToolRenderLabels {
-	name: string;
-	errorPrefix: string;
-	successPrefix: string;
-}
-
-function renderToolCall(status: string, labels: ToolRenderLabels, theme: Theme): Text {
-	const title = theme?.fg ? theme.fg("toolTitle", theme.bold(labels.name)) : labels.name;
-	const statusText = theme?.fg ? theme.fg("muted", status) : status;
-	return new Text(` ${title}${statusText}`, 0, 0);
-}
-
-function renderToolResult(
-	result: AgentToolResult<unknown>,
-	options: { expanded?: boolean } | undefined,
-	theme: Theme,
-	context: { isError: boolean },
-	labels: ToolRenderLabels,
-): Text {
-	const { expanded } = options || {};
-	const isError = context.isError;
-	const resultCount = (result.details as { resultCount?: number } | undefined)?.resultCount ?? 0;
-
-	if (isError) {
-		const message = firstText(result);
-		const errorText = theme?.fg
-			? theme.fg("error", `${labels.errorPrefix}${message ? `: ${message}` : ""}`)
-			: `${labels.errorPrefix}${message ? `: ${message}` : ""}`;
-		return new Text(errorText, 0, 0);
-	}
-
-	if (!expanded) {
-		const successHeader = theme?.fg
-			? theme.fg("success", `${labels.successPrefix} (${resultCount} results) `)
-			: `${labels.successPrefix} (${resultCount} results) `;
-		const hint = theme?.fg ? theme.fg("dim", "(Ctrl+O to expand)") : "(Ctrl+O to expand)";
-		return new Text(successHeader + hint, 0, 0);
-	}
-
-	return new Text(firstText(result), 0, 0);
-}
 
 function firstText(result: AgentToolResult<unknown>): string {
 	const first = result.content[0];
@@ -83,11 +43,6 @@ function describeCommandStatus(command: WebRunCommand): string {
 }
 
 export function createWebTool(provider: WebSearchProvider): ToolDefinition {
-	const labels: ToolRenderLabels = {
-		name: "web ",
-		errorPrefix: "✖ Web action failed",
-		successPrefix: "✓ Web action complete",
-	};
 	return {
 		name: "web",
 		label: "Web Research Harness",
@@ -115,11 +70,13 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 				throw new Error(`Web execution failed: ${errorMsg}`);
 			}
 		},
-		renderCall(args, theme, _context) {
-			return renderToolCall(describeCommandStatus(args as WebRunCommand), labels, theme);
+		renderCall(args, theme, context) {
+			return compactCallLine("web", args, theme, context) as Component;
 		},
-		renderResult(result, options, theme, context) {
-			return renderToolResult(result, options, theme, context, labels);
+		renderResult(result, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			return new Text(firstText(result), 0, 0);
 		},
+		renderShell: "self",
 	};
 }

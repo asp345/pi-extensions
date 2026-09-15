@@ -1,8 +1,11 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { type CompactSummary, compactCallLine } from "pi-compact-ui";
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
-import { taskLine } from "./render.ts";
+import { duration, oneLine, taskLine } from "./render.ts";
 import { BackgroundRuntime, resolveTimeoutMs, type TaskSnapshot, tail } from "./runtime.ts";
 import { BackgroundUI, COMMAND, SHORTCUT } from "./ui.ts";
 
@@ -18,6 +21,41 @@ function startedText(task: TaskSnapshot): string {
 
 function stoppingText(id: string): string {
 	return `Stopping ${id}.`;
+}
+
+interface BackgroundTaskParams {
+	action: "start" | "list" | "read" | "stop" | "clear";
+	command?: string;
+	id?: string;
+}
+
+function taskCallSummary(params: BackgroundTaskParams, runtime: BackgroundRuntime): CompactSummary {
+	if (params.action === "start") {
+		return { name: "launch", content: oneLine(params.command?.trim() || "…") };
+	}
+	if (params.action === "list") {
+		const count = runtime.list().filter((task) => task.notify).length;
+		return { name: "list", content: count === 0 ? "no tasks" : `${count} task${count === 1 ? "" : "s"}` };
+	}
+	if (params.action === "clear") {
+		return { name: "clear", content: "finished tasks" };
+	}
+	const id = params.id?.trim() ?? "";
+	const task = runtime.get(id || undefined);
+	if (!task) return { name: params.action, content: id || "…" };
+	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
+	const command = oneLine(task.command);
+	const shortCommand = command.length > 40 ? `${command.slice(0, 39)}…` : command;
+	const meta = `${shortCommand} · ${duration(elapsed)}`;
+	if (params.action === "read" && task.status !== "running") {
+		return { name: "done", content: `${id} · ${meta}` };
+	}
+	return { name: params.action, content: `${id} · ${meta}` };
+}
+
+function firstText(result: AgentToolResult<unknown>): string {
+	const first = result.content[0];
+	return first && "text" in first ? first.text : "";
 }
 
 export default function backgroundTasks(pi: ExtensionAPI): void {
@@ -114,6 +152,14 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			}
 			return runtime.stop(id, "agent") ? result(stoppingText(id)) : result(NO_MATCH, true);
 		},
+		renderCall(args, theme, context) {
+			return compactCallLine("background_task", args, theme, context, taskCallSummary(args, runtime)) as Component;
+		},
+		renderResult(result, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			return new Text(firstText(result), 0, 0);
+		},
+		renderShell: "self",
 	});
 
 	pi.registerCommand(COMMAND, {
