@@ -154,13 +154,10 @@ function makeStepper(
 // =============================================================================
 // Shared state
 // =============================================================================
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-// Spinner and repaint tick. Kept slow on purpose: only the spinner frame and
-// whole-second elapsed times change between ticks, so identical lines skip
-// repaint in pi's diff renderer.
-const SPINNER_MS = 500;
+// Static in-progress marker. Spinning frames forced a full re-render on every
+// tick and made the transcript flicker, so progress is shown without animation.
+const PENDING_ICON = "◌";
 const GROUP_PADDING_X = 1;
-const spinnerStart = Date.now();
 const PATCH_KEY = Symbol.for("compact-ui.group-patch");
 const COMPACTION_STYLE_PATCH_KEY = Symbol.for("compact-ui.compaction-style-patch");
 
@@ -274,8 +271,8 @@ function toolSummary(name: string, args: unknown): { name: string; content: stri
 
 type ToolStatus = "pending" | "success" | "error";
 
-function statusIcon(status: ToolStatus, frame: string): string {
-	return status === "pending" ? frame : status === "error" ? "✗" : "✓";
+function statusIcon(status: ToolStatus): string {
+	return status === "pending" ? PENDING_ICON : status === "error" ? "✗" : "✓";
 }
 
 function statusColor(status: ToolStatus): ThemeColor {
@@ -288,9 +285,9 @@ interface GroupHeadState {
 	openEmpty: boolean;
 }
 
-function groupHead(frame: string, state: GroupHeadState): { icon: string; label: string; color: ThemeColor } {
-	if (state.pending) return { icon: frame, label: "tool calling...", color: "accent" };
-	if (state.thinking || state.openEmpty) return { icon: frame, label: "thinking...", color: "thinkingText" };
+function groupHead(state: GroupHeadState): { icon: string; label: string; color: ThemeColor } {
+	if (state.pending) return { icon: PENDING_ICON, label: "tool calling...", color: "accent" };
+	if (state.thinking || state.openEmpty) return { icon: PENDING_ICON, label: "thinking...", color: "thinkingText" };
 	return { icon: "✓", label: "tools done", color: "success" };
 }
 
@@ -571,11 +568,11 @@ export class CompactExternalGroupComponent implements Component {
 		return `${Math.max(0, Math.round((end - tool.startedAt) / 1000))}s`;
 	}
 
-	private toolRow(rail: string, tool: CompactExternalTool, frame: string): string {
+	private toolRow(rail: string, tool: CompactExternalTool): string {
 		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
 		const bold = (text: string): string => themeBold(this.theme, text);
 		const summary = toolSummary(tool.name, tool.args);
-		return `${fg("dim", rail)}${fg(statusColor(tool.status), statusIcon(tool.status, frame))} ${fg("toolTitle", bold(summary.name))} ${fg("dim", summary.content)} ${fg("muted", `(${this.elapsed(tool)})`)}`;
+		return `${fg("dim", rail)}${fg(statusColor(tool.status), statusIcon(tool.status))} ${fg("toolTitle", bold(summary.name))} ${fg("dim", summary.content)} ${fg("muted", `(${this.elapsed(tool)})`)}`;
 	}
 
 	private tokenLabel(): string {
@@ -592,9 +589,9 @@ export class CompactExternalGroupComponent implements Component {
 		return normalizeCompactCodeBlockLines(rendered, Math.max(1, width));
 	}
 
-	private renderCollapsed(width: number, frame: string): string[] {
+	private renderCollapsed(width: number): string[] {
 		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
-		const head = groupHead(frame, {
+		const head = groupHead({
 			pending: this.state.tools.some((tool) => tool.status === "pending"),
 			thinking: this.state.thinkingActive && !this.state.sealed,
 			openEmpty: !this.state.sealed && this.state.tools.length === 0,
@@ -608,7 +605,7 @@ export class CompactExternalGroupComponent implements Component {
 			if (lines.length >= maxLines - (reserveThinking ? 1 : 0)) break;
 			const isOldest = index === 0 && !reserveThinking;
 			const row = this.state.tools[index];
-			if (row) lines.push(this.toolRow(isOldest ? "└  " : "│  ", row, frame));
+			if (row) lines.push(this.toolRow(isOldest ? "└  " : "│  ", row));
 			shown++;
 		}
 		if (shown < this.state.tools.length && lines.length < maxLines) {
@@ -623,9 +620,9 @@ export class CompactExternalGroupComponent implements Component {
 		return lines;
 	}
 
-	private renderExpanded(width: number, frame: string): string[] {
+	private renderExpanded(width: number): string[] {
 		const fg = (color: ThemeColor, text: string): string => themeFg(this.theme, color, text);
-		const head = groupHead(frame, {
+		const head = groupHead({
 			pending: this.state.tools.some((tool) => tool.status === "pending"),
 			thinking: this.state.thinkingActive && !this.state.sealed,
 			openEmpty: !this.state.sealed && this.state.tools.length === 0,
@@ -636,7 +633,7 @@ export class CompactExternalGroupComponent implements Component {
 			if (!tool) continue;
 			const last = index === this.state.tools.length - 1;
 			const sub = last ? "    " : "│   ";
-			lines.push(this.toolRow(last ? "└─ " : "├─ ", tool, frame));
+			lines.push(this.toolRow(last ? "└─ " : "├─ ", tool));
 			for (const row of this.markdownLines(
 				tool.resultText,
 				Math.max(1, width - GROUP_PADDING_X - sub.length),
@@ -662,8 +659,7 @@ export class CompactExternalGroupComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
-		const source = this.expanded ? this.renderExpanded(width, frame) : this.renderCollapsed(width, frame);
+		const source = this.expanded ? this.renderExpanded(width) : this.renderCollapsed(width);
 		const padding = " ".repeat(Math.min(GROUP_PADDING_X, Math.max(0, width - 1)));
 		const contentWidth = Math.max(1, width - padding.length);
 		return source.map((line) => padding + truncateToWidth(line, contentWidth, "…"));
@@ -872,13 +868,13 @@ class ToolGroupComponent extends Container {
 	}
 
 	// Tool name in bold accent, tool payload in dim.
-	private toolRow(rail: string, tool: ToolView, frame: string): string {
+	private toolRow(rail: string, tool: ToolView): string {
 		const theme = currentTheme;
 		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
 		const bold = (text: string): string => themeBold(theme, text);
 		const st = toolStatus(tool);
 		const s = toolSummary(tool.toolName, tool.args);
-		return `${fg("dim", rail)}${fg(statusColor(st), statusIcon(st, frame))} ${fg("toolTitle", bold(s.name))} ${fg("dim", s.content)} ${fg("muted", `(${toolElapsed(tool)}s)`)}`;
+		return `${fg("dim", rail)}${fg(statusColor(st), statusIcon(st))} ${fg("toolTitle", bold(s.name))} ${fg("dim", s.content)} ${fg("muted", `(${toolElapsed(tool)})`)}`;
 	}
 	// Live state only applies to the not-yet-sealed (active) block.
 	private liveThinking(): string {
@@ -897,14 +893,13 @@ class ToolGroupComponent extends Container {
 	private renderCollapsed(width: number): string[] {
 		const theme = currentTheme;
 		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const lines: string[] = [];
 
 		// An open block with no tools yet is still "thinking" (waiting for tools or
 		// a text seal); only sealed / tool-bearing blocks show a completion mark.
 		const tools = groupTools(this);
 		const pending = tools.some((tool) => toolStatus(tool) === "pending");
-		const head = groupHead(frame, {
+		const head = groupHead({
 			pending,
 			thinking: this.liveThinkingActive(),
 			openEmpty: !this.sealed && tools.length === 0,
@@ -928,7 +923,7 @@ class ToolGroupComponent extends Container {
 			if (!tool) continue;
 			const isLastTool = index === total - 1 && !keepThinking;
 			const rail = isLastTool ? "└  " : "│  ";
-			lines.push(this.toolRow(rail, tool, frame));
+			lines.push(this.toolRow(rail, tool));
 			shown++;
 		}
 		if (shown < total) {
@@ -942,7 +937,6 @@ class ToolGroupComponent extends Container {
 			);
 		}
 
-		if (pending || this.liveThinkingActive()) scheduleAnimation();
 		return lines;
 	}
 
@@ -950,11 +944,10 @@ class ToolGroupComponent extends Container {
 	private renderExpanded(width: number): string[] {
 		const theme = currentTheme;
 		const fg = (color: ThemeColor, text: string): string => themeFg(theme, color, text);
-		const frame = SPINNER[Math.floor((Date.now() - spinnerStart) / SPINNER_MS) % SPINNER.length] ?? "⠋";
 		const lines: string[] = [];
 
 		const tools = groupTools(this);
-		const head = groupHead(frame, {
+		const head = groupHead({
 			pending: tools.some((tool) => toolStatus(tool) === "pending"),
 			thinking: this.liveThinkingActive(),
 			openEmpty: !this.sealed && tools.length === 0,
@@ -968,7 +961,7 @@ class ToolGroupComponent extends Container {
 			const isLast = index === total - 1;
 			const rail = isLast ? "└─ " : "├─ ";
 			const sub = isLast ? "    " : "│   ";
-			lines.push(this.toolRow(rail, tool, frame));
+			lines.push(this.toolRow(rail, tool));
 			const diff = toolDiffText(tool);
 			if (diff) {
 				const diffWidth = Math.max(1, width - GROUP_PADDING_X - sub.length);
@@ -1005,7 +998,6 @@ class ToolGroupComponent extends Container {
 			}
 		}
 
-		if (this.hasPending() || this.liveThinkingActive()) scheduleAnimation();
 		return lines;
 	}
 
@@ -1061,24 +1053,7 @@ function groupTools(group: ToolGroupComponent): ToolView[] {
 // throttled requestRender(), so the diff renderer updates only the changed
 // spinner/elapsed cells — no full-screen repaint, no scroll fight.
 // =============================================================================
-let animTimer: ReturnType<typeof setTimeout> | null = null;
 let capturedTui: Pick<TUI, "requestRender"> | null = null;
-
-function scheduleAnimation(): void {
-	if (animTimer) return;
-	animTimer = setTimeout(() => {
-		animTimer = null;
-		let active = false;
-		for (const group of groups) {
-			const running = groupTools(group).some((tool) => toolStatus(tool) === "pending");
-			const liveThinking = group === lastActiveGroup && !group.sealed && thinkingActive;
-			if (running || liveThinking) {
-				active = true;
-			}
-		}
-		if (active) capturedTui?.requestRender();
-	}, SPINNER_MS);
-}
 
 // =============================================================================
 // Prototype patch
@@ -1462,6 +1437,22 @@ function releaseAssistantAnchors(component: Component): void {
 	state.finalDivider = undefined;
 }
 
+function squeezeSpacers(container: Container): void {
+	// Hidden thinking blocks each leave a label plus spacers behind. Collapse
+	// every spacer run to one so stacked hidden blocks do not pile up gaps.
+	// Runs only where a phantom label was just removed.
+	let changed = false;
+	const squeezed: Component[] = [];
+	for (const child of container.children) {
+		if (child instanceof Spacer && squeezed[squeezed.length - 1] instanceof Spacer) {
+			changed = true;
+			continue;
+		}
+		squeezed.push(child);
+	}
+	if (changed) container.children.splice(0, container.children.length, ...squeezed);
+}
+
 function stripAssistantPhantomPadding(parent: Component, component: Component): void {
 	// Mark the plain Container that an AssistantMessageComponent owns as its
 	// content container so we can trim its children later.
@@ -1487,6 +1478,7 @@ function stripAssistantPhantomPadding(parent: Component, component: Component): 
 		if (visible === "") {
 			const index = parent.children.indexOf(component);
 			if (index >= 0) parent.children.splice(index, 1);
+			squeezeSpacers(parent);
 			while (parent.children.at(-1) instanceof Spacer) parent.children.pop();
 		}
 	}
