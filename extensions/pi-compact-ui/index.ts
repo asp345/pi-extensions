@@ -1437,6 +1437,22 @@ function releaseAssistantAnchors(component: Component): void {
 	state.finalDivider = undefined;
 }
 
+function squeezeSpacers(container: Container): void {
+	// Hidden thinking blocks each leave a label plus spacers behind. Collapse
+	// every spacer run to one so stacked hidden blocks do not pile up gaps.
+	// Runs only where a phantom label was just removed.
+	let changed = false;
+	const squeezed: Component[] = [];
+	for (const child of container.children) {
+		if (child instanceof Spacer && squeezed[squeezed.length - 1] instanceof Spacer) {
+			changed = true;
+			continue;
+		}
+		squeezed.push(child);
+	}
+	if (changed) container.children.splice(0, container.children.length, ...squeezed);
+}
+
 function stripAssistantPhantomPadding(parent: Component, component: Component): void {
 	// Mark the plain Container that an AssistantMessageComponent owns as its
 	// content container so we can trim its children later.
@@ -1462,6 +1478,7 @@ function stripAssistantPhantomPadding(parent: Component, component: Component): 
 		if (visible === "") {
 			const index = parent.children.indexOf(component);
 			if (index >= 0) parent.children.splice(index, 1);
+			squeezeSpacers(parent);
 			while (parent.children.at(-1) instanceof Spacer) parent.children.pop();
 		}
 	}
