@@ -30,6 +30,9 @@ import type { Component, TuiMouseEvent } from "@earendil-works/pi-tui";
 import { Container, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const PENDING_ICON = "◌";
+const ELLIPSIS = "…";
+/** Kept empty at the right edge so a truncated line does not touch the viewport border. */
+const RIGHT_MARGIN = 1;
 const ALWAYS_RENDERED_RESULTS: ReadonlySet<ToolName> = new Set(["edit", "write"]);
 const WRITE_INDENT = 3;
 
@@ -188,10 +191,19 @@ class CompactLine implements Component {
 	) {}
 
 	render(width: number): string[] {
-		const reserved = visibleWidth(this.head) + visibleWidth(this.suffix);
-		const available = width - reserved;
-		if (available <= 0) return [truncateToWidth(this.head, width, "…")];
-		return [`${this.head}${this.dim(truncateToWidth(this.content, available, "…"))}${this.dim(this.suffix)}`];
+		const available = width - visibleWidth(this.head) - visibleWidth(this.suffix) - RIGHT_MARGIN;
+		if (available <= 0) return [this.fit(this.head, width - RIGHT_MARGIN, (text) => text)];
+		return [`${this.head}${this.fit(this.content, available, this.dim)}${this.dim(this.suffix)}`];
+	}
+
+	/**
+	 * `truncateToWidth` resets the style before appending its ellipsis, so the ellipsis is emitted
+	 * separately through `style`; the truncated text keeps all but the last column for it.
+	 */
+	private fit(text: string, maxWidth: number, style: (text: string) => string): string {
+		if (maxWidth <= 0) return "";
+		if (visibleWidth(text) <= maxWidth) return style(text);
+		return `${style(truncateToWidth(text, maxWidth - 1, ""))}${this.dim(ELLIPSIS)}`;
 	}
 
 	invalidate(): void {}
