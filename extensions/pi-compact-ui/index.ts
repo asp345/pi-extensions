@@ -3,9 +3,10 @@
  *
  * Built-in tools (read, bash, edit, write, find, grep, ls) are re-registered
  * with a one-line call renderer and execution delegated to the native per-cwd
- * definitions. Collapsed results render nothing; expanded (Ctrl+O) results
- * delegate to the native renderer. Thinking and everything else render
- * natively; this extension owns no transcript state.
+ * definitions. Collapsed results render nothing except for edit (native diff)
+ * and write (native content preview); expanded (Ctrl+O) results delegate to the
+ * native renderer. Thinking and everything else render natively; this extension
+ * owns no transcript state.
  */
 
 import { homedir } from "node:os";
@@ -23,22 +24,24 @@ import {
 	type ExtensionContext,
 	type Theme,
 	type ThemeColor,
+	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text } from "@earendil-works/pi-tui";
+import type { Component, TuiMouseEvent } from "@earendil-works/pi-tui";
+import { Container, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
 const PENDING_ICON = "◌";
+const ALWAYS_RENDERED_RESULTS: ReadonlySet<ToolName> = new Set(["edit", "write"]);
+const WRITE_INDENT = 3;
 
 function shortenPath(path: string): string {
 	const home = homedir();
 	return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
 }
 
-function oneLine(value: unknown, max = 60): string {
-	const text = String(value ?? "")
+function oneLine(value: unknown): string {
+	return String(value ?? "")
 		.replace(/\s+/g, " ")
 		.trim();
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 function argString(args: unknown, key: string): string {
@@ -65,7 +68,7 @@ function webSummary(args: unknown): string {
 	}
 	for (const item of asRecordArray(cmd.find)) {
 		const ref = typeof item.ref_id === "string" ? item.ref_id : "";
-		const pattern = typeof item.pattern === "string" ? oneLine(item.pattern, 30) : "";
+		const pattern = typeof item.pattern === "string" ? oneLine(item.pattern) : "";
 		if (pattern && ref) parts.push(`find "${pattern}" in ${ref}`);
 		else if (ref) parts.push(`find in ${ref}`);
 	}
@@ -172,6 +175,26 @@ export interface CompactCallStatus {
 export interface CompactSummary {
 	name: string;
 	content: string;
+	/** Kept visible when the content is truncated to the viewport width. */
+	suffix?: string;
+}
+
+class CompactLine implements Component {
+	constructor(
+		private readonly head: string,
+		private readonly content: string,
+		private readonly suffix: string,
+		private readonly dim: (text: string) => string,
+	) {}
+
+	render(width: number): string[] {
+		const reserved = visibleWidth(this.head) + visibleWidth(this.suffix);
+		const available = width - reserved;
+		if (available <= 0) return [truncateToWidth(this.head, width, "…")];
+		return [`${this.head}${this.dim(truncateToWidth(this.content, available, "…"))}${this.dim(this.suffix)}`];
+	}
+
+	invalidate(): void {}
 }
 
 export function compactCallLine(
@@ -185,11 +208,9 @@ export function compactCallLine(
 	const color: ThemeColor = status.isError ? "error" : done ? "success" : "accent";
 	const icon = status.isError ? "✗" : done ? "✓" : PENDING_ICON;
 	const summary = override ?? toolSummary(name, args);
-	return new Text(
-		` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold(summary.name))} ${theme.fg("dim", summary.content)}`,
-		0,
-		0,
-	);
+	const head = ` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold(summary.name))} `;
+	const suffix = summary.suffix ? ` ${summary.suffix}` : "";
+	return new CompactLine(head, summary.content, suffix, (text) => theme.fg("dim", text));
 }
 
 interface RenderCallContext {
@@ -209,31 +230,150 @@ function wrapRenderCall(name: ToolName): NonNullable<NativeToolDefinition["rende
 	return render as NonNullable<NativeToolDefinition["renderCall"]>;
 }
 
+/**
+ * Indents a native renderer and drops its leading header: `skip` lines plus the blank lines that
+ * follow (the edit result renderer prepends a Spacer(1), the write call renderer a `write <path>`
+ * line).
+ */
+class TrimmedResult implements Component {
+	private dropped = 0;
+
+	constructor(
+		readonly inner: Component,
+		readonly skip: number,
+		readonly indent: number,
+	) {}
+
+	render(width: number): string[] {
+		const lines = this.inner.render(Math.max(1, width - this.indent));
+		if (lines.length === 0) return lines;
+		let start = Math.min(this.skip, lines.length);
+		while (start < lines.length && stripTerminalSequences(lines[start] ?? "").trim() === "") start += 1;
+		this.dropped = start;
+		const indent = " ".repeat(this.indent);
+		return lines.slice(start).map((line) => (line === "" ? line : `${indent}${line}`));
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
+
+	handleMouse(event: TuiMouseEvent) {
+		return this.inner.handleMouse?.({ ...event, y: event.y + this.dropped });
+	}
+}
+
+interface RenderResultContext {
+	cwd: string;
+	args: unknown;
+	isError: boolean;
+	lastComponent?: Component;
+}
+
+type NativeRenderCall = (args: unknown, theme: Theme, context: RenderResultContext) => Component;
+type NativeRenderResult = (
+	result: unknown,
+	options: { expanded: boolean },
+	theme: Theme,
+	context: RenderResultContext,
+) => Component;
+
+function trimmedResult(previous: Component | undefined, component: Component, skip: number, indent: number): Component {
+	if (
+		previous instanceof TrimmedResult &&
+		previous.inner === component &&
+		previous.skip === skip &&
+		previous.indent === indent
+	)
+		return previous;
+	return new TrimmedResult(component, skip, indent);
+}
+
 function wrapRenderResult(name: ToolName): NonNullable<NativeToolDefinition["renderResult"]> {
 	const render = (
 		result: unknown,
 		options: { expanded: boolean },
 		theme: Theme,
-		context: { cwd: string },
+		context: RenderResultContext,
 	): Component => {
-		if (!options.expanded) return new Container();
-		const native = getTools(context.cwd)[name].renderResult;
-		if (typeof native === "function") {
-			return (
-				native as (
-					callResult: unknown,
-					callOptions: unknown,
-					callTheme: Theme,
-					callContext: { cwd: string },
-				) => Component
-			)(result, options, theme, context);
+		if (!options.expanded && !ALWAYS_RENDERED_RESULTS.has(name)) return new Container();
+		const tool = getTools(context.cwd)[name];
+		const previous = context.lastComponent;
+		const lastComponent = previous instanceof TrimmedResult ? previous.inner : previous;
+		const nativeContext = { ...context, lastComponent };
+		if (name === "write" && !context.isError) {
+			const nativeCall = tool.renderCall as NativeRenderCall | undefined;
+			if (typeof nativeCall !== "function") return new Container();
+			return trimmedResult(previous, nativeCall(context.args, theme, nativeContext), 1, WRITE_INDENT);
 		}
-		return new Container();
+		const native = tool.renderResult as NativeRenderResult | undefined;
+		if (typeof native !== "function") return new Container();
+		return trimmedResult(previous, native(result, options, theme, nativeContext), 0, 0);
 	};
 	return render as NonNullable<NativeToolDefinition["renderResult"]>;
 }
 
+const PATCH_FLAG = "piCompactUiAdjacentRowSpacing";
+const parents = new WeakMap<Component, Container>();
+const blankDropped = new WeakSet<ToolExecutionComponent>();
+
+function isSelfShellRow(row: ToolExecutionComponent): boolean {
+	const definition = (row as unknown as { toolDefinition?: { renderShell?: string } }).toolDefinition;
+	return definition?.renderShell === "self";
+}
+
+function isHiddenRow(component: Component): boolean {
+	return (
+		component instanceof ToolExecutionComponent &&
+		(component as unknown as { hideComponent?: boolean }).hideComponent === true
+	);
+}
+
+function previousSibling(row: ToolExecutionComponent): Component | undefined {
+	const parent = parents.get(row);
+	if (!parent) return undefined;
+	for (let index = parent.children.indexOf(row) - 1; index >= 0; index -= 1) {
+		const sibling = parent.children[index];
+		if (!sibling || isHiddenRow(sibling)) continue;
+		return sibling;
+	}
+	return undefined;
+}
+
+/**
+ * ToolExecutionComponent.render() prepends one blank line to every self-shell row and
+ * handleMouse() maps viewport rows through that offset. Drop it when the row directly
+ * follows another tool row, so consecutive tool calls form one block.
+ */
+function collapseAdjacentToolRows(): void {
+	const prototype = ToolExecutionComponent.prototype;
+	if (Reflect.get(prototype, PATCH_FLAG) === true) return;
+	const baseAddChild = Container.prototype.addChild;
+	Container.prototype.addChild = function (this: Container, component: Component): void {
+		parents.set(component, this);
+		baseAddChild.call(this, component);
+	};
+	const baseRender = prototype.render;
+	const baseHandleMouse = prototype.handleMouse;
+	prototype.render = function (this: ToolExecutionComponent, width: number): string[] {
+		const lines = baseRender.call(this, width);
+		const drop = isSelfShellRow(this) && lines[0] === "" && previousSibling(this) instanceof ToolExecutionComponent;
+		if (drop) blankDropped.add(this);
+		else blankDropped.delete(this);
+		return drop ? lines.slice(1) : lines;
+	};
+	prototype.handleMouse = function (
+		this: ToolExecutionComponent,
+		event: TuiMouseEvent,
+	): ReturnType<ToolExecutionComponent["handleMouse"]> {
+		return baseHandleMouse.call(this, blankDropped.has(this) ? { ...event, y: event.y + 1 } : event);
+	};
+	Reflect.set(prototype, PATCH_FLAG, true);
+}
+
 export default function (pi: ExtensionAPI) {
+	collapseAdjacentToolRows();
+
 	const delegate =
 		(name: ToolName) =>
 		async (
