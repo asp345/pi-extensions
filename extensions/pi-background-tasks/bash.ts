@@ -182,7 +182,6 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 			theme: Theme,
 			context: BashRenderContext,
 		): Component => {
-			stopBashElapsed(context.toolCallId);
 			if (!options.expanded) return new Container();
 			const native = definition.renderResult;
 			if (typeof native === "function") {

@@ -1,7 +1,7 @@
 /**
  * compact-ui: one line per built-in tool call, no grouping.
  *
- * Built-in tools (read, bash, edit, write, find, grep, ls) are re-registered
+ * Built-in tools (read, edit, write, find, grep, ls) are re-registered
  * with a one-line call renderer and execution delegated to the native per-cwd
  * definitions. Collapsed results render nothing except for edit and write,
  * which share a syntax highlighted code block; expanded (Ctrl+O) results show
@@ -13,7 +13,6 @@ import { homedir } from "node:os";
 import {
 	type AgentToolResult,
 	type AgentToolUpdateCallback,
-	createBashToolDefinition,
 	createEditToolDefinition,
 	createFindToolDefinition,
 	createGrepToolDefinition,
@@ -147,7 +146,7 @@ export function toolSummary(name: string, args: unknown): CompactSummary {
 	}
 }
 
-type ToolName = "read" | "bash" | "edit" | "write" | "find" | "grep" | "ls";
+type ToolName = "read" | "edit" | "write" | "find" | "grep" | "ls";
 type NativeToolDefinition = Parameters<ExtensionAPI["registerTool"]>[0];
 
 function eraseToolType(tool: object): NativeToolDefinition {
@@ -161,7 +160,6 @@ function getTools(cwd: string): Record<ToolName, NativeToolDefinition> {
 	if (!tools) {
 		tools = {
 			read: eraseToolType(createReadToolDefinition(cwd)),
-			bash: eraseToolType(createBashToolDefinition(cwd)),
 			edit: eraseToolType(createEditToolDefinition(cwd)),
 			write: eraseToolType(createWriteToolDefinition(cwd)),
 			find: eraseToolType(createFindToolDefinition(cwd)),
@@ -468,7 +466,7 @@ export default function (pi: ExtensionAPI) {
 			return getTools(ctx.cwd)[name].execute(toolCallId, params, signal, onUpdate, ctx);
 		};
 
-	for (const name of ["read", "bash", "edit", "write", "find", "grep", "ls"] as const) {
+	for (const name of ["read", "edit", "write", "find", "grep", "ls"] as const) {
 		pi.registerTool({
 			...getTools(process.cwd())[name],
 			execute: delegate(name),
