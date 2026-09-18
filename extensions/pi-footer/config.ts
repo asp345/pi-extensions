@@ -54,7 +54,7 @@ export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 };
 
 export const DEFAULT_CONFIG: PiFooterConfig = {
-	ttl: 60,
+	ttl: 300,
 	display: DEFAULT_DISPLAY_CONFIG,
 };
 

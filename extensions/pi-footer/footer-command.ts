@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ContextStyle, DisplayKey, SpeedStyle } from "./config.ts";
+import { type ContextStyle, DEFAULT_CONFIG, type DisplayKey, type SpeedStyle } from "./config.ts";
 import type { FooterConfigStore } from "./config-store.ts";
 import type { QuotaController } from "./quota-controller.ts";
 import type { SharedState } from "./types.ts";
@@ -16,7 +16,11 @@ function registerFooterCommand(
 			const arg = args.trim() || "config";
 
 			if (arg === "config") {
-				const cfgOpts = ["Display style", "Display items", `Refresh interval (current ${store.loaded?.ttl || 60}s)`];
+				const cfgOpts = [
+					"Display style",
+					"Display items",
+					`Refresh interval (current ${store.loaded?.ttl ?? DEFAULT_CONFIG.ttl}s)`,
+				];
 				const subChoice = await ctx.ui.select("Settings", cfgOpts);
 				if (!subChoice) return;
 
@@ -116,7 +120,10 @@ function registerFooterCommand(
 					}
 					ctx.ui.notify("Status bar display config saved", "info");
 				} else if (subChoice === cfgOpts[2]) {
-					const input = await ctx.ui.input("Refresh interval in seconds", String(store.loaded?.ttl || 60));
+					const input = await ctx.ui.input(
+						"Refresh interval in seconds",
+						String(store.loaded?.ttl ?? DEFAULT_CONFIG.ttl),
+					);
 					if (input) {
 						const sec = parseInt(input, 10);
 						if (Number.isNaN(sec) || sec < 10) {

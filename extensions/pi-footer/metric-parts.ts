@@ -127,7 +127,7 @@ export function renderMetricParts(params: {
 		const prefix = quotaState.modelPrefix ? `${quotaState.modelPrefix} ` : "";
 
 		if (quotaState.error) {
-			parts.push(qColor(prefix + quotaState.display));
+			parts.push(muted(prefix + quotaState.display));
 		} else {
 			const enabledSegments = [
 				cfg.quota5h ? quotaState.segments.fiveHour : undefined,

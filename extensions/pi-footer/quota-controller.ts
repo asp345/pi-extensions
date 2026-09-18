@@ -80,11 +80,7 @@ export class QuotaController {
 	}
 
 	private errorState(provider: string, planId: string, error: QuotaError): QuotaDisplayState {
-		let display = "No quota data";
-		if (error.kind === "key_missing") display = `❌ ${error.envVar} is not configured`;
-		else if (error.kind === "api_error") display = `❌ ${truncate(error.message, 24)}`;
-		else if (error.kind === "network_error") display = "❌ Network timeout";
-		else if (error.kind === "no_plan") display = "Disabled";
+		const display = error.kind === "no_plan" ? "Disabled" : "Unavailable";
 		return { planId, provider, display, segments: {}, modelPrefix: "", color: "err", error, fetchedAt: Date.now() };
 	}
 
@@ -200,8 +196,4 @@ export class QuotaController {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = null;
 	}
-}
-
-function truncate(value: string, max: number): string {
-	return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
 }

@@ -3,9 +3,9 @@
  *
  * Built-in tools (read, bash, edit, write, find, grep, ls) are re-registered
  * with a one-line call renderer and execution delegated to the native per-cwd
- * definitions. Collapsed results render nothing except for edit (native diff)
- * and write (native content preview); expanded (Ctrl+O) results delegate to the
- * native renderer. Thinking and everything else render natively; this extension
+ * definitions. Collapsed results render nothing except for edit and write,
+ * which share a syntax highlighted code block; expanded (Ctrl+O) results show
+ * the full output. Thinking and everything else render natively; this extension
  * owns no transcript state.
  */
 
@@ -22,19 +22,22 @@ import {
 	createWriteToolDefinition,
 	type ExtensionAPI,
 	type ExtensionContext,
+	getLanguageFromPath,
+	highlightCode,
+	keyHint,
 	type Theme,
 	type ThemeColor,
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TuiMouseEvent } from "@earendil-works/pi-tui";
-import { Container, stripTerminalSequences, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const PENDING_ICON = "◌";
 const ELLIPSIS = "…";
 /** Kept empty at the right edge so a truncated line does not touch the viewport border. */
 const RIGHT_MARGIN = 1;
 const ALWAYS_RENDERED_RESULTS: ReadonlySet<ToolName> = new Set(["edit", "write"]);
-const WRITE_INDENT = 3;
+const PREVIEW_LINES = 10;
 
 function shortenPath(path: string): string {
 	const home = homedir();
@@ -178,7 +181,6 @@ export interface CompactCallStatus {
 export interface CompactSummary {
 	name: string;
 	content: string;
-	/** Kept visible when the content is truncated to the viewport width. */
 	suffix?: string;
 }
 
@@ -242,39 +244,6 @@ function wrapRenderCall(name: ToolName): NonNullable<NativeToolDefinition["rende
 	return render as NonNullable<NativeToolDefinition["renderCall"]>;
 }
 
-/**
- * Indents a native renderer and drops its leading header: `skip` lines plus the blank lines that
- * follow (the edit result renderer prepends a Spacer(1), the write call renderer a `write <path>`
- * line).
- */
-class TrimmedResult implements Component {
-	private dropped = 0;
-
-	constructor(
-		readonly inner: Component,
-		readonly skip: number,
-		readonly indent: number,
-	) {}
-
-	render(width: number): string[] {
-		const lines = this.inner.render(Math.max(1, width - this.indent));
-		if (lines.length === 0) return lines;
-		let start = Math.min(this.skip, lines.length);
-		while (start < lines.length && stripTerminalSequences(lines[start] ?? "").trim() === "") start += 1;
-		this.dropped = start;
-		const indent = " ".repeat(this.indent);
-		return lines.slice(start).map((line) => (line === "" ? line : `${indent}${line}`));
-	}
-
-	invalidate(): void {
-		this.inner.invalidate();
-	}
-
-	handleMouse(event: TuiMouseEvent) {
-		return this.inner.handleMouse?.({ ...event, y: event.y + this.dropped });
-	}
-}
-
 interface RenderResultContext {
 	cwd: string;
 	args: unknown;
@@ -282,24 +251,126 @@ interface RenderResultContext {
 	lastComponent?: Component;
 }
 
-type NativeRenderCall = (args: unknown, theme: Theme, context: RenderResultContext) => Component;
+type CodeLineKind = "added" | "removed" | "context";
+
+interface CodeLine {
+	kind: CodeLineKind;
+	sign: string;
+	number: string;
+	code: string;
+	codeColor?: ThemeColor;
+}
+
+const GUTTER_COLOR: Record<CodeLineKind, ThemeColor> = {
+	added: "toolDiffAdded",
+	removed: "toolDiffRemoved",
+	context: "toolDiffContext",
+};
+
+class CodeBlock implements Component {
+	constructor(
+		private lines: CodeLine[],
+		private hint: string,
+		private theme: Theme,
+	) {}
+
+	setContent(lines: CodeLine[], hint: string, theme: Theme): void {
+		this.lines = lines;
+		this.hint = hint;
+		this.theme = theme;
+	}
+
+	invalidate(): void {}
+
+	render(width: number): string[] {
+		const pad = (line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line)));
+		const out: string[] = [];
+		for (const line of this.lines) {
+			const sign = this.theme.fg(GUTTER_COLOR[line.kind], ` ${line.sign}`);
+			const number = this.theme.fg("thinkingText", ` ${line.number} `);
+			const code = line.codeColor ? this.theme.fg(line.codeColor, line.code) : line.code;
+			for (const wrapped of wrapTextWithAnsi(`${sign}${number}${code}`, width)) {
+				const padded = pad(wrapped);
+				if (line.kind === "added") out.push(this.theme.bg("toolSuccessBg", padded));
+				else if (line.kind === "removed") out.push(this.theme.bg("toolErrorBg", padded));
+				else out.push(padded);
+			}
+		}
+		if (this.hint) {
+			const first = this.lines[0];
+			const indent = " ".repeat(first ? first.number.length + 4 : 0);
+			for (const wrapped of wrapTextWithAnsi(this.hint, Math.max(1, width - indent.length)))
+				out.push(pad(`${indent}${wrapped}`));
+		}
+		return out;
+	}
+}
+
+function displayLines(codes: readonly string[]): string[] {
+	return codes.map((code) => code.replace(/\r/gu, "").replace(/\t/gu, "   "));
+}
+
+function highlightLines(display: readonly string[], path: string): string[] {
+	const lang = path ? getLanguageFromPath(path) : undefined;
+	if (!lang) return [...display];
+	const highlighted = highlightCode(display.join("\n"), lang);
+	return display.map((code, index) => highlighted[index] ?? code);
+}
+
+function diffGutterWidth(lines: readonly string[]): number {
+	for (const line of lines) {
+		const match = /^[-+ ] *\d+ /.exec(line);
+		if (match) return match[0].length;
+	}
+	return 0;
+}
+
+function diffCodeLines(diff: string, path: string): CodeLine[] {
+	const lines = diff.split("\n");
+	const gutterWidth = diffGutterWidth(lines);
+	const display = displayLines(lines.map((line) => line.slice(gutterWidth)));
+	const highlighted = highlightLines(display, path);
+	return lines.map((line, index) => {
+		const sign = line.slice(0, 1);
+		const number = line.slice(1, Math.max(1, gutterWidth - 1));
+		const plain = display[index] ?? "";
+		if (!/\d/.test(number)) return { kind: "context", sign, number, code: plain, codeColor: "muted" };
+		if (sign === "-") return { kind: "removed", sign, number, code: plain, codeColor: "toolDiffRemoved" };
+		return { kind: sign === "+" ? "added" : "context", sign, number, code: highlighted[index] ?? plain };
+	});
+}
+
+function contentCodeLines(content: string, path: string): CodeLine[] {
+	const raw = content.split("\n");
+	while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
+	const codes = highlightLines(displayLines(raw), path);
+	const numberWidth = String(raw.length).length;
+	return raw.map((_line, index) => ({
+		kind: "context",
+		sign: " ",
+		number: String(index + 1).padStart(numberWidth, " "),
+		code: codes[index] ?? "",
+	}));
+}
+
+function codeBlock(lines: CodeLine[], expanded: boolean, theme: Theme, previous: Component | undefined): Component {
+	const shown = expanded ? lines.length : Math.min(lines.length, PREVIEW_LINES);
+	const remaining = lines.length - shown;
+	const hint =
+		remaining > 0
+			? `${theme.fg("muted", `... (${remaining} more lines, ${lines.length} total,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`
+			: "";
+	const block = previous instanceof CodeBlock ? previous : new CodeBlock([], "", theme);
+	block.setContent(lines.slice(0, shown), hint, theme);
+	return block;
+}
+
 type NativeRenderResult = (
 	result: unknown,
 	options: { expanded: boolean },
 	theme: Theme,
 	context: RenderResultContext,
 ) => Component;
-
-function trimmedResult(previous: Component | undefined, component: Component, skip: number, indent: number): Component {
-	if (
-		previous instanceof TrimmedResult &&
-		previous.inner === component &&
-		previous.skip === skip &&
-		previous.indent === indent
-	)
-		return previous;
-	return new TrimmedResult(component, skip, indent);
-}
 
 function wrapRenderResult(name: ToolName): NonNullable<NativeToolDefinition["renderResult"]> {
 	const render = (
@@ -309,18 +380,22 @@ function wrapRenderResult(name: ToolName): NonNullable<NativeToolDefinition["ren
 		context: RenderResultContext,
 	): Component => {
 		if (!options.expanded && !ALWAYS_RENDERED_RESULTS.has(name)) return new Container();
-		const tool = getTools(context.cwd)[name];
 		const previous = context.lastComponent;
-		const lastComponent = previous instanceof TrimmedResult ? previous.inner : previous;
-		const nativeContext = { ...context, lastComponent };
-		if (name === "write" && !context.isError) {
-			const nativeCall = tool.renderCall as NativeRenderCall | undefined;
-			if (typeof nativeCall !== "function") return new Container();
-			return trimmedResult(previous, nativeCall(context.args, theme, nativeContext), 1, WRITE_INDENT);
+		const path = argString(context.args, "path");
+		if (!context.isError) {
+			if (name === "edit") {
+				const diff = (result as { details?: { diff?: unknown } }).details?.diff;
+				if (typeof diff === "string" && diff)
+					return codeBlock(diffCodeLines(diff, path), options.expanded, theme, previous);
+			}
+			if (name === "write") {
+				const content = argString(context.args, "content");
+				if (content) return codeBlock(contentCodeLines(content, path), options.expanded, theme, previous);
+			}
 		}
-		const native = tool.renderResult as NativeRenderResult | undefined;
+		const native = getTools(context.cwd)[name].renderResult as NativeRenderResult | undefined;
 		if (typeof native !== "function") return new Container();
-		return trimmedResult(previous, native(result, options, theme, nativeContext), 0, 0);
+		return native(result, options, theme, { ...context, lastComponent: previous });
 	};
 	return render as NonNullable<NativeToolDefinition["renderResult"]>;
 }
@@ -352,11 +427,6 @@ function previousSibling(row: ToolExecutionComponent): Component | undefined {
 	return undefined;
 }
 
-/**
- * ToolExecutionComponent.render() prepends one blank line to every self-shell row and
- * handleMouse() maps viewport rows through that offset. Drop it when the row directly
- * follows another tool row, so consecutive tool calls form one block.
- */
 function collapseAdjacentToolRows(): void {
 	const prototype = ToolExecutionComponent.prototype;
 	if (Reflect.get(prototype, PATCH_FLAG) === true) return;
