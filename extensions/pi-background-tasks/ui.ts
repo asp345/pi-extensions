@@ -81,7 +81,6 @@ export class BackgroundUI {
 			return;
 		}
 		this.pendingEvents.set(event.task.id, event);
-		this.active?.ui.notify(eventText(event), "info");
 		void this.flushEvents();
 	}
 

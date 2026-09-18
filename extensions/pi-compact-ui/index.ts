@@ -37,7 +37,7 @@ const ELLIPSIS = "…";
 /** Kept empty at the right edge so a truncated line does not touch the viewport border. */
 const RIGHT_MARGIN = 1;
 const ALWAYS_RENDERED_RESULTS: ReadonlySet<ToolName> = new Set(["edit", "write"]);
-const PREVIEW_LINES = 10;
+const PREVIEW_LINES = 30;
 
 function shortenPath(path: string): string {
 	const home = homedir();

@@ -80,7 +80,7 @@ export class QuotaController {
 	}
 
 	private errorState(provider: string, planId: string, error: QuotaError): QuotaDisplayState {
-		const display = error.kind === "no_plan" ? "Disabled" : "Unavailable";
+		const display = error.kind === "no_plan" ? "Disabled" : "No data";
 		return { planId, provider, display, segments: {}, modelPrefix: "", color: "err", error, fetchedAt: Date.now() };
 	}
 
