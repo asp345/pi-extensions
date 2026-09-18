@@ -25,8 +25,8 @@ Code:
 - Use auto formatter if available.
 
 Comments:
-- Only comment the constraints that are not visible on code or important references (theorem, definition, algorithm, source URL).
-- Less to no comments are preferable.
+- Do not write comments in general.
+- If important references (theorem, definition, algorithm, source URL) or some constraints invisible on the code should be shown, add comments only after asking the user.
 - Never write change history, obvious restatements, descriptive headers, or correctness emphasis.
 
 Documentation:
