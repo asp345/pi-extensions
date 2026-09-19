@@ -1,7 +1,7 @@
 import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.ts";
-import { bounded, type CompletionDetails, completionDetails } from "./format.ts";
+import { bounded, type CompletionDetails, completionDetails, RESULT_BYTES, RESULT_LINES } from "./format.ts";
 import { AgentManager } from "./manager.ts";
 import { NotificationQueue } from "./notifications.ts";
 import { parseStoredRecord, type StoredAgentState, storeRecord } from "./state.ts";
@@ -112,7 +112,9 @@ export default function subagents(pi: ExtensionAPI): void {
 			return !record || record.resultConsumed || record.status === "running" ? [] : [record];
 		});
 		if (!records.length) return;
-		const perResult = Math.max(200, Math.floor((NOTIFICATION_BYTES - 300) / records.length));
+		const single = records.length === 1;
+		const perResult = single ? RESULT_BYTES : Math.max(200, Math.floor((NOTIFICATION_BYTES - 300) / records.length));
+		const perLines = single ? RESULT_LINES : 12;
 		const content = bounded(
 			[
 				"Background subagents finished:",
@@ -123,12 +125,12 @@ export default function subagents(pi: ExtensionAPI): void {
 							: record.status === "stopped"
 								? "Agent was stopped and can be resumed."
 								: record.error || "Agent failed.";
-					return `\n${record.id} (${record.type}) ${record.status}${record.usedFallback ? ` via fallback model ${record.model ?? "configured"}` : ""}:\n${bounded(message, perResult, 12).text}`;
+					return `\n${record.id} (${record.type}) ${record.status}${record.usedFallback ? ` via fallback model ${record.model ?? "configured"}` : ""}:\n${bounded(message, perResult, perLines).text}`;
 				}),
 				"\nUse get_subagent_result for bounded transcript retrieval.",
 			].join("\n"),
-			NOTIFICATION_BYTES,
-			60,
+			single ? RESULT_BYTES + 600 : NOTIFICATION_BYTES,
+			single ? RESULT_LINES + 10 : 60,
 		).text;
 		pi.sendMessage<CompletionBatchDetails>(
 			{

@@ -2,7 +2,7 @@ import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 import type { AgentRecord } from "./types.ts";
 
 export const RESULT_BYTES = 8_000;
-const RESULT_LINES = 120;
+export const RESULT_LINES = 120;
 
 export interface CompletionDetails {
 	id: string;
@@ -17,11 +17,7 @@ export interface CompletionDetails {
 export function foregroundResult(record: AgentRecord): AgentToolResult<Record<string, unknown>> {
 	if (record.status === "error") throw new Error(record.error || `${record.type} failed.`);
 	if (record.status === "stopped") throw new Error(`${record.type} was stopped.`);
-	const page = bounded(record.result || "No final answer.", RESULT_BYTES, RESULT_LINES);
-	const suffix = page.truncated
-		? `\n\n[Final answer truncated; use get_subagent_result with id ${record.id} for bounded pages.]`
-		: "";
-	return result(page.text + suffix, metadata(record));
+	return result(record.result || "No final answer.", metadata(record));
 }
 
 export function result(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
