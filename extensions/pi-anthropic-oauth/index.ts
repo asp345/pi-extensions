@@ -236,8 +236,8 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 	}
 }
 
-const EXTRA_USAGE_MAX_RETRIES = 3;
-const EXTRA_USAGE_BASE_DELAY_MS = 2000;
+const EXTRA_USAGE_MAX_RETRIES = 4;
+const EXTRA_USAGE_BASE_DELAY_MS = 500;
 
 function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
 	const outer = createAssistantMessageEventStream();

@@ -37,7 +37,7 @@ export const renderTaskEvent: MessageRenderer<TaskEvent> = (message, _options, t
 	return {
 		invalidate() {},
 		render(width: number): string[] {
-			return [truncateToWidth(` ${theme.fg("dim", text)}`, width)];
+			return [theme.fg("dim", truncateToWidth(` ${text}`, width))];
 		},
 	};
 };
@@ -154,7 +154,7 @@ export class BackgroundUI {
 							preview ? theme.fg("dim", `› ${preview}`) : "",
 						]
 							.filter(Boolean)
-							.map((line) => truncateToWidth(line, width));
+							.map((line) => truncateToWidth(line, width, theme.fg("dim", "...")));
 					},
 				};
 			},
