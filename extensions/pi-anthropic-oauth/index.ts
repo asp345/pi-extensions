@@ -236,22 +236,34 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 	}
 }
 
+const EXTRA_USAGE_MAX_RETRIES = 3;
+const EXTRA_USAGE_BASE_DELAY_MS = 2000;
+
 function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
 	const outer = createAssistantMessageEventStream();
 	void (async () => {
 		try {
-			for await (const event of inner) {
-				if (event.type === "error" && isExtraUsageError(event.error.errorMessage)) {
-					event.error.errorMessage = `429 rate limit (Anthropic extra usage, retryable): ${event.error.errorMessage}`;
+			for (let attempt = 0; ; attempt++) {
+				const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
+				let retry = false;
+				for await (const event of inner) {
+					if (event.type === "error" && isExtraUsageError(event.error.errorMessage)) {
+						if (options?.signal?.aborted) {
+							outer.push(event);
+							return;
+						}
+						if (attempt < EXTRA_USAGE_MAX_RETRIES) {
+							retry = true;
+							break;
+						}
+					}
+					outer.push(event);
 				}
-				outer.push(event);
+				if (!retry) return;
+				await sleep(EXTRA_USAGE_BASE_DELAY_MS * 2 ** attempt, undefined, { signal: options?.signal });
 			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			const errorMessage = isExtraUsageError(message)
-				? `429 rate limit (Anthropic extra usage, retryable): ${message}`
-				: message;
 			outer.push({
 				type: "error",
 				reason: "error",
@@ -270,7 +282,7 @@ function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptio
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 					},
 					stopReason: "error",
-					errorMessage,
+					errorMessage: message,
 					timestamp: Date.now(),
 				},
 			});
