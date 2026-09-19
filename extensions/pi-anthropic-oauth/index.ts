@@ -5,6 +5,7 @@ import {
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
 	type Context,
+	createAssistantMessageEventStream,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
@@ -236,7 +237,53 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 }
 
 function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
+	const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
+	const outer = createAssistantMessageEventStream();
+	void (async () => {
+		try {
+			for await (const event of inner) {
+				if (event.type === "error" && isExtraUsageError(event.error.errorMessage)) {
+					event.error.errorMessage = `429 rate limit (Anthropic extra usage, retryable): ${event.error.errorMessage}`;
+				}
+				outer.push(event);
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const errorMessage = isExtraUsageError(message)
+				? `429 rate limit (Anthropic extra usage, retryable): ${message}`
+				: message;
+			outer.push({
+				type: "error",
+				reason: "error",
+				error: {
+					role: "assistant",
+					content: [],
+					api: model.api,
+					provider: model.provider,
+					model: model.id,
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "error",
+					errorMessage,
+					timestamp: Date.now(),
+				},
+			});
+		} finally {
+			outer.end();
+		}
+	})();
+	return outer;
+}
+
+function isExtraUsageError(message: string | undefined): boolean {
+	if (!message) return false;
+	return /extra usage|Third-party apps now draw|claude\.ai\/settings\/usage/i.test(message);
 }
 
 export default function anthropicOAuth(pi: ExtensionAPI): void {
