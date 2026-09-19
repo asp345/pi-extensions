@@ -68,7 +68,7 @@ export function formatProviderQuota(report: UsageReport) {
 	const reset = resetLabel(report.limits);
 	if (reset) segments.reset = reset;
 	const display = formatQuotaSegments(segments);
-	if (!display) return { modelPrefix: "", display: "No quota data", segments: {}, color: "err" as const };
+	if (!display) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
 
 	return {
 		modelPrefix: "",

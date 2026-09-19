@@ -142,7 +142,7 @@ export const commandCodeQuotaPlan: TokenPlan = {
 			if (diff > 0 && diff < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(diff);
 		}
 		const color = quotaColor(intervalRemaining, weeklyRemaining, monthlyPercent);
-		const display = formatQuotaSegments(segments) || "No quota data";
+		const display = formatQuotaSegments(segments) || "No data";
 		return { modelPrefix: "", display, segments, color };
 	},
 };

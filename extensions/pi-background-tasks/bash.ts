@@ -120,7 +120,7 @@ function bashCallLine(args: unknown, theme: Theme, context: BashRenderContext): 
 	}
 	const secs = Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000));
 	const base = toolSummary("bash", args);
-	return compactCallLine("bash", args, theme, context, { ...base, content: `${base.content} (${secs}s)` });
+	return compactCallLine("bash", args, theme, context, { ...base, suffix: `(${secs}s)` });
 }
 
 function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, foreground: Map<string, AbortController>) {
@@ -182,7 +182,6 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 			theme: Theme,
 			context: BashRenderContext,
 		): Component => {
-			stopBashElapsed(context.toolCallId);
 			if (!options.expanded) return new Container();
 			const native = definition.renderResult;
 			if (typeof native === "function") {
