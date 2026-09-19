@@ -29,7 +29,14 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TuiMouseEvent } from "@earendil-works/pi-tui";
-import { Container, sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Container,
+	sliceByColumn,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 const PENDING_ICON = "◌";
 const ELLIPSIS = "…";
@@ -181,6 +188,22 @@ export interface CompactSummary {
 	name: string;
 	content: string;
 	suffix?: string;
+}
+
+export class PadLeft implements Component {
+	constructor(
+		readonly inner: Component,
+		private readonly columns = 1,
+	) {}
+
+	render(width: number): string[] {
+		const prefix = " ".repeat(Math.max(0, this.columns));
+		return this.inner.render(Math.max(1, width - this.columns)).map((line) => `${prefix}${line}`);
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
 }
 
 class CompactLine implements Component {
@@ -421,22 +444,24 @@ function wrapRenderResult(name: ToolName): NonNullable<NativeToolDefinition["ren
 		context: RenderResultContext,
 	): Component => {
 		if (!options.expanded && !ALWAYS_RENDERED_RESULTS.has(name)) return new Container();
-		const previous = context.lastComponent;
+		const prevInner = context.lastComponent instanceof PadLeft ? context.lastComponent.inner : context.lastComponent;
 		const path = argString(context.args, "path");
 		if (!context.isError) {
 			if (name === "edit") {
 				const diff = (result as { details?: { diff?: unknown } }).details?.diff;
 				if (typeof diff === "string" && diff)
-					return codeBlock(diffCodeLines(diff, path), options.expanded, theme, previous);
+					return codeBlock(diffCodeLines(diff, path), options.expanded, theme, prevInner);
 			}
 			if (name === "write") {
 				const content = argString(context.args, "content");
-				if (content) return codeBlock(contentCodeLines(content, path), options.expanded, theme, previous);
+				if (content) return codeBlock(contentCodeLines(content, path), options.expanded, theme, prevInner);
 			}
 		}
 		const native = getTools(context.cwd)[name].renderResult as NativeRenderResult | undefined;
 		if (typeof native !== "function") return new Container();
-		return native(result, options, theme, { ...context, lastComponent: previous });
+		const lastComponent = prevInner instanceof Text ? prevInner : undefined;
+		const component = native(result, options, theme, { ...context, lastComponent });
+		return new PadLeft(component);
 	};
 	return render as NonNullable<NativeToolDefinition["renderResult"]>;
 }

@@ -152,11 +152,13 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			return runtime.stop(id, "agent") ? result(stoppingText(id)) : result(NO_MATCH, true);
 		},
 		renderCall(args, theme, context) {
-			return compactCallLine("background_task", args, theme, context, taskCallSummary(args, runtime)) as Component;
+			const summary = taskCallSummary(args, runtime);
+			if (summary.name === "done") return new Text(theme.fg("dim", `Read ${args.id?.trim() || "task"} result`), 0, 0);
+			return compactCallLine("background_task", args, theme, context, summary) as Component;
 		},
 		renderResult(result, options, _theme, _context): Component {
 			if (!options.expanded) return new Container();
-			return new Text(firstText(result), 0, 0);
+			return new Text(firstText(result), 1, 0);
 		},
 		renderShell: "self",
 	});

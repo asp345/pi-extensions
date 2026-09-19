@@ -12,8 +12,8 @@ import {
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
-import { Container } from "@earendil-works/pi-tui";
-import { compactCallLine, toolSummary } from "pi-compact-ui";
+import { Container, Text } from "@earendil-works/pi-tui";
+import { compactCallLine, PadLeft, toolSummary } from "pi-compact-ui";
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
@@ -185,14 +185,18 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 			if (!options.expanded) return new Container();
 			const native = definition.renderResult;
 			if (typeof native === "function") {
-				return (
+				const rawLast = (context as unknown as { lastComponent?: Component }).lastComponent;
+				const prevInner = rawLast instanceof PadLeft ? rawLast.inner : rawLast;
+				const lastComponent = prevInner instanceof Text ? prevInner : undefined;
+				const component = (
 					native as (
 						callResult: unknown,
 						callOptions: unknown,
 						callTheme: Theme,
 						callContext: { cwd: string },
 					) => Component
-				)(result, options, theme, context);
+				)(result, options, theme, { ...context, lastComponent } as { cwd: string });
+				return new PadLeft(component);
 			}
 			return new Container();
 		}) as typeof definition.renderResult,

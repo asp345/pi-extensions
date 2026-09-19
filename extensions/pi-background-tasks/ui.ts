@@ -1,10 +1,11 @@
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-	MessageRenderer,
+import {
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+	keyHint,
+	type MessageRenderer,
 } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import { Container, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	duration,
 	eventText,
@@ -28,18 +29,27 @@ const WIDGET = "pi-background-tasks";
 const TASK_ROWS = 8;
 const OUTPUT_ROWS = 10;
 
-export const renderTaskEvent: MessageRenderer<TaskEvent> = (message, _options, theme) => {
+export const renderTaskEvent: MessageRenderer<TaskEvent> = (message, options, theme) => {
 	const event = message.details as TaskEvent | undefined;
 	if (!event || typeof event !== "object" || !("task" in event)) return undefined;
 	const task = event.task;
 	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
+	const failed = task.status !== "completed" || task.timedOut;
+	const mark = theme.fg(failed ? "warning" : "success", failed ? "!" : "✓");
 	const text = `${task.id} · ${oneLine(task.command)} · ${duration(elapsed)}`;
-	return {
-		invalidate() {},
-		render(width: number): string[] {
-			return [theme.fg("dim", truncateToWidth(` ${text}`, width))];
-		},
-	};
+	const head = ` ${mark} ${theme.fg("toolTitle", theme.bold("done"))} ${theme.fg("dim", text)}`;
+	if (!options.expanded) {
+		return {
+			invalidate() {},
+			render(width: number): string[] {
+				return [truncateToWidth(`${head} ${keyHint("app.tools.expand", "to expand")}`, width)];
+			},
+		};
+	}
+	const container = new Container();
+	container.addChild(new Text(head, 0, 0));
+	container.addChild(new Text(theme.fg("toolOutput", event.output.trim() || "(no output)"), 1, 0));
+	return container;
 };
 
 export class BackgroundUI {
