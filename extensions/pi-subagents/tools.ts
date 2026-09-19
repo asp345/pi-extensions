@@ -117,10 +117,10 @@ export function registerSubagentTools(
 		renderCall(args, theme, context) {
 			return compactCallLine("launch_subagent", args, theme, context) as Component;
 		},
-		renderResult(toolResult, options, theme, _context): Component {
+		renderResult(toolResult, options, _theme, _context): Component {
 			if (!options.expanded) return new Container();
 			const text = toolResult.content.find((part) => part.type === "text");
-			return new Text(theme.fg("toolOutput", text?.type === "text" ? text.text : ""), 0, 0);
+			return new Text(text?.type === "text" ? text.text : "", 1, 0);
 		},
 		renderShell: "self",
 	});
@@ -137,33 +137,50 @@ export function registerSubagentTools(
 			offset: Type.Optional(Type.Integer({ minimum: 0 })),
 			limit: Type.Optional(Type.Integer({ minimum: 1, maximum: RESULT_BYTES })),
 		}),
+		renderCall(args, theme, context) {
+			const params = args as { id?: unknown; transcript?: unknown };
+			const id = typeof params.id === "string" && params.id ? params.id.slice(0, 8) : "…";
+			return compactCallLine("get_subagent_result", args, theme, context, {
+				name: params.transcript === true ? "transcript" : "result",
+				content: id,
+			}) as Component;
+		},
+		renderResult(toolResult, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			const text = toolResult.content.find((part) => part.type === "text");
+			return new Text(text?.type === "text" ? text.text : "", 1, 0);
+		},
+		renderShell: "self",
 		async execute(_callId, params) {
 			const record = manager.get(params.id);
 			if (!record) return result(`No subagent matched ${params.id}.`, { id: params.id, found: false });
 			if (record.status === "running") {
 				return result(formatMetadata(record), metadata(record));
 			}
-			const source = params.transcript
-				? record.messages.length
-					? compactTranscript(record.messages)
-					: "[Transcript unavailable: the subagent session was not created or has been disposed.]"
-				: record.result || record.error || "No final answer.";
+			if (!params.transcript) {
+				record.resultConsumed = true;
+				clearPendingNotifications(record.id);
+				return result(
+					`${formatMetadata(record)}\n\nFinal answer:\n${record.result || record.error || "No final answer."}`,
+					{ ...metadata(record), transcript: false },
+				);
+			}
+			const source = record.messages.length
+				? compactTranscript(record.messages)
+				: "[Transcript unavailable: the subagent session was not created or has been disposed.]";
 			const page = pageText(source, params.offset ?? 0, params.limit ?? RESULT_BYTES);
 			if (page.nextOffset === null) {
 				record.resultConsumed = true;
 				clearPendingNotifications(record.id);
 			}
 			const suffix = page.nextOffset === null ? "" : `\n\nNext offset: ${page.nextOffset}`;
-			return result(
-				`${formatMetadata(record)}\n\n${params.transcript ? "Transcript" : "Final answer"}:\n${page.text}${suffix}`,
-				{
-					...metadata(record),
-					transcript: params.transcript === true,
-					offset: page.offset,
-					totalBytes: page.totalBytes,
-					nextOffset: page.nextOffset,
-				},
-			);
+			return result(`${formatMetadata(record)}\n\nTranscript:\n${page.text}${suffix}`, {
+				...metadata(record),
+				transcript: true,
+				offset: page.offset,
+				totalBytes: page.totalBytes,
+				nextOffset: page.nextOffset,
+			});
 		},
 	});
 

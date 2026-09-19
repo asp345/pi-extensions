@@ -29,10 +29,18 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import type { Component, TuiMouseEvent } from "@earendil-works/pi-tui";
-import { Container, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Container,
+	sliceByColumn,
+	Text,
+	truncateToWidth,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 const PENDING_ICON = "◌";
 const ELLIPSIS = "…";
+const MIN_NUMBER_WIDTH = 3;
 /** Kept empty at the right edge so a truncated line does not touch the viewport border. */
 const RIGHT_MARGIN = 1;
 const ALWAYS_RENDERED_RESULTS: ReadonlySet<ToolName> = new Set(["edit", "write"]);
@@ -182,6 +190,22 @@ export interface CompactSummary {
 	suffix?: string;
 }
 
+export class PadLeft implements Component {
+	constructor(
+		readonly inner: Component,
+		private readonly columns = 1,
+	) {}
+
+	render(width: number): string[] {
+		const prefix = " ".repeat(Math.max(0, this.columns));
+		return this.inner.render(Math.max(1, width - this.columns)).map((line) => `${prefix}${line}`);
+	}
+
+	invalidate(): void {
+		this.inner.invalidate();
+	}
+}
+
 class CompactLine implements Component {
 	constructor(
 		private readonly head: string,
@@ -265,6 +289,41 @@ const GUTTER_COLOR: Record<CodeLineKind, ThemeColor> = {
 	context: "toolDiffContext",
 };
 
+function wrapCodeLine(prefix: string, code: string, width: number): string[] {
+	const prefixWidth = visibleWidth(prefix);
+	const codeWidth = visibleWidth(code);
+	if (prefixWidth + codeWidth <= width) return [`${prefix}${code}`];
+	if (width - prefixWidth < 1) {
+		const full = `${prefix}${code}`;
+		const total = visibleWidth(full);
+		const out: string[] = [];
+		let col = 0;
+		const take = Math.max(1, width);
+		while (col < total) {
+			const chunk = sliceByColumn(full, col, take);
+			const w = visibleWidth(chunk);
+			if (w <= 0 || out.length > 1000) break;
+			out.push(chunk);
+			col += w;
+		}
+		return out.length > 0 ? out : [full];
+	}
+	const chunkWidth = width - prefixWidth;
+	const indent = " ".repeat(prefixWidth);
+	const out: string[] = [];
+	let col = 0;
+	let first = true;
+	while (col < codeWidth) {
+		const chunk = sliceByColumn(code, col, chunkWidth);
+		const w = visibleWidth(chunk);
+		if (w <= 0 || out.length > 1000) break;
+		out.push(`${first ? prefix : indent}${chunk}`);
+		col += w;
+		first = false;
+	}
+	return out.length > 0 ? out : [`${prefix}${code}`];
+}
+
 class CodeBlock implements Component {
 	constructor(
 		private lines: CodeLine[],
@@ -284,10 +343,10 @@ class CodeBlock implements Component {
 		const pad = (line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line)));
 		const out: string[] = [];
 		for (const line of this.lines) {
-			const sign = this.theme.fg(GUTTER_COLOR[line.kind], ` ${line.sign}`);
+			const sign = this.theme.fg(GUTTER_COLOR[line.kind], line.sign);
 			const number = this.theme.fg("thinkingText", ` ${line.number} `);
 			const code = line.codeColor ? this.theme.fg(line.codeColor, line.code) : line.code;
-			for (const wrapped of wrapTextWithAnsi(`${sign}${number}${code}`, width)) {
+			for (const wrapped of wrapCodeLine(`${sign}${number}`, code, width)) {
 				const padded = pad(wrapped);
 				if (line.kind === "added") out.push(this.theme.bg("toolSuccessBg", padded));
 				else if (line.kind === "removed") out.push(this.theme.bg("toolErrorBg", padded));
@@ -296,7 +355,7 @@ class CodeBlock implements Component {
 		}
 		if (this.hint) {
 			const first = this.lines[0];
-			const indent = " ".repeat(first ? first.number.length + 4 : 0);
+			const indent = " ".repeat(first ? first.number.length + 3 : 0);
 			for (const wrapped of wrapTextWithAnsi(this.hint, Math.max(1, width - indent.length)))
 				out.push(pad(`${indent}${wrapped}`));
 		}
@@ -328,11 +387,18 @@ function diffCodeLines(diff: string, path: string): CodeLine[] {
 	const gutterWidth = diffGutterWidth(lines);
 	const display = displayLines(lines.map((line) => line.slice(gutterWidth)));
 	const highlighted = highlightLines(display, path);
+	let numberWidth = MIN_NUMBER_WIDTH;
+	for (const line of lines) {
+		const digits = /^[-+ ] *(\d+)/.exec(line)?.[1];
+		if (digits) numberWidth = Math.max(numberWidth, digits.length);
+	}
 	return lines.map((line, index) => {
 		const sign = line.slice(0, 1);
-		const number = line.slice(1, Math.max(1, gutterWidth - 1));
+		const rawNumber = line.slice(1, Math.max(1, gutterWidth - 1));
+		const digits = /\d/.test(rawNumber) ? rawNumber.trim() : "";
+		const number = digits.padStart(numberWidth, " ");
 		const plain = display[index] ?? "";
-		if (!/\d/.test(number)) return { kind: "context", sign, number, code: plain, codeColor: "muted" };
+		if (!digits) return { kind: "context", sign, number, code: plain, codeColor: "muted" };
 		if (sign === "-") return { kind: "removed", sign, number, code: plain, codeColor: "toolDiffRemoved" };
 		return { kind: sign === "+" ? "added" : "context", sign, number, code: highlighted[index] ?? plain };
 	});
@@ -342,7 +408,7 @@ function contentCodeLines(content: string, path: string): CodeLine[] {
 	const raw = content.split("\n");
 	while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
 	const codes = highlightLines(displayLines(raw), path);
-	const numberWidth = String(raw.length).length;
+	const numberWidth = Math.max(MIN_NUMBER_WIDTH, String(raw.length).length);
 	return raw.map((_line, index) => ({
 		kind: "context",
 		sign: " ",
@@ -378,22 +444,24 @@ function wrapRenderResult(name: ToolName): NonNullable<NativeToolDefinition["ren
 		context: RenderResultContext,
 	): Component => {
 		if (!options.expanded && !ALWAYS_RENDERED_RESULTS.has(name)) return new Container();
-		const previous = context.lastComponent;
+		const prevInner = context.lastComponent instanceof PadLeft ? context.lastComponent.inner : context.lastComponent;
 		const path = argString(context.args, "path");
 		if (!context.isError) {
 			if (name === "edit") {
 				const diff = (result as { details?: { diff?: unknown } }).details?.diff;
 				if (typeof diff === "string" && diff)
-					return codeBlock(diffCodeLines(diff, path), options.expanded, theme, previous);
+					return codeBlock(diffCodeLines(diff, path), options.expanded, theme, prevInner);
 			}
 			if (name === "write") {
 				const content = argString(context.args, "content");
-				if (content) return codeBlock(contentCodeLines(content, path), options.expanded, theme, previous);
+				if (content) return codeBlock(contentCodeLines(content, path), options.expanded, theme, prevInner);
 			}
 		}
 		const native = getTools(context.cwd)[name].renderResult as NativeRenderResult | undefined;
 		if (typeof native !== "function") return new Container();
-		return native(result, options, theme, { ...context, lastComponent: previous });
+		const lastComponent = prevInner instanceof Text ? prevInner : undefined;
+		const component = native(result, options, theme, { ...context, lastComponent });
+		return new PadLeft(component);
 	};
 	return render as NonNullable<NativeToolDefinition["renderResult"]>;
 }

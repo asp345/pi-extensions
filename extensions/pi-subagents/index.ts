@@ -1,7 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { type ExtensionAPI, type ExtensionContext, getMarkdownTheme, keyHint } from "@earendil-works/pi-coding-agent";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { definitionSummary, discoverDefinitions, resolveDefinition } from "./definitions.ts";
-import { bounded, type CompletionDetails, completionDetails } from "./format.ts";
+import { bounded, type CompletionDetails, completionDetails, RESULT_BYTES, RESULT_LINES } from "./format.ts";
 import { AgentManager } from "./manager.ts";
 import { NotificationQueue } from "./notifications.ts";
 import { parseStoredRecord, type StoredAgentState, storeRecord } from "./state.ts";
@@ -23,6 +23,14 @@ interface SubagentReportDetails {
 
 interface CompletionBatchDetails {
 	records: CompletionDetails[];
+}
+
+function customText(content: string | Array<{ type?: string; text?: string }>): string {
+	if (typeof content === "string") return content;
+	return content
+		.filter((part) => part.type === "text")
+		.map((part) => part.text ?? "")
+		.join("\n");
 }
 
 export default function subagents(pi: ExtensionAPI): void {
@@ -104,7 +112,9 @@ export default function subagents(pi: ExtensionAPI): void {
 			return !record || record.resultConsumed || record.status === "running" ? [] : [record];
 		});
 		if (!records.length) return;
-		const perResult = Math.max(200, Math.floor((NOTIFICATION_BYTES - 300) / records.length));
+		const single = records.length === 1;
+		const perResult = single ? RESULT_BYTES : Math.max(200, Math.floor((NOTIFICATION_BYTES - 300) / records.length));
+		const perLines = single ? RESULT_LINES : 12;
 		const content = bounded(
 			[
 				"Background subagents finished:",
@@ -115,12 +125,12 @@ export default function subagents(pi: ExtensionAPI): void {
 							: record.status === "stopped"
 								? "Agent was stopped and can be resumed."
 								: record.error || "Agent failed.";
-					return `\n${record.id} (${record.type}) ${record.status}${record.usedFallback ? ` via fallback model ${record.model ?? "configured"}` : ""}:\n${bounded(message, perResult, 12).text}`;
+					return `\n${record.id} (${record.type}) ${record.status}${record.usedFallback ? ` via fallback model ${record.model ?? "configured"}` : ""}:\n${bounded(message, perResult, perLines).text}`;
 				}),
 				"\nUse get_subagent_result for bounded transcript retrieval.",
 			].join("\n"),
-			NOTIFICATION_BYTES,
-			60,
+			single ? RESULT_BYTES + 600 : NOTIFICATION_BYTES,
+			single ? RESULT_LINES + 10 : 60,
 		).text;
 		pi.sendMessage<CompletionBatchDetails>(
 			{
@@ -133,19 +143,26 @@ export default function subagents(pi: ExtensionAPI): void {
 		);
 	}
 
-	pi.registerMessageRenderer<SubagentReportDetails>("subagent-report", (message, _options, theme) => {
+	pi.registerMessageRenderer<SubagentReportDetails>("subagent-report", (message, options, theme) => {
 		const details = message.details;
 		if (!details) return undefined;
-		const summary = details.summary.replace(/\s+/gu, " ").trim();
-		const content = summary.length > 80 ? `${summary.slice(0, 79)}…` : summary;
-		return new Text(
-			` ${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold(details.type))} ${theme.fg("dim", content ? `${details.title} · ${content}` : details.title)}`,
-			0,
-			0,
-		);
+		const header = ` ${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold(details.type))} ${theme.fg("dim", details.title)}`;
+		if (!options.expanded) {
+			const preview = details.summary.replace(/\s+/gu, " ").trim();
+			const clipped = preview.length > 80 ? `${preview.slice(0, 79)}…` : preview;
+			return new Text(
+				`${header}${clipped ? theme.fg("dim", ` · ${clipped}`) : ""} ${keyHint("app.tools.expand", "to expand")}`,
+				0,
+				0,
+			);
+		}
+		const container = new Container();
+		container.addChild(new Text(header, 0, 0));
+		container.addChild(new Markdown(details.summary, 1, 0, getMarkdownTheme()));
+		return container;
 	});
 
-	pi.registerMessageRenderer<CompletionBatchDetails>("subagent-completion", (message, _options, theme) => {
+	pi.registerMessageRenderer<CompletionBatchDetails>("subagent-completion", (message, options, theme) => {
 		const records = message.details?.records;
 		if (!records?.length) return undefined;
 		const failed = records.some((record) => record.status !== "completed");
@@ -156,16 +173,14 @@ export default function subagents(pi: ExtensionAPI): void {
 					`${record.id.slice(0, 8)} · ${record.turns} turns · ${record.toolUses} tools${record.usedFallback ? " · fallback" : ""}`,
 			)
 			.join("; ");
-		return new Text(
-			` ${theme.fg(failed ? "warning" : "success", failed ? "!" : "✓")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("dim", stats)}`,
-			0,
-			0,
-		);
-	});
-
-	pi.registerCommand("agents", {
-		description: "Choose the active subagent context shown above the editor",
-		handler: async (args, ctx) => ui.open(ctx, args),
+		const header = ` ${theme.fg(failed ? "warning" : "success", failed ? "!" : "✓")} ${theme.fg("toolTitle", theme.bold(label))} ${theme.fg("dim", stats)}`;
+		if (!options.expanded) {
+			return new Text(`${header} ${keyHint("app.tools.expand", "to expand")}`, 0, 0);
+		}
+		const container = new Container();
+		container.addChild(new Text(header, 0, 0));
+		container.addChild(new Markdown(customText(message.content), 1, 0, getMarkdownTheme()));
+		return container;
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -179,7 +194,7 @@ export default function subagents(pi: ExtensionAPI): void {
 	});
 	pi.on("before_agent_start", (event) => {
 		const summary = definitionSummary(registry);
-		const warning = registry.errors.length ? "\nSome definitions have configuration errors; inspect /agents." : "";
+		const warning = registry.errors.length ? "\nSome definitions have configuration errors." : "";
 		return { systemPrompt: `${event.systemPrompt}\n\n# Available subagents\n${summary || "None"}${warning}` };
 	});
 	pi.on("session_shutdown", async () => {

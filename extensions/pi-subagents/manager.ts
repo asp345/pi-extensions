@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { clearAgentContextCache } from "./context.ts";
 import type { RpcMessage, RpcProcess } from "./rpc.ts";
 import { type RpcCallbacks, type RunResult, resolveThinking, resumeProc, runNew } from "./runner.ts";
 import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.ts";
@@ -235,9 +234,6 @@ export class AgentManager {
 			new Promise((resolve) => setTimeout(resolve, 2_000)),
 		]);
 		await Promise.allSettled(records.map((record) => record.proc?.stop().catch(() => undefined)));
-		for (const record of records) {
-			clearAgentContextCache(record.id);
-		}
 		if (this.renderTimer) clearTimeout(this.renderTimer);
 		this.renderTimer = undefined;
 		this.records.clear();

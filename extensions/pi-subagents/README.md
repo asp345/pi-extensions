@@ -33,4 +33,4 @@ Each subagent is a separate OS process started with `pi --mode rpc` (`rpc.ts`). 
 
 Bundled definitions live in `extensions/pi-subagents/agents/`; global overrides live in `~/.config/pi/agents/`.
 
-`/agents` opens the workspace, and while agents run a widget below the editor lists them: `shift+↑↓`, or `↓` then enter on an empty editor, opens the selected one. The workspace is a centered, bordered overlay that leaves the parent session visible around its edges. Its conversation is fetched from the tail, PgUp/PgDn scroll it, and the embedded editor steers the running agent or resumes a finished one.
+While agents run, a status widget below the editor shows the running count and the latest agent (`type · title · id · turns`), styled like the background-tasks widget. Progress reports and background completions render in the main transcript as one line; expand them with `ctrl+o` for the full text. Use `get_subagent_result` for bounded transcript retrieval.
