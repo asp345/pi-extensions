@@ -10,8 +10,8 @@ Anthropic OAuth provider for Pi. Registers `anthropic` with `api anthropic-messa
 
 ## System prompt
 
-`rewriteSystemPrompt` strips `you are pi` / `pi-coding-agent` paragraphs and rewrites standalone `Pi` to `Claude Code`.
+Passes `context.systemPrompt` through unchanged. Claude Code identity for OAuth tokens is added by pi core as the first system block.
 
 ## Provider
 
-`getApiKey` returns `credentials.access`, `streamSimple` delegates to `anthropicMessagesApi().streamSimple` with rewritten system prompt.
+`getApiKey` returns `credentials.access`, `streamSimple` delegates to `anthropicMessagesApi().streamSimple` with the context unchanged.

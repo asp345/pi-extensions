@@ -235,28 +235,8 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 	}
 }
 
-function rewriteSystemPrompt(text: string): string {
-	return text
-		.toWellFormed()
-		.split(/\n\n+/)
-		.filter((paragraph) => {
-			const lower = paragraph.toLowerCase();
-			return !lower.includes("you are pi") && !lower.includes("pi-coding-agent") && !lower.includes("badlogic/pi-mono");
-		})
-		.join("\n\n")
-		.replace(/(?<![/\\.@:_-])\b[Pp]i\b(?![/\\.@:_-])/g, "Claude Code")
-		.trim();
-}
-
 function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return anthropicMessagesApi().streamSimple(
-		model as Model<"anthropic-messages">,
-		{
-			...context,
-			systemPrompt: context.systemPrompt ? rewriteSystemPrompt(context.systemPrompt) : context.systemPrompt,
-		},
-		options,
-	);
+	return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
 }
 
 export default function anthropicOAuth(pi: ExtensionAPI): void {
