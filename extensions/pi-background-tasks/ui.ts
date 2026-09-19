@@ -3,9 +3,8 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	MessageRenderer,
-	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	duration,
 	eventText,
@@ -34,23 +33,13 @@ export const renderTaskEvent: MessageRenderer<TaskEvent> = (message, _options, t
 	if (!event || typeof event !== "object" || !("task" in event)) return undefined;
 	const task = event.task;
 	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
-	const command = oneLine(task.command);
-	const shortCommand = command.length > 40 ? `${command.slice(0, 39)}…` : command;
-	if (event.type === "running") {
-		return new Text(
-			` ${theme.fg("dim", "◌")} ${theme.fg("toolTitle", theme.bold("running"))} ${theme.fg("dim", `${task.id} · ${shortCommand} · ${duration(elapsed)}`)}`,
-			0,
-			0,
-		);
-	}
-	const isError = task.status === "failed";
-	const icon = isError ? "✗" : "✓";
-	const color = isError ? "error" : "success";
-	return new Text(
-		` ${theme.fg(color, icon)} ${theme.fg("toolTitle", theme.bold("done"))} ${theme.fg("dim", `${task.id} · ${shortCommand} · ${duration(elapsed)}`)}`,
-		0,
-		0,
-	);
+	const text = `${task.id} · ${oneLine(task.command)} · ${duration(elapsed)}`;
+	return {
+		invalidate() {},
+		render(width: number): string[] {
+			return [theme.fg("dim", truncateToWidth(` ${text}`, width))];
+		},
+	};
 };
 
 export class BackgroundUI {
@@ -165,7 +154,7 @@ export class BackgroundUI {
 							preview ? theme.fg("dim", `› ${preview}`) : "",
 						]
 							.filter(Boolean)
-							.map((line) => truncateToWidth(line, width));
+							.map((line) => truncateToWidth(line, width, theme.fg("dim", "...")));
 					},
 				};
 			},

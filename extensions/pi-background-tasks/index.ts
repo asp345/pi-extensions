@@ -44,9 +44,7 @@ function taskCallSummary(params: BackgroundTaskParams, runtime: BackgroundRuntim
 	const task = runtime.get(id || undefined);
 	if (!task) return { name: params.action, content: id || "…" };
 	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
-	const command = oneLine(task.command);
-	const shortCommand = command.length > 40 ? `${command.slice(0, 39)}…` : command;
-	const meta = `${shortCommand} · ${duration(elapsed)}`;
+	const meta = `${oneLine(task.command)} · ${duration(elapsed)}`;
 	if (params.action === "read" && task.status !== "running") {
 		return { name: "done", content: `${id} · ${meta}` };
 	}

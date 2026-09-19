@@ -5,6 +5,7 @@ import {
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
 	type Context,
+	createAssistantMessageEventStream,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
@@ -235,28 +236,66 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 	}
 }
 
-function rewriteSystemPrompt(text: string): string {
-	return text
-		.toWellFormed()
-		.split(/\n\n+/)
-		.filter((paragraph) => {
-			const lower = paragraph.toLowerCase();
-			return !lower.includes("you are pi") && !lower.includes("pi-coding-agent") && !lower.includes("badlogic/pi-mono");
-		})
-		.join("\n\n")
-		.replace(/(?<![/\\.@:_-])\b[Pp]i\b(?![/\\.@:_-])/g, "Claude Code")
-		.trim();
-}
+const EXTRA_USAGE_MAX_RETRIES = 4;
+const EXTRA_USAGE_BASE_DELAY_MS = 500;
 
 function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
-	return anthropicMessagesApi().streamSimple(
-		model as Model<"anthropic-messages">,
-		{
-			...context,
-			systemPrompt: context.systemPrompt ? rewriteSystemPrompt(context.systemPrompt) : context.systemPrompt,
-		},
-		options,
-	);
+	const outer = createAssistantMessageEventStream();
+	void (async () => {
+		try {
+			for (let attempt = 0; ; attempt++) {
+				const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
+				let retry = false;
+				for await (const event of inner) {
+					if (event.type === "error" && isExtraUsageError(event.error.errorMessage)) {
+						if (options?.signal?.aborted) {
+							outer.push(event);
+							return;
+						}
+						if (attempt < EXTRA_USAGE_MAX_RETRIES) {
+							retry = true;
+							break;
+						}
+					}
+					outer.push(event);
+				}
+				if (!retry) return;
+				await sleep(EXTRA_USAGE_BASE_DELAY_MS * 2 ** attempt, undefined, { signal: options?.signal });
+			}
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			outer.push({
+				type: "error",
+				reason: "error",
+				error: {
+					role: "assistant",
+					content: [],
+					api: model.api,
+					provider: model.provider,
+					model: model.id,
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "error",
+					errorMessage: message,
+					timestamp: Date.now(),
+				},
+			});
+		} finally {
+			outer.end();
+		}
+	})();
+	return outer;
+}
+
+function isExtraUsageError(message: string | undefined): boolean {
+	if (!message) return false;
+	return /extra usage|Third-party apps now draw|claude\.ai\/settings\/usage/i.test(message);
 }
 
 export default function anthropicOAuth(pi: ExtensionAPI): void {

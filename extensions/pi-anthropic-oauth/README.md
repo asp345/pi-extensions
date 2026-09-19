@@ -8,10 +8,6 @@ Anthropic OAuth provider for Pi. Registers `anthropic` with `api anthropic-messa
 * PKCE `S256`, state token, local callback `http://localhost:53692/callback` with fallback to `https://platform.claude.com/oauth/code/callback`
 * Token retry on `429`/`5xx` with `Retry-After`, refresh with `grant_type refresh_token`
 
-## System prompt
-
-`rewriteSystemPrompt` strips `you are pi` / `pi-coding-agent` paragraphs and rewrites standalone `Pi` to `Claude Code`.
-
 ## Provider
 
-`getApiKey` returns `credentials.access`, `streamSimple` delegates to `anthropicMessagesApi().streamSimple` with rewritten system prompt.
+`getApiKey` returns `credentials.access`, `streamSimple` delegates to `anthropicMessagesApi().streamSimple` with the context unchanged.

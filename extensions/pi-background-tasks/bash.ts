@@ -201,6 +201,7 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 
 export function registerHybridBash(pi: ExtensionAPI, runtime: BackgroundRuntime): void {
 	const foreground = new Map<string, AbortController>();
+	pi.registerTool(createHybridBashDefinition(process.cwd(), runtime, foreground));
 
 	pi.on("session_start", (_event, ctx) => {
 		pi.registerTool(createHybridBashDefinition(ctx.cwd, runtime, foreground));
