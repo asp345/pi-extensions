@@ -32,7 +32,7 @@ export function toProviderModel(
 	return {
 		id: model.id,
 		name: model.name ?? model.id,
-		reasoning: model.reasoning === true,
+		reasoning: model.reasoning ?? true,
 		thinkingLevelMap: model.thinkingLevelMap ? { ...model.thinkingLevelMap } : undefined,
 		input: model.input?.includes("image") ? ["text", "image"] : ["text"],
 		cost: model.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -46,7 +46,7 @@ function metadataModel(metadata: ModelMetadata): CustomModelConfig {
 	return {
 		id: metadata.id,
 		name: metadata.name ?? metadata.id,
-		reasoning: metadata.reasoning === true,
+		reasoning: metadata.reasoning ?? true,
 		thinkingLevelMap: metadata.thinkingLevelMap ? { ...metadata.thinkingLevelMap } : undefined,
 		input: metadata.input ?? ["text"],
 		cost: metadata.cost,
@@ -60,7 +60,7 @@ function storedProviderModel(model: Model<Api>): ProviderModelConfig {
 	return {
 		id: model.id,
 		name: model.name,
-		reasoning: model.reasoning,
+		reasoning: true,
 		thinkingLevelMap: model.thinkingLevelMap,
 		input: [...model.input],
 		cost: model.cost,
