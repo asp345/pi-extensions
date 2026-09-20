@@ -2,7 +2,6 @@ import {
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
-	type Context,
 	calculateCost,
 	createAssistantMessageEventStream,
 	type Model,
@@ -10,6 +9,7 @@ import {
 	type TextContent,
 	type ThinkingContent,
 	type ToolCall,
+	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type { GeminiResponsePart } from "./gemini.ts";
 import { sendRequest } from "./request.ts";
@@ -121,7 +121,7 @@ function toToolCall(part: GeminiResponsePart, pending: { signature?: string }): 
 
 export function streamAntigravity(
 	model: Model<Api>,
-	context: Context,
+	context: TranscriptContext,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
 	const stream = createAssistantMessageEventStream();

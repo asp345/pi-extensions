@@ -1,4 +1,4 @@
-import type { Api, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import type { Api, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import {
 	type AgyRequestScope,
 	ANTIGRAVITY_ENDPOINT,
@@ -24,7 +24,7 @@ function finalize(request: Record<string, unknown>, model: string, scope: AgyReq
 
 export async function sendRequest(
 	model: Model<Api>,
-	context: Context,
+	context: TranscriptContext,
 	options: SimpleStreamOptions | undefined,
 	accessToken: string,
 	sessionKey: string,

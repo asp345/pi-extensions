@@ -4,12 +4,12 @@ import {
 	type Api,
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
-	type Context,
 	createAssistantMessageEventStream,
 	type Model,
 	type OAuthCredentials,
 	type OAuthLoginCallbacks,
 	type SimpleStreamOptions,
+	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -239,7 +239,11 @@ async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials>
 const EXTRA_USAGE_MAX_RETRIES = 4;
 const EXTRA_USAGE_BASE_DELAY_MS = 500;
 
-function stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+function stream(
+	model: Model<Api>,
+	context: TranscriptContext,
+	options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
 	const outer = createAssistantMessageEventStream();
 	void (async () => {
 		try {
