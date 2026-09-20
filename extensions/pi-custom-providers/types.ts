@@ -7,8 +7,8 @@ export const API_OPTIONS = [
 	"google-generative-ai",
 ] as const satisfies readonly Api[];
 
-export const DEFAULT_CONTEXT_WINDOW = 128_000;
-export const DEFAULT_MAX_TOKENS = 16_384;
+export const DEFAULT_CONTEXT_WINDOW = 256_000;
+export const DEFAULT_MAX_TOKENS = 256_000;
 
 type LimitSource = "detected" | "default" | "manual";
 
