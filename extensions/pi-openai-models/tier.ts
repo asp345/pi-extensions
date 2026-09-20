@@ -2,12 +2,12 @@ import {
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
-	type Context,
 	createAssistantMessageEventStream,
 	type Model,
 	type Provider,
 	type SimpleStreamOptions,
 	type StreamOptions,
+	type TranscriptContext,
 } from "@earendil-works/pi-ai";
 
 const TIERS = ["default", "flex", "priority"] as const;
@@ -74,9 +74,9 @@ function emptyErrorMessage(model: Model<Api>, error: unknown, aborted: boolean):
 }
 
 function streamWithTier(
-	start: (model: Model<Api>, context: Context, options?: StreamOptions) => AssistantMessageEventStream,
+	start: (model: Model<Api>, context: TranscriptContext, options?: StreamOptions) => AssistantMessageEventStream,
 	model: Model<Api>,
-	context: Context,
+	context: TranscriptContext,
 	options: StreamOptions | undefined,
 	tier: Tier,
 ): AssistantMessageEventStream {
@@ -116,7 +116,7 @@ export function tierStreamWrappers(base: Provider, getTier: () => Tier): Pick<Pr
 			streamWithTier(
 				base.streamSimple.bind(base) as (
 					model: Model<Api>,
-					context: Context,
+					context: TranscriptContext,
 					options?: SimpleStreamOptions,
 				) => AssistantMessageEventStream,
 				model,

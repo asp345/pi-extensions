@@ -1,20 +1,22 @@
 import type {
 	Api,
 	AssistantMessage,
-	Context,
 	ImageContent,
+	JsonObject,
 	Message,
 	Model,
 	TextContent,
 	ToolResultMessage,
+	TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { collapseSystemMessages, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
 import { toGeminiSchema } from "./agy/index.ts";
 
 type GeminiPart =
 	| { text: string; thought?: boolean; thoughtSignature?: string }
 	| { inlineData: { mimeType: string; data: string } }
 	| {
-			functionCall: { name: string; args: Record<string, unknown>; id: string };
+			functionCall: { name: string; args: JsonObject; id: string };
 			thoughtSignature?: string;
 	  }
 	| {
@@ -42,7 +44,7 @@ export type GeminiResponsePart = {
 	thoughtSignature?: string;
 	functionCall?: {
 		name?: string;
-		args?: Record<string, unknown>;
+		args?: JsonObject;
 		id?: string;
 	};
 };
@@ -156,14 +158,17 @@ export function convertMessages(messages: Message[], target: Model<Api>): Gemini
 	return output;
 }
 
-export function geminiRequest(context: Context, model: Model<Api>): GeminiRequest {
+export function geminiRequest(context: TranscriptContext, model: Model<Api>): GeminiRequest {
+	const transcript = collapseSystemMessages(context);
+	const tools = getCurrentTools(transcript.messages);
+	const systemPrompt = getCurrentSystemPrompt(transcript.messages);
 	return {
-		contents: convertMessages(context.messages, model),
-		...(context.tools?.length
+		contents: convertMessages(transcript.messages, model),
+		...(tools.length
 			? {
 					tools: [
 						{
-							functionDeclarations: context.tools.map((tool) => ({
+							functionDeclarations: tools.map((tool) => ({
 								name: tool.name,
 								description: tool.description,
 								parameters: toGeminiSchema(tool.parameters),
@@ -172,8 +177,6 @@ export function geminiRequest(context: Context, model: Model<Api>): GeminiReques
 					],
 				}
 			: {}),
-		...(context.systemPrompt?.trim()
-			? { systemInstruction: { parts: [{ text: context.systemPrompt.toWellFormed() }] } }
-			: {}),
+		...(systemPrompt.trim() ? { systemInstruction: { parts: [{ text: systemPrompt.toWellFormed() }] } } : {}),
 	};
 }
