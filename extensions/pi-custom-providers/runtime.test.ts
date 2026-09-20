@@ -30,8 +30,8 @@ test("configured models become complete Pi model definitions", () => {
 		thinkingLevelMap: undefined,
 		input: ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 128_000,
-		maxTokens: 16_384,
+		contextWindow: 256_000,
+		maxTokens: 256_000,
 		headers: undefined,
 		compat: { supportsDeveloperRole: false },
 	});
