@@ -2,32 +2,25 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { resolveThinking } from "./models.ts";
 import type { RpcMessage, RpcProcess } from "./rpc.ts";
-import { type RpcCallbacks, type RunResult, resolveThinking, resumeProc, runNew } from "./runner.ts";
-import type { AgentDefinition, AgentRecord, ThinkingLevel } from "./types.ts";
+import { type RpcCallbacks, type RunResult, resumeProc, runNew } from "./runner.ts";
+import type { AgentRecord, ThinkingLevel } from "./types.ts";
 import { message, onAbort } from "./util.ts";
-import { createWorktree, saveWorktree } from "./worktree.ts";
 
 interface SpawnOptions {
 	background: boolean;
 	model?: string;
-	maxTurns?: number;
-	fork: boolean;
+	thinking?: ThinkingLevel;
 	signal?: AbortSignal;
 }
 
-interface ResumeOptions {
+interface ResumeOptions extends SpawnOptions {
 	title: string;
-	background: boolean;
-	model?: Model<Api>;
-	models: string[];
-	definition?: AgentDefinition;
-	thinking?: ThinkingLevel;
-	maxTurns?: number;
-	signal?: AbortSignal;
 }
+
+const CONTINUATION = "Continue the assigned task from where it stopped.";
 
 export class AgentManager {
 	private readonly records = new Map<string, AgentRecord>();
@@ -37,23 +30,15 @@ export class AgentManager {
 		private readonly changed: () => void,
 		private readonly completed: (record: AgentRecord) => void,
 		private readonly resumed: (record: AgentRecord) => void,
-		private readonly fallback: (record: AgentRecord, reason: string) => void,
 		private readonly reported: (record: AgentRecord, summary: string) => void,
 		private readonly persisted: (record: AgentRecord) => void,
 		private readonly startSession: typeof runNew = runNew,
 	) {}
 
-	spawn(
-		ctx: ExtensionContext,
-		definition: AgentDefinition,
-		title: string,
-		prompt: string,
-		options: SpawnOptions,
-	): AgentRecord {
+	spawn(ctx: ExtensionContext, title: string, prompt: string, options: SpawnOptions): AgentRecord {
 		const id = randomUUID();
 		const record: AgentRecord = {
 			id,
-			type: definition.name,
 			title,
 			prompt,
 			cwd: ctx.cwd,
@@ -62,9 +47,8 @@ export class AgentManager {
 			startedAt: Date.now(),
 			turns: 0,
 			toolUses: 0,
-			model: options.model ?? definition.models[0] ?? "parent",
-			models: definition.models,
-			thinking: resolveThinking(definition.thinking, ctx),
+			model: options.model,
+			thinking: resolveThinking(options.thinking, ctx),
 			messages: [],
 			abortController: new AbortController(),
 			pendingSteers: [],
@@ -72,11 +56,11 @@ export class AgentManager {
 		this.records.set(id, record);
 		this.changed();
 		this.persisted(record);
-		record.promise = this.run(record, ctx, definition, prompt, options);
+		record.promise = this.run(record, ctx, prompt, options);
 		return record;
 	}
 
-	async resume(ctx: ExtensionContext, id: string, prompt: string, options: ResumeOptions): Promise<AgentRecord> {
+	async resume(ctx: ExtensionContext, id: string, options: ResumeOptions): Promise<AgentRecord> {
 		const record = this.get(id);
 		if (!record) throw new Error(`Unknown or ambiguous subagent ID: ${id}`);
 		if (record.status === "running") throw new Error(`Subagent ${id} is already running.`);
@@ -86,69 +70,40 @@ export class AgentManager {
 			throw new Error(`Subagent ${id} is already running.`);
 		}
 		const live = record.proc && !record.proc.closed ? record.proc : undefined;
-		if (!live && !record.sessionFile && !options.definition) {
-			throw new Error(`Subagent ${id} has no resumable session.`);
-		}
-		if (!live && !record.sessionFile && options.definition) {
-			record.title = options.title;
-			record.prompt = prompt;
-			record.background = options.background;
-			record.status = "running";
-			record.error = undefined;
-			record.result = undefined;
-			record.completedAt = undefined;
-			record.abortController = new AbortController();
-			record.models = options.models;
-			record.thinking = options.thinking ?? record.thinking;
-			record.resultConsumed = false;
-			this.resumed(record);
-			this.changed();
-			this.persisted(record);
-			await this.run(record, ctx, options.definition, prompt, {
-				background: true,
-				maxTurns: options.maxTurns,
-				fork: false,
-				signal: record.abortController.signal,
-			});
-			return record;
-		}
+		const prompt = live || record.sessionFile ? CONTINUATION : record.prompt;
 		record.title = options.title;
-		record.prompt = prompt;
 		record.background = options.background;
 		record.status = "running";
 		record.error = undefined;
 		record.result = undefined;
 		record.completedAt = undefined;
 		record.abortController = new AbortController();
-		if (options.model) {
-			record.model = `${options.model.provider}/${options.model.id}`;
-			record.usedFallback = false;
-			record.fallbackReason = undefined;
-		}
-		record.models = options.models;
+		if (options.model) record.model = options.model;
 		record.thinking = options.thinking ?? record.thinking;
 		record.resultConsumed = false;
 		this.resumed(record);
 		this.changed();
 		this.persisted(record);
+		if (!live && !record.sessionFile) {
+			record.promise = this.run(record, ctx, prompt, options);
+			if (!options.background) await record.promise;
+			return record;
+		}
 		const callbacks = this.callbacks(record);
 		record.promise = (async () => {
 			const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 			try {
-				if (!options.definition) throw new Error(`Subagent ${id} has no resumable session.`);
 				const result = await resumeProc(
 					live,
 					ctx,
 					{
 						id: record.id,
-						cwd: record.worktree?.cwd ?? record.cwd,
+						title: record.title,
+						cwd: record.cwd,
 						sessionFile: record.sessionFile,
-						definition: options.definition,
 						prompt,
-						models: options.models,
 						model: options.model,
 						thinking: options.thinking ?? record.thinking,
-						maxTurns: options.maxTurns,
 						signal: record.abortController.signal,
 					},
 					callbacks,
@@ -159,7 +114,7 @@ export class AgentManager {
 				this.settle(record, message(error));
 			} finally {
 				detach();
-				this.finish(record, options.definition);
+				this.finish(record);
 			}
 		})();
 		if (!options.background) await record.promise;
@@ -195,7 +150,7 @@ export class AgentManager {
 	describeIds(): string {
 		const records = this.list();
 		if (!records.length) return "none";
-		return records.map((record) => `${record.id} (${record.type}, ${record.status})`).join(", ");
+		return records.map((record) => `${record.id} (${record.title}, ${record.status})`).join(", ");
 	}
 
 	list(): AgentRecord[] {
@@ -261,29 +216,20 @@ export class AgentManager {
 		this.changed();
 	}
 
-	private async run(
-		record: AgentRecord,
-		ctx: ExtensionContext,
-		definition: AgentDefinition,
-		prompt: string,
-		options: SpawnOptions,
-	): Promise<void> {
+	private async run(record: AgentRecord, ctx: ExtensionContext, prompt: string, options: SpawnOptions): Promise<void> {
 		const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
 		try {
 			if (record.abortController.signal.aborted) throw new Error("Subagent cancelled before setup.");
-			if (definition.worktree && !record.worktree) record.worktree = await createWorktree(ctx.cwd, record.id);
 			const result = await this.startSession(
 				ctx,
 				{
 					id: record.id,
-					definition,
+					title: record.title,
 					prompt,
 					model: options.model,
-					maxTurns: options.maxTurns,
-					fork: options.fork,
-					cwd: ctx.cwd,
+					thinking: options.thinking,
+					cwd: record.cwd,
 					parentSignal: record.abortController.signal,
-					worktree: record.worktree,
 				},
 				this.callbacks(record),
 			);
@@ -293,7 +239,7 @@ export class AgentManager {
 			this.settle(record, message(error));
 		} finally {
 			detach();
-			this.finish(record, definition);
+			this.finish(record);
 		}
 	}
 
@@ -334,14 +280,6 @@ export class AgentManager {
 				record.messages = messages;
 				this.changed();
 			},
-			onFallback: (model: Model<Api>, reason: string) => {
-				record.model = `${model.provider}/${model.id}`;
-				record.usedFallback = true;
-				record.fallbackReason = reason;
-				this.fallback(record, reason);
-				this.changed();
-				this.persisted(record);
-			},
 			onText: (text: string) => {
 				record.result = text;
 				this.scheduleRender();
@@ -367,17 +305,9 @@ export class AgentManager {
 		this.renderTimer.unref?.();
 	}
 
-	private finish(record: AgentRecord, definition: AgentDefinition | undefined): void {
+	private finish(record: AgentRecord): void {
 		record.completedAt ??= Date.now();
-		if (record.worktree) {
-			try {
-				record.worktreeBranch = saveWorktree(record.worktree, record.prompt);
-			} catch (error) {
-				record.error = `${record.error ? `${record.error}; ` : ""}worktree: ${message(error)}`;
-				if (record.status !== "stopped") record.status = "error";
-			}
-		}
-		if ((definition?.outputTranscript ?? true) && record.messages.length) {
+		if (record.messages.length) {
 			try {
 				const outputFile = outputPath(record);
 				mkdirSync(dirname(outputFile), { recursive: true });

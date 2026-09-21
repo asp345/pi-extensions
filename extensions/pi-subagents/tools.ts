@@ -4,12 +4,13 @@ import type { Component } from "@earendil-works/pi-tui";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { compactCallLine } from "pi-compact-ui";
 import { Type } from "typebox";
-import { definitionSummary, resolveDefinition } from "./definitions.ts";
 import { delegationPrompt } from "./delegation.ts";
 import { foregroundResult, formatMetadata, metadata, pageText, RESULT_BYTES, result } from "./format.ts";
 import type { AgentManager } from "./manager.ts";
 import { compactTranscript } from "./transcript.ts";
-import type { DefinitionRegistry } from "./types.ts";
+import type { ThinkingLevel } from "./types.ts";
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
 const LaunchParameters = Type.Object({
 	title: Type.String({
@@ -20,7 +21,8 @@ const LaunchParameters = Type.Object({
 	prompt: Type.String({
 		minLength: 1,
 		maxLength: 30_000,
-		description: "Concrete objective, constraints, and expected deliverable for the delegated task.",
+		description:
+			"Role of the subagent plus the concrete objective, constraints, and expected deliverable for the delegated task.",
 	}),
 	context: Type.String({
 		minLength: 1,
@@ -28,7 +30,6 @@ const LaunchParameters = Type.Object({
 		description:
 			"Only context required to execute the task: relevant paths, symbols, observed behavior, constraints, validation, and any non-obvious project commands. Do not repeat the task or include unrelated parent-conversation history. The parent conversation is not inherited.",
 	}),
-	subagent_type: Type.String({ minLength: 1, maxLength: 64, description: "Markdown agent name." }),
 	run_in_background: Type.Optional(
 		Type.Boolean({
 			description: "Run asynchronously; default true. Set false only when the next parent action requires this result.",
@@ -38,72 +39,58 @@ const LaunchParameters = Type.Object({
 		Type.String({
 			maxLength: 256,
 			description:
-				"Optional exact provider/model override. Omit except for special cases. Do not use speed labels such as `fast`.",
+				"Optional exact provider/model override. Omit to inherit the parent model. Do not use speed labels such as `fast`.",
 		}),
 	),
-	max_turns: Type.Optional(
-		Type.Integer({
-			minimum: 1,
-			maximum: 200,
-			description: "Optional turn-limit override. Omit to use the agent's configured limit.",
-		}),
+	thinking: Type.Optional(
+		StringEnum(THINKING_LEVELS, { description: "Optional thinking level. Omit to inherit the parent level." }),
 	),
-	fork: Type.Optional(Type.Boolean({ description: "Copy the parent's active conversation; default false." })),
 });
 
 export function registerSubagentTools(
 	pi: ExtensionAPI,
 	deps: {
 		manager: AgentManager;
-		registry: () => DefinitionRegistry;
 		clearPendingNotifications: (id: string) => void;
 	},
 ): void {
-	const { manager, registry, clearPendingNotifications } = deps;
+	const { manager, clearPendingNotifications } = deps;
 
 	pi.registerTool({
 		name: "launch_subagent",
 		label: "Launch Subagent",
 		description:
-			"Launch a selected Markdown subagent. Background runs deliver their settled result as steering at the next turn boundary.",
-		promptSnippet: "Launch a Markdown subagent",
+			"Launch a subagent in a separate session. State its role and objective in the prompt. Background runs deliver their settled result as steering at the next turn boundary.",
+		promptSnippet: "Launch a subagent",
 		promptGuidelines: [
 			"Use launch_subagent only when the user requests delegation or a substantial independent task needs isolated context or can run concurrently. Otherwise use direct tools. Start one by default; use multiple only for independent, non-overlapping tasks.",
-			"Do not use launch_subagent for a few-file inspection, routine validation, or work already in progress. Choose the narrowest matching definition.",
-			"When calling launch_subagent, provide only the concrete objective, essential context, relevant paths, constraints, and verification. The parent conversation is not inherited; do not use fork merely to provide context.",
+			"Do not use launch_subagent for a few-file inspection, routine validation, or work already in progress.",
+			"State the subagent role, the concrete objective, essential context, relevant paths, constraints, and verification in the prompt. The parent conversation is not inherited.",
 			"Run launch_subagent in the background unless its result is required for the next parent action. Continue independent work or end the turn; do not poll, wait, or duplicate its work.",
 		],
 		parameters: LaunchParameters,
 		async execute(_callId, params, signal, onUpdate, ctx) {
-			const definition = resolveDefinition(registry(), params.subagent_type.trim());
-			if (!definition) {
-				throw new Error(
-					`Agent configuration error: unknown or disabled subagent ${params.subagent_type}. Available: ${definitionSummary(registry()) || "none"}`,
-				);
-			}
-			if (!params.prompt.trim()) throw new Error("Agent configuration error: task must not be blank.");
-			if (!params.context.trim()) throw new Error("Agent configuration error: context must not be blank.");
-			if (!params.title.trim()) throw new Error("Agent configuration error: title must not be blank.");
-			const prompt = delegationPrompt(definition, params.title, params.prompt, params.context, ctx.cwd);
-
-			assertParentTools(pi, definition.tools, definition.path);
-			const background = params.run_in_background ?? definition.runInBackground;
-			const record = manager.spawn(ctx, definition, params.title.trim(), prompt, {
+			const title = params.title.trim();
+			if (!title) throw new Error("Subagent title must not be blank.");
+			if (!params.prompt.trim()) throw new Error("Subagent task must not be blank.");
+			if (!params.context.trim()) throw new Error("Subagent context must not be blank.");
+			const prompt = delegationPrompt(title, params.prompt, params.context, ctx.cwd);
+			const background = params.run_in_background ?? true;
+			const record = manager.spawn(ctx, title, prompt, {
 				background,
 				model: params.model,
-				maxTurns: params.max_turns,
-				fork: params.fork ?? definition.fork,
+				thinking: params.thinking as ThinkingLevel | undefined,
 				signal: background ? undefined : signal,
 			});
 			if (background) {
 				return result(
-					`Started ${record.id} (${record.type}) in the background. Its settled result arrives as steering at the next turn boundary; do not sleep, poll, or duplicate its work to wait.`,
+					`Started ${record.id} (${record.title}) in the background. Its settled result arrives as steering at the next turn boundary; do not sleep, poll, or duplicate its work to wait.`,
 					metadata(record),
 				);
 			}
 			const timer = setInterval(() => {
 				onUpdate?.(
-					result(`Running ${record.type}: ${record.turns} turns, ${record.toolUses} tools.`, metadata(record)),
+					result(`Running ${record.title}: ${record.turns} turns, ${record.toolUses} tools.`, metadata(record)),
 				);
 			}, 500);
 			try {
@@ -195,13 +182,15 @@ export function registerSubagentTools(
 			message: Type.String({ minLength: 1, maxLength: 4_000 }),
 		}),
 		async execute(_callId, params) {
+			const text = params.message.trim();
+			if (!text) throw new Error("Steering message must not be blank.");
 			const record = manager.get(params.id);
 			if (!record) {
-				const ok = await manager.steer(params.id, params.message.trim());
+				const ok = await manager.steer(params.id, text);
 				if (ok) return result(`Steering message sent to ${params.id.trim()}.`, { id: params.id, accepted: true });
 				return noMatch(manager, params.id, { id: params.id, accepted: false });
 			}
-			const ok = await manager.steer(record.id, params.message.trim());
+			const ok = await manager.steer(record.id, text);
 			return result(ok ? `Steering message sent to ${record.id}.` : `Subagent ${record.id} is not running.`, {
 				id: record.id,
 				accepted: ok,
@@ -242,18 +231,12 @@ export function registerSubagentTools(
 					resumed: false,
 				});
 			}
-			const definition = resolveDefinition(registry(), record.type);
-			if (!definition) throw new Error(`Agent configuration error: ${record.type} is unavailable.`);
-			const prompt =
-				record.proc || record.sessionFile ? "Continue the assigned task from where it stopped." : record.prompt;
-			const resumed = await manager.resume(ctx, record.id, prompt, {
+			const resumed = await manager.resume(ctx, record.id, {
 				title: record.title,
 				background: true,
-				models: record.models,
-				definition,
 				thinking: record.thinking,
 			});
-			return result(`Resumed subagent ${resumed.id} (${resumed.type}) in the background.`, {
+			return result(`Resumed subagent ${resumed.id} (${resumed.title}) in the background.`, {
 				...metadata(resumed),
 				action: params.action,
 				resumed: true,
@@ -265,7 +248,7 @@ export function registerSubagentTools(
 		name: "list_subagents",
 		label: "List Subagents",
 		description:
-			"List all subagents with IDs, types, titles, and status. Call before get, steer, or control when the ID is unknown.",
+			"List all subagents with IDs, titles, and status. Call before get, steer, or control when the ID is unknown.",
 		promptSnippet: "List subagents to recover IDs",
 		parameters: Type.Object({}),
 		async execute() {
@@ -287,10 +270,4 @@ function noMatch(manager: AgentManager, requestedId: unknown, details: Record<st
 			? ` Ambiguous prefix; matches ${candidates.join(", ")}. Use the full ID. Call list_subagents to recover IDs.`
 			: ` Available: ${manager.describeIds()}. Call list_subagents to recover IDs.`;
 	return result(`No subagent matched ${wanted || "(empty)"}.${hint}`, { ...details, candidates });
-}
-
-function assertParentTools(pi: ExtensionAPI, requested: string[], path: string): void {
-	const available = new Set(pi.getAllTools().map((tool) => tool.name));
-	const missing = requested.filter((name) => !available.has(name));
-	if (missing.length) throw new Error(`Agent configuration error in ${path}: missing tools: ${missing.join(", ")}.`);
 }

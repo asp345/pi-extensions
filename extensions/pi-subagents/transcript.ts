@@ -32,3 +32,25 @@ export function compactTranscript(messages: readonly RpcMessage[]): string {
 	}
 	return lines.join("\n\n");
 }
+
+export function lastAssistantText(messages: readonly RpcMessage[]): string {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== "assistant") continue;
+		const text = contentText(message.content).trim();
+		if (text) return text;
+	}
+	return "";
+}
+
+export function finalError(messages: readonly RpcMessage[]): string | undefined {
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const message = messages[index];
+		if (message?.role !== "assistant") continue;
+		if (message.stopReason === "error") return message.errorMessage?.trim() || "provider error";
+		if (message.stopReason === "length" && !contentText(message.content).trim())
+			return "output token limit reached before an answer";
+		return undefined;
+	}
+	return undefined;
+}

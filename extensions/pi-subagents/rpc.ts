@@ -8,6 +8,17 @@ export type RpcMessage = AgentSession["messages"][number];
 
 export const REPORT_TOOL_NAME = "report_to_parent";
 
+export const PARENT_ONLY_TOOLS = [
+	"launch_subagent",
+	"get_subagent_result",
+	"steer_subagent",
+	"control_subagent",
+	"list_subagents",
+	"question",
+	"goal_complete",
+	"goal_blocked",
+];
+
 export interface RpcModelRef {
 	provider: string;
 	id: string;

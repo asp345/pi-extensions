@@ -14,7 +14,7 @@ export function onAbort(signal: AbortSignal | undefined, action: () => void): ()
 	return () => signal.removeEventListener("abort", action);
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 

@@ -1,28 +1,15 @@
-import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-	FALLBACK_CONTINUATION,
-	finalError,
-	lastAssistantText,
-	remainingModels,
-	resolveModel,
-	resolveModels,
-	resolveThinking,
-	turnLimitAction,
-} from "./fallback.ts";
-import { buildParentTranscriptText } from "./fork.ts";
-import { buildSystemPrompt } from "./resources.ts";
-import { REPORT_TOOL_NAME, type RpcMessage, type RpcProcess, spawnRpcProcess } from "./rpc.ts";
-import type { AgentDefinition, RunRequest, ThinkingLevel } from "./types.ts";
+import { resolveModel, resolveThinking } from "./models.ts";
+import { PARENT_ONLY_TOOLS, REPORT_TOOL_NAME, type RpcMessage, type RpcProcess, spawnRpcProcess } from "./rpc.ts";
+import { finalError, lastAssistantText } from "./transcript.ts";
+import type { RunRequest, ThinkingLevel } from "./types.ts";
 import { contentText, message, onAbort } from "./util.ts";
 
 export interface RpcCallbacks {
 	onSession(proc: RpcProcess, info: { sessionFile?: string; model?: string; thinking?: ThinkingLevel }): void;
 	onMessages(messages: RpcMessage[]): void;
-	onFallback(model: Model<Api>, reason: string): void;
 	onText(text: string): void;
 	onTurn(): void;
 	onTool(name: string): void;
@@ -40,55 +27,35 @@ export interface RunResult {
 
 export interface ResumeRequest {
 	id: string;
+	title: string;
 	cwd: string;
 	sessionFile?: string;
-	definition: AgentDefinition;
 	prompt: string;
-	models: string[];
-	model?: Model<Api>;
+	model?: string;
 	thinking?: ThinkingLevel;
-	maxTurns?: number;
 	signal?: AbortSignal;
 }
 
 const REPORT_EXTENSION_PATH = fileURLToPath(new URL("./report-tool.ts", import.meta.url));
-const TURN_LIMIT_STEER = "You reached the configured turn limit. Give your final answer now without more tool calls.";
 
 export async function runNew(ctx: ExtensionContext, request: RunRequest, callbacks: RpcCallbacks): Promise<RunResult> {
-	const definition = request.definition;
 	if (request.parentSignal?.aborted) throw new Error("Subagent cancelled before session setup.");
-	const cwd = request.worktree?.cwd ?? request.cwd;
-	const modelNames = request.model ? [request.model, ...definition.models] : definition.models;
-	const models = () => resolveModels(modelNames.length ? modelNames : ["parent"], ctx, definition);
-	const initial = models()[0];
-	if (!initial) throw new Error(`Agent configuration error in ${definition.path}: no configured model is available.`);
-	const preferredName = modelNames[0] ?? "parent";
-	try {
-		resolveModel(preferredName, ctx, definition);
-	} catch {
-		callbacks.onFallback(initial, `Higher-priority model ${preferredName} is unavailable.`);
-	}
-	const thinking = resolveThinking(definition.thinking, ctx);
-	const systemPrompt = buildSystemPrompt(definition, ctx, cwd);
-	const prompt = request.fork ? withParentTranscript(request.prompt, buildParentTranscriptText(ctx)) : request.prompt;
+	const model = resolveModel(request.model, ctx);
+	if (!model) throw new Error("No model is available for the subagent.");
+	const thinking = resolveThinking(request.thinking, ctx);
 	const proc = await spawnRpcProcess({
-		cwd,
-		args: buildChildArgs(ctx, definition, cwd, { model: initial, thinking, systemPrompt }),
+		cwd: request.cwd,
+		args: buildChildArgs(ctx, { model, thinking, systemPrompt: buildSystemPrompt(ctx, request.cwd) }),
 	});
 	let sessionFile: string | undefined;
 	try {
-		await proc.setSessionName(`${definition.name}#${request.id.slice(0, 8)}`);
+		await proc.setSessionName(request.title);
 	} catch {}
 	try {
 		sessionFile = (await proc.getState()).sessionFile;
 	} catch {}
-	callbacks.onSession(proc, { sessionFile, model: `${initial.provider}/${initial.id}`, thinking });
-	const outcome = await driveRun(proc, prompt, {
-		models,
-		maxTurns: request.maxTurns ?? definition.maxTurns,
-		signal: request.parentSignal,
-		callbacks,
-	});
+	callbacks.onSession(proc, { sessionFile, model: `${model.provider}/${model.id}`, thinking });
+	const outcome = await driveRun(proc, request.prompt, { signal: request.parentSignal, callbacks });
 	try {
 		sessionFile = (await proc.getState()).sessionFile ?? sessionFile;
 	} catch {}
@@ -98,7 +65,7 @@ export async function runNew(ctx: ExtensionContext, request: RunRequest, callbac
 		error: outcome.error,
 		messages: outcome.messages,
 		sessionFile,
-		model: outcome.model ?? `${initial.provider}/${initial.id}`,
+		model: outcome.model ?? `${model.provider}/${model.id}`,
 	};
 }
 
@@ -114,25 +81,24 @@ export async function resumeProc(
 			ctx,
 			{
 				id: request.id,
-				definition: request.definition,
+				title: request.title,
 				prompt: request.prompt,
-				maxTurns: request.maxTurns,
-				fork: false,
+				model: request.model,
+				thinking: request.thinking,
 				cwd: request.cwd,
 				parentSignal: request.signal,
 			},
 			callbacks,
 		);
 	}
-	const definition = request.definition;
 	let active: RpcProcess;
 	if (live) {
 		active = live;
 	} else {
 		active = await spawnRpcProcess({
 			cwd: request.cwd,
-			args: buildChildArgs(ctx, definition, request.cwd, {
-				systemPrompt: buildSystemPrompt(definition, ctx, request.cwd),
+			args: buildChildArgs(ctx, {
+				systemPrompt: buildSystemPrompt(ctx, request.cwd),
 				sessionFile: request.sessionFile,
 			}),
 		});
@@ -143,59 +109,34 @@ export async function resumeProc(
 		return { proc: active, text: "", messages, sessionFile: request.sessionFile };
 	}
 	if (request.model) {
-		const targets = [
-			request.model,
-			...remainingModels(request.model, () => resolveModels(request.models, ctx, definition)),
-		];
-		let applied = false;
-		let lastError = "";
-		for (const [index, target] of targets.entries()) {
-			try {
-				await active.setModel(target.provider, target.id);
-				if (index > 0) callbacks.onFallback(target, lastError);
-				applied = true;
-				break;
-			} catch (error) {
-				lastError = message(error);
-			}
-		}
-		if (!applied) throw new Error(lastError || "Subagent model is unavailable.");
+		const target = resolveModel(request.model, ctx);
+		if (!target) throw new Error("No model is available for the subagent.");
+		await active.setModel(target.provider, target.id);
 	}
 	if (request.thinking) {
 		try {
 			await active.setThinkingLevel(request.thinking);
 		} catch {}
 	}
-	const outcome = await driveRun(active, request.prompt, {
-		models: request.models.length ? () => resolveModels(request.models, ctx, definition) : undefined,
-		maxTurns: request.maxTurns ?? definition.maxTurns,
-		signal: request.signal,
-		callbacks,
-	});
-	const messages = outcome.messages;
+	const outcome = await driveRun(active, request.prompt, { signal: request.signal, callbacks });
 	let sessionFile = request.sessionFile;
-	let model = request.model ? `${request.model.provider}/${request.model.id}` : undefined;
+	let model = outcome.model;
 	try {
 		const state = await active.getState();
 		sessionFile = state.sessionFile ?? sessionFile;
-		if (state.model) model = `${state.model.provider}/${state.model.id}`;
+		if (!model && state.model) model = `${state.model.provider}/${state.model.id}`;
 	} catch {}
-	if (outcome.model) model = outcome.model;
-	return { proc: active, text: outcome.text, error: outcome.error, messages, sessionFile, model };
+	return {
+		proc: active,
+		text: outcome.text,
+		error: outcome.error,
+		messages: outcome.messages,
+		sessionFile,
+		model,
+	};
 }
 
-export {
-	finalError,
-	lastAssistantText,
-	resolveModel,
-	resolveModels,
-	resolveThinking,
-	turnLimitAction,
-} from "./fallback.ts";
-
 interface DriveOptions {
-	models?: () => Model<Api>[];
-	maxTurns?: number;
 	signal?: AbortSignal;
 	callbacks: RpcCallbacks;
 }
@@ -210,10 +151,7 @@ interface DriveOutcome {
 
 export async function driveRun(proc: RpcProcess, prompt: string, options: DriveOptions): Promise<DriveOutcome> {
 	const { callbacks, signal } = options;
-	let turns = 0;
 	let current = "";
-	let wrapping = false;
-	let attemptMessages: RpcMessage[] = [];
 	const unsubscribe = proc.onEvent((event) => {
 		const type = event.type;
 		if (type === "message_start") {
@@ -233,7 +171,6 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 					current = text;
 					callbacks.onText(current);
 				}
-				attemptMessages.push(assistant as unknown as RpcMessage);
 			}
 		} else if (type === "compaction_end") {
 			// The child rewrote its transcript. Re-sync once instead of polling.
@@ -248,91 +185,17 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 		} else if (type === "tool_execution_end") {
 			callbacks.onTool(typeof event.toolName === "string" ? event.toolName : "tool");
 		} else if (type === "turn_end") {
-			turns += 1;
 			callbacks.onTurn();
-			const action = turnLimitAction(turns, options.maxTurns, wrapping, signal?.aborted === true);
-			if (action === "warn") {
-				wrapping = true;
-				void proc.steer(TURN_LIMIT_STEER).catch(() => undefined);
-			} else if (action === "abort") {
-				void proc.abort().catch(() => undefined);
-			}
 		}
 	});
 	try {
-		const finishAborted = async (fallbackText: string, model: string | undefined): Promise<DriveOutcome> => {
-			const messages = await safeMessages(proc);
-			callbacks.onMessages(messages);
-			return {
-				text: lastAssistantText(messages) || fallbackText,
-				aborted: true,
-				model,
-				messages,
-			};
-		};
-		const finishSettled = async (fallbackText: string, model: string | undefined): Promise<DriveOutcome> => {
-			const messages = await safeMessages(proc);
-			callbacks.onMessages(messages);
-			const authoritative = finalError(messages);
-			if (authoritative) {
-				return {
-					text: lastAssistantText(messages) || fallbackText,
-					error: authoritative,
-					aborted: false,
-					model,
-					messages,
-				};
-			}
-			return { text: lastAssistantText(messages) || fallbackText, aborted: false, model, messages };
-		};
-		attemptMessages = [];
-		const first = await runAttempt(proc, prompt, signal);
-		let model = await currentModelName(proc);
-		if (first.aborted || signal?.aborted) {
-			return finishAborted(lastAssistantText(attemptMessages) || current, model);
-		}
-		if (!first.error && !attemptMessages.length) {
-			// Abnormal: settled without any observed message. Confirm against
-			// the server transcript instead of assuming success.
-			attemptMessages = await safeMessages(proc);
-		}
-		let currentError = first.error ?? finalError(attemptMessages);
-		if (!currentError) return finishSettled(lastAssistantText(attemptMessages) || current, model);
-		const failures = [`Primary model failed: ${currentError}`];
-		for (const fallback of remainingModels(modelRef(model), options.models)) {
-			const name = `${fallback.provider}/${fallback.id}`;
-			try {
-				const applied = await proc.setModel(fallback.provider, fallback.id);
-				model = `${applied.provider}/${applied.id}`;
-			} catch (error) {
-				failures.push(`Fallback model ${name} failed to initialize: ${message(error)}`);
-				continue;
-			}
-			callbacks.onFallback(fallback, currentError);
-			attemptMessages = [];
-			const retry = await runAttempt(proc, FALLBACK_CONTINUATION, signal);
-			model = (await currentModelName(proc)) ?? model;
-			if (retry.aborted || signal?.aborted) {
-				return finishAborted(lastAssistantText(attemptMessages) || current, model);
-			}
-			if (!retry.error && !attemptMessages.length) {
-				attemptMessages = await safeMessages(proc);
-			}
-			const retryError = retry.error ?? finalError(attemptMessages);
-			if (!retryError) return finishSettled(lastAssistantText(attemptMessages) || current, model);
-			currentError = retryError;
-			failures.push(`Fallback model ${model ?? name} failed: ${currentError}`);
-		}
+		const attempt = await runAttempt(proc, prompt, signal);
+		const model = await currentModelName(proc);
 		const messages = await safeMessages(proc);
 		callbacks.onMessages(messages);
-		model = (await currentModelName(proc)) ?? model;
-		return {
-			text: lastAssistantText(messages) || lastAssistantText(attemptMessages),
-			error: failures.join("; "),
-			aborted: false,
-			model,
-			messages,
-		};
+		const text = lastAssistantText(messages) || current;
+		if (attempt.aborted || signal?.aborted) return { text, aborted: true, model, messages };
+		return { text, error: attempt.error ?? finalError(messages), aborted: false, model, messages };
 	} finally {
 		unsubscribe();
 	}
@@ -380,16 +243,12 @@ async function currentModelName(proc: RpcProcess): Promise<string | undefined> {
 	}
 }
 
-function modelRef(name: string | undefined): Model<Api> | undefined {
-	if (!name) return undefined;
-	const slash = name.indexOf("/");
-	if (slash < 0) return undefined;
-	return { provider: name.slice(0, slash), id: name.slice(slash + 1) } as Model<Api>;
-}
-
-function withParentTranscript(prompt: string, forkText: string): string {
-	if (!forkText.trim()) return prompt;
-	return `${prompt}\n\n## Parent conversation (read-only reference)\nVerify claims against files you inspect yourself.\n\n${forkText.trim()}`;
+function buildSystemPrompt(ctx: ExtensionContext, cwd: string): string {
+	const bridge = `<sub_agent_context>
+You are a subagent launched by a parent agent. Work only on the assigned task.
+Use direct tools instead of shell substitutes where practical. Be concise and report evidence.
+</sub_agent_context>`;
+	return `${ctx.getSystemPrompt()}\n\n${bridge}\n\n# Environment\nWorking directory: ${cwd}`;
 }
 
 interface ChildOptions {
@@ -399,31 +258,15 @@ interface ChildOptions {
 	sessionFile?: string;
 }
 
-function buildChildArgs(
-	ctx: ExtensionContext,
-	definition: AgentDefinition,
-	cwd: string,
-	options: ChildOptions,
-): string[] {
+function buildChildArgs(ctx: ExtensionContext, options: ChildOptions): string[] {
 	const args: string[] = [];
 	if (options.model) args.push("--model", `${options.model.provider}/${options.model.id}`);
 	if (options.thinking) args.push("--thinking", options.thinking);
 	args.push("--system-prompt", options.systemPrompt);
-	const sessionDir = resolveSessionDir(definition.sessionDir, cwd);
-	if (sessionDir) args.push("--session-dir", sessionDir);
-	if (!definition.persistSession) args.push("--no-session");
 	if (options.sessionFile) args.push("--session", options.sessionFile);
-	args.push("--tools", [...definition.tools, REPORT_TOOL_NAME].join(","));
+	args.push("--exclude-tools", PARENT_ONLY_TOOLS.join(","));
 	args.push("--extension", REPORT_EXTENSION_PATH);
 	args.push("--no-prompt-templates", "--no-themes", "--no-context-files");
-	if (definition.skills === false) args.push("--no-skills");
-	if (definition.extensions === false) args.push("--no-extensions");
 	args.push(ctx.isProjectTrusted() ? "--approve" : "--no-approve");
 	return args;
-}
-
-function resolveSessionDir(value: string | undefined, cwd: string): string | undefined {
-	if (!value) return undefined;
-	if (value === "~" || value.startsWith("~/")) return resolve(homedir(), value.slice(2));
-	return isAbsolute(value) ? value : resolve(cwd, value);
 }

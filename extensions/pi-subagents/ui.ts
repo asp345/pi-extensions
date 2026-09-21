@@ -46,7 +46,7 @@ function duration(ms: number): string {
 
 function agentLine(record: AgentRecord): string {
 	const elapsed = (record.completedAt ?? Date.now()) - record.startedAt;
-	return `${record.id} · ${record.status} · ${record.type} · ${record.turns} turns · ${record.toolUses} tools · ${duration(elapsed)} · ${oneLine(record.title)}`;
+	return `${record.id} · ${record.status} · ${record.turns} turns · ${record.toolUses} tools · ${duration(elapsed)} · ${oneLine(record.title)}`;
 }
 
 interface WidgetTui {
@@ -136,7 +136,7 @@ export class AgentsUI {
 				const fingerprint = (): string =>
 					this.manager
 						.list()
-						.map((item) => `${item.id}:${item.status}:${item.turns}:${item.toolUses}`)
+						.map((item) => `${item.id}:${item.status}:${item.turns}:${item.toolUses}:${item.result?.length ?? 0}`)
 						.join("|");
 				let lastFingerprint = fingerprint();
 				const timer: ReturnType<typeof setInterval> = setInterval(() => {
@@ -159,11 +159,10 @@ export class AgentsUI {
 					const answer = (record.result || record.error || "").trim();
 					const lines = [
 						`ID: ${record.id}`,
-						`Type: ${record.type}`,
 						`Title: ${record.title}`,
 						`Status: ${record.status}`,
 						`Turns: ${record.turns} · Tools: ${record.toolUses}`,
-						`Model: ${record.model ?? "configured"}`,
+						`Model: ${record.model ?? "parent"}`,
 						`Duration: ${duration((record.completedAt ?? Date.now()) - record.startedAt)}`,
 					];
 					if (answer) lines.push("", "Answer:", ...answer.split(/\r?\n/).slice(0, 6));
@@ -171,7 +170,7 @@ export class AgentsUI {
 					return lines.length ? lines : ["(no details)"];
 				};
 				const move = (delta: number): void => {
-					const records = this.manager.list();
+					const records = visible();
 					if (!records.length) return;
 					const current = Math.max(
 						0,
@@ -220,7 +219,6 @@ export class AgentsUI {
 							}
 							return tui.requestRender();
 						}
-						if (matchesKey(data, "up") || matchesKey(data, "down")) return undefined;
 						if (data === "J") {
 							detailScroll = Math.max(0, detailScroll + 1);
 							return tui.requestRender();
