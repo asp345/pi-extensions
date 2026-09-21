@@ -9,6 +9,7 @@ import { foregroundResult, formatMetadata, metadata, pageText, RESULT_BYTES, res
 import type { AgentManager } from "./manager.ts";
 import { compactTranscript } from "./transcript.ts";
 import type { ThinkingLevel } from "./types.ts";
+import { compact } from "./util.ts";
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 
@@ -196,6 +197,21 @@ export function registerSubagentTools(
 				accepted: ok,
 			});
 		},
+		renderCall(args, theme, context) {
+			const params = args as { id?: unknown; message?: unknown };
+			const id = typeof params.id === "string" && params.id ? params.id.slice(0, 8) : "…";
+			const message = typeof params.message === "string" ? compact(params.message, 4_000) : "";
+			return compactCallLine("steer_subagent", args, theme, context, {
+				name: "steer_subagent",
+				content: message ? `${id} ${message}` : id,
+			}) as Component;
+		},
+		renderResult(toolResult, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			const text = toolResult.content.find((part) => part.type === "text");
+			return new Text(text?.type === "text" ? text.text : "", 1, 0);
+		},
+		renderShell: "self",
 	});
 
 	pi.registerTool({
@@ -242,6 +258,21 @@ export function registerSubagentTools(
 				resumed: true,
 			});
 		},
+		renderCall(args, theme, context) {
+			const params = args as { id?: unknown; action?: unknown };
+			const id = typeof params.id === "string" && params.id ? params.id.slice(0, 8) : "…";
+			const action = typeof params.action === "string" ? params.action : "";
+			return compactCallLine("control_subagent", args, theme, context, {
+				name: "control_subagent",
+				content: action ? `${id} ${action}` : id,
+			}) as Component;
+		},
+		renderResult(toolResult, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			const text = toolResult.content.find((part) => part.type === "text");
+			return new Text(text?.type === "text" ? text.text : "", 1, 0);
+		},
+		renderShell: "self",
 	});
 
 	pi.registerTool({
@@ -259,6 +290,19 @@ export function registerSubagentTools(
 				ids: records.map((record) => record.id),
 			});
 		},
+		renderCall(args, theme, context) {
+			const count = manager.list().length;
+			return compactCallLine("list_subagents", args, theme, context, {
+				name: "list_subagents",
+				content: count === 0 ? "no subagents" : `${count} subagent${count === 1 ? "" : "s"}`,
+			}) as Component;
+		},
+		renderResult(toolResult, options, _theme, _context): Component {
+			if (!options.expanded) return new Container();
+			const text = toolResult.content.find((part) => part.type === "text");
+			return new Text(text?.type === "text" ? text.text : "", 1, 0);
+		},
+		renderShell: "self",
 	});
 }
 
