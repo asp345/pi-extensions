@@ -173,10 +173,29 @@ export class AgentManager {
 	}
 
 	get(id: string): AgentRecord | undefined {
-		const exact = this.records.get(id);
+		const needle = id.trim();
+		if (!needle) return undefined;
+		const exact = this.records.get(needle) ?? this.records.get(id);
 		if (exact) return exact;
-		const matches = [...this.records.values()].filter((record) => record.id.startsWith(id));
+		const lower = needle.toLowerCase();
+		const exactCaseInsensitive = [...this.records.values()].find((record) => record.id.toLowerCase() === lower);
+		if (exactCaseInsensitive) return exactCaseInsensitive;
+		const matches = [...this.records.values()].filter(
+			(record) => record.id.startsWith(needle) || record.id.toLowerCase().startsWith(lower),
+		);
 		return matches.length === 1 ? matches[0] : undefined;
+	}
+
+	matches(id: string): AgentRecord[] {
+		const needle = id.trim().toLowerCase();
+		if (!needle) return [];
+		return [...this.records.values()].filter((record) => record.id.toLowerCase().startsWith(needle));
+	}
+
+	describeIds(): string {
+		const records = this.list();
+		if (!records.length) return "none";
+		return records.map((record) => `${record.id} (${record.type}, ${record.status})`).join(", ");
 	}
 
 	list(): AgentRecord[] {
@@ -204,15 +223,17 @@ export class AgentManager {
 		}
 	}
 
-	stop(id: string): boolean {
+	stop(id: string, markConsumed = true): boolean {
 		const record = this.get(id);
 		if (record?.status !== "running") return false;
 		record.status = "stopped";
 		record.completedAt = Date.now();
 		record.abortController.abort();
-		// The stop action itself acknowledges the outcome (tool result or UI
-		// confirmation), so the background completion notification must not fire.
-		record.resultConsumed = true;
+		// Tool-initiated stops are acknowledged by the tool result itself, so the
+		// background completion notification must not fire. User-initiated stops
+		// (dashboard, /agents) pass markConsumed=false so the parent still learns
+		// about the stop through the normal completion steering.
+		if (markConsumed) record.resultConsumed = true;
 		void record.proc?.abort().catch(() => undefined);
 		this.changed();
 		this.persisted(record);

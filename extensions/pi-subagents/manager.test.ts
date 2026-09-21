@@ -133,3 +133,37 @@ test("stopped subagents retain their ID and process when resumed", async () => {
 	assert.equal(resumed.status, "completed");
 	assert.equal(resumed.result, "resumed");
 });
+
+test("user-initiated stops keep the completion notification consumable", () => {
+	const manager = new AgentManager(
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+		() => undefined,
+	);
+	manager.restore([
+		{
+			id: "agent-ui-stop",
+			type: "Test",
+			title: "Task title",
+			prompt: "task",
+			cwd: process.cwd(),
+			status: "running",
+			background: true,
+			startedAt: Date.now(),
+			turns: 0,
+			toolUses: 0,
+			models: [],
+			messages: [],
+			abortController: new AbortController(),
+			pendingSteers: [],
+			promise: Promise.resolve(),
+		},
+	]);
+
+	assert.equal(manager.stop("agent-ui-stop", false), true);
+	assert.equal(manager.get("agent-ui-stop")?.status, "stopped");
+	assert.equal(manager.get("agent-ui-stop")?.resultConsumed, undefined);
+});

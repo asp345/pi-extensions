@@ -7,7 +7,7 @@ import { NotificationQueue } from "./notifications.ts";
 import { parseStoredRecord, type StoredAgentState, storeRecord } from "./state.ts";
 import { registerSubagentTools } from "./tools.ts";
 import type { AgentRecord, DefinitionRegistry } from "./types.ts";
-import { AgentsUI } from "./ui.ts";
+import { AgentsUI, COMMAND, SHORTCUT } from "./ui.ts";
 
 export { delegationPrompt } from "./delegation.ts";
 
@@ -67,6 +67,62 @@ export default function subagents(pi: ExtensionAPI): void {
 		},
 	);
 	ui = new AgentsUI(manager);
+	ui.setResumeHandler((id) => resumeInactive(id));
+
+	async function resumeInactive(id: string): Promise<string> {
+		const ctx = currentContext;
+		if (!ctx) throw new Error("No active session.");
+		const record = manager.get(id);
+		if (!record) throw new Error(`No subagent matched ${id.trim()}. Available: ${manager.describeIds()}.`);
+		if (record.status === "running") return `Subagent ${record.id} is already running.`;
+		const definition = resolveDefinition(registry, record.type);
+		if (!definition) throw new Error(`Agent configuration error: ${record.type} is unavailable.`);
+		const prompt =
+			record.proc || record.sessionFile ? "Continue the assigned task from where it stopped." : record.prompt;
+		const resumed = await manager.resume(ctx, record.id, prompt, {
+			title: record.title,
+			background: true,
+			models: record.models,
+			definition,
+			thinking: record.thinking,
+		});
+		return `Resumed subagent ${resumed.id} (${resumed.type}) in the background.`;
+	}
+
+	pi.registerCommand(COMMAND, {
+		description: "Open or manage the subagent dashboard",
+		handler: async (args, ctx) => {
+			ui.attach(ctx as ExtensionContext);
+			const value = args.trim();
+			if (!value || value === "dashboard") return ui.open(ctx);
+			if (value === "list" || value === "status") return ctx.ui.notify(ui.listText(), "info");
+			if (value.startsWith("stop ")) {
+				const id = value.slice(5).trim();
+				const record = manager.get(id);
+				if (!record) return ctx.ui.notify(`No subagent matched ${id}. Available: ${manager.describeIds()}.`, "warning");
+				return ctx.ui.notify(
+					manager.stop(record.id, false) ? `Stopping ${record.id}.` : `Subagent ${record.id} is not running.`,
+					"info",
+				);
+			}
+			if (value.startsWith("resume ")) {
+				try {
+					return ctx.ui.notify(await resumeInactive(value.slice(7).trim()), "info");
+				} catch (error) {
+					return ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+				}
+			}
+			ctx.ui.notify("Usage: /agents [dashboard|list|stop <id>|resume <id>]", "warning");
+		},
+	});
+
+	pi.registerShortcut(SHORTCUT, {
+		description: "Open the subagent dashboard",
+		handler: async (ctx) => {
+			ui.attach(ctx as ExtensionContext);
+			await ui.open(ctx as ExtensionContext);
+		},
+	});
 
 	registerSubagentTools(pi, {
 		manager,

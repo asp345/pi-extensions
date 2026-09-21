@@ -33,4 +33,10 @@ Each subagent is a separate OS process started with `pi --mode rpc` (`rpc.ts`). 
 
 Bundled definitions live in `extensions/pi-subagents/agents/`; global overrides live in `~/.config/pi/agents/`.
 
-While agents run, a status widget below the editor shows the running count and the latest agent (`type · title · id · turns`), styled like the background-tasks widget. Progress reports and background completions render in the main transcript as one line; expand them with `ctrl+o` for the full text. Use `get_subagent_result` for bounded transcript retrieval.
+While agents run, a status widget below the editor shows the running count (`Subagents N running · ctrl+shift+s dashboard`). Agent details stay out of the footer; open the dashboard for full IDs, status, and answers. Progress reports and background completions render in the main transcript as one line; expand them with `ctrl+o` for the full text. Use `get_subagent_result` for bounded transcript retrieval.
+
+## Dashboard and manual control
+
+- `/agents` opens the dashboard, `/agents list` prints all agents with full IDs, `/agents stop <id>` stops a running agent, `/agents resume <id>` resumes an inactive one.
+- `ctrl+shift+s` opens the dashboard (same as `/agents`). Inside: `↑/↓` move, `s` stops the selected agent, `r` resumes it, `q` closes.
+- IDs are UUIDs; tools accept the full ID (whitespace trimmed, case-insensitive) plus unambiguous prefixes for older records. `No subagent matched` errors list available IDs, and the `list_subagents` tool recovers IDs when the model loses one.

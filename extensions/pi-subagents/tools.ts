@@ -153,7 +153,7 @@ export function registerSubagentTools(
 		renderShell: "self",
 		async execute(_callId, params) {
 			const record = manager.get(params.id);
-			if (!record) return result(`No subagent matched ${params.id}.`, { id: params.id, found: false });
+			if (!record) return noMatch(manager, params.id, { id: params.id, found: false });
 			if (record.status === "running") {
 				return result(formatMetadata(record), metadata(record));
 			}
@@ -195,9 +195,15 @@ export function registerSubagentTools(
 			message: Type.String({ minLength: 1, maxLength: 4_000 }),
 		}),
 		async execute(_callId, params) {
-			const ok = await manager.steer(params.id, params.message.trim());
-			return result(ok ? `Steering message sent to ${params.id}.` : `Subagent ${params.id} is not running.`, {
-				id: params.id,
+			const record = manager.get(params.id);
+			if (!record) {
+				const ok = await manager.steer(params.id, params.message.trim());
+				if (ok) return result(`Steering message sent to ${params.id.trim()}.`, { id: params.id, accepted: true });
+				return noMatch(manager, params.id, { id: params.id, accepted: false });
+			}
+			const ok = await manager.steer(record.id, params.message.trim());
+			return result(ok ? `Steering message sent to ${record.id}.` : `Subagent ${record.id} is not running.`, {
+				id: record.id,
 				accepted: ok,
 			});
 		},
@@ -215,7 +221,7 @@ export function registerSubagentTools(
 		}),
 		async execute(_callId, params, _signal, _onUpdate, ctx) {
 			const record = manager.get(params.id);
-			if (!record) return result(`No subagent matched ${params.id}.`, { id: params.id, action: params.action });
+			if (!record) return noMatch(manager, params.id, { id: params.id, action: params.action });
 			if (params.action === "stop") {
 				const stopped = manager.stop(params.id);
 				return result(
@@ -254,6 +260,33 @@ export function registerSubagentTools(
 			});
 		},
 	});
+
+	pi.registerTool({
+		name: "list_subagents",
+		label: "List Subagents",
+		description:
+			"List all subagents with IDs, types, titles, and status. Call before get, steer, or control when the ID is unknown.",
+		promptSnippet: "List subagents to recover IDs",
+		parameters: Type.Object({}),
+		async execute() {
+			const records = manager.list();
+			if (!records.length) return result("No subagents.", { count: 0 });
+			return result(records.map((record) => formatMetadata(record)).join("\n\n"), {
+				count: records.length,
+				ids: records.map((record) => record.id),
+			});
+		},
+	});
+}
+
+function noMatch(manager: AgentManager, requestedId: unknown, details: Record<string, unknown>) {
+	const wanted = typeof requestedId === "string" ? requestedId.trim() : "";
+	const candidates = wanted.length > 0 && wanted.length < 64 ? manager.matches(wanted).map((record) => record.id) : [];
+	const hint =
+		candidates.length > 1
+			? ` Ambiguous prefix; matches ${candidates.join(", ")}. Use the full ID. Call list_subagents to recover IDs.`
+			: ` Available: ${manager.describeIds()}. Call list_subagents to recover IDs.`;
+	return result(`No subagent matched ${wanted || "(empty)"}.${hint}`, { ...details, candidates });
 }
 
 function assertParentTools(pi: ExtensionAPI, requested: string[], path: string): void {
