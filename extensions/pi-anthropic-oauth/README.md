@@ -10,4 +10,4 @@ Anthropic OAuth provider for Pi. Registers `anthropic` with `api anthropic-messa
 
 ## Provider
 
-`getApiKey` returns `credentials.access`, `streamSimple` delegates to `anthropicMessagesApi().streamSimple` with the context unchanged.
+`getApiKey` returns `credentials.access`. `streamSimple` sends the Claude Code request fingerprint (User-Agent, full beta list, session/request IDs, `metadata.user_id` from `~/.claude.json`, billing system block, `context_management`, `diagnostics`) with a computed `cch` attestation (see `CCH.md`), and passes API-key requests through unchanged.
