@@ -6,17 +6,16 @@ export const RESULT_LINES = 120;
 
 export interface CompletionDetails {
 	id: string;
-	type: string;
+	title: string;
 	status: string;
 	turns: number;
 	toolUses: number;
 	durationMs: number;
-	usedFallback?: boolean;
 }
 
 export function foregroundResult(record: AgentRecord): AgentToolResult<Record<string, unknown>> {
-	if (record.status === "error") throw new Error(record.error || `${record.type} failed.`);
-	if (record.status === "stopped") throw new Error(`${record.type} was stopped.`);
+	if (record.status === "error") throw new Error(record.error || `${record.title} failed.`);
+	if (record.status === "stopped") throw new Error(`${record.title} was stopped.`);
 	return result(record.result || "No final answer.", metadata(record));
 }
 
@@ -29,36 +28,29 @@ export function metadata(record: AgentRecord): Record<string, unknown> {
 		...completionDetails(record),
 		background: record.background,
 		model: record.model,
-		models: record.models,
-		usedFallback: record.usedFallback === true,
-		fallbackReason: record.fallbackReason,
-		worktreeBranch: record.worktreeBranch,
+		thinking: record.thinking,
 	};
 }
 
 export function completionDetails(record: AgentRecord): CompletionDetails {
 	return {
 		id: record.id,
-		type: record.type,
+		title: record.title,
 		status: record.status,
 		turns: record.turns,
 		toolUses: record.toolUses,
 		durationMs: (record.completedAt ?? Date.now()) - record.startedAt,
-		usedFallback: record.usedFallback,
 	};
 }
 
 export function formatMetadata(record: AgentRecord): string {
 	return [
 		`ID: ${record.id}`,
-		`Type: ${record.type}`,
 		`Title: ${record.title}`,
 		`Status: ${record.status}`,
+		`Model: ${record.model ?? "parent"}`,
 		`Turns: ${record.turns}`,
 		`Tool uses: ${record.toolUses}`,
-		record.usedFallback ? `Fallback model: ${record.model ?? "active"}` : "",
-		record.fallbackReason ? `Fallback reason: ${bounded(record.fallbackReason, 1_000, 8).text}` : "",
-		record.worktreeBranch ? `Worktree branch: ${record.worktreeBranch}` : "",
 		record.error ? `Error: ${bounded(record.error, 1_000, 8).text}` : "",
 	]
 		.filter(Boolean)
