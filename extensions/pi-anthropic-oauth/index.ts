@@ -30,11 +30,13 @@ const SCOPES = [
 	"user:file_upload",
 ].join(" ");
 
-const CLAUDE_CODE_VERSION = "2.1.278";
+const CLAUDE_CODE_VERSION = "2.1.280";
 const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
 const CLAUDE_CODE_BETA =
-	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07,mid-conversation-output-config-2026-07-01,fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01";
+	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07,mid-conversation-output-config-2026-07-01,fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01";
 const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
+const CLAUDE_CODE_LEGACY_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
+const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 
 type Authorization = { code: string; state: string };
 
@@ -643,6 +645,10 @@ function stream(
 						`cc_entrypoint=sdk-cli; ${CCH_PLACEHOLDER}; cc_prompt_id=${promptId}; cc_turn_origin=sdk;`;
 					const system = Array.isArray(params.system) ? [...(params.system as unknown[])] : [];
 					system.unshift({ type: "text", text: billing });
+					const legacy = system[1] as { type?: unknown; text?: unknown } | undefined;
+					if (legacy?.type === "text" && legacy.text === CLAUDE_CODE_LEGACY_IDENTITY) {
+						system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
+					}
 					params.system = system;
 					params.context_management = { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
 					params.diagnostics = { previous_message_id: null };
