@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { loadAgentRules } from "./agents.ts";
-import { composeSystemPrompt, resolvePiDocsBlock } from "./compose.ts";
+import { composeSystemPrompt, resolveHarnessDocsBlock } from "./compose.ts";
 
 interface TurnRecord {
 	length: number;
@@ -36,7 +36,7 @@ function reportSystemPrompt(
 	for (const marker of [
 		"Available tools:",
 		"Guidelines:",
-		"Pi documentation",
+		"Harness documentation",
 		"<project_context>",
 		"<available_skills>",
 		"Current working directory:",
@@ -64,8 +64,8 @@ export default function systemPromptExtension(pi: ExtensionAPI): void {
 
 	pi.on("before_agent_start", async (event) => {
 		if (!agentRules) return undefined;
-		const piDocsBlock = resolvePiDocsBlock(event.systemPrompt, process.env.PI_PACKAGE_DIR);
-		const systemPrompt = composeSystemPrompt(event.systemPromptOptions, piDocsBlock, agentRules);
+		const harnessDocsBlock = resolveHarnessDocsBlock(event.systemPrompt, process.env.PI_PACKAGE_DIR);
+		const systemPrompt = composeSystemPrompt(event.systemPromptOptions, harnessDocsBlock, agentRules);
 		if (!systemPrompt || systemPrompt === event.systemPrompt) return undefined;
 		lastTurn = {
 			length: systemPrompt.length,
