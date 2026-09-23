@@ -21,16 +21,33 @@ export function compactTranscript(messages: readonly RpcMessage[]): string {
 			if (text) lines.push(`Assistant:\n${text}`);
 			for (const part of Array.isArray(message.content) ? message.content : []) {
 				if (part.type !== "toolCall") continue;
+				const name = toolName(part);
 				const result = results.get(part.id);
 				lines.push(
 					result?.error
-						? `[Tool ${part.name}: error: ${result.summary || "failed"}]`
-						: `[Tool ${part.name}: ${result ? "ok" : "invoked"}]`,
+						? `[Tool ${name}: error: ${result.summary || "failed"}]`
+						: `[Tool ${name}: ${result ? "ok" : "invoked"}]`,
 				);
 			}
 		}
 	}
 	return lines.join("\n\n");
+}
+
+export function hasDamagedToolCall(messages: readonly RpcMessage[]): boolean {
+	for (const message of messages) {
+		if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (const part of message.content) {
+			if (part.type !== "toolCall") continue;
+			const name: unknown = part.name;
+			if (typeof name !== "string" || !name.trim()) return true;
+		}
+	}
+	return false;
+}
+
+function toolName(part: { name?: unknown }): string {
+	return typeof part.name === "string" && part.name.trim() ? part.name : "(unnamed)";
 }
 
 export function lastAssistantText(messages: readonly RpcMessage[]): string {

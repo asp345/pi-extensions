@@ -1,3 +1,14 @@
+export function recoveryPrompt(prompt: string, transcript: string): string {
+	const context = transcript.trim() ? transcript : "(no transcript survived from the previous attempt)";
+	return [
+		prompt.trim(),
+		"",
+		"## Recovered context",
+		"The previous child session was damaged and cannot be reopened: its stored history contains an invalid tool call. Start over in a fresh session and do not reuse the old session file.",
+		context,
+	].join("\n");
+}
+
 export function delegationPrompt(title: string, task: string, context: string, cwd: string): string {
 	return [
 		"# Delegated assignment",

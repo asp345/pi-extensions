@@ -14,6 +14,7 @@ export interface StoredAgentState {
 	toolUses: number;
 	result?: string;
 	error?: string;
+	damagedSession?: boolean;
 	model?: string;
 	thinking?: ThinkingLevel;
 	sessionFile?: string;
@@ -35,6 +36,7 @@ export function storeRecord(record: AgentRecord): StoredAgentState {
 		toolUses: record.toolUses,
 		result: record.result,
 		error: record.error,
+		damagedSession: record.damagedSession ? true : undefined,
 		model: record.model,
 		thinking: record.thinking,
 		sessionFile: record.sessionFile,
@@ -72,6 +74,7 @@ export function parseStoredRecord(value: unknown): StoredAgentState | undefined 
 		toolUses: value.toolUses,
 		result: stringValue(value.result),
 		error: stringValue(value.error),
+		damagedSession: value.damagedSession === true ? true : undefined,
 		model: stringValue(value.model),
 		thinking,
 		sessionFile: stringValue(value.sessionFile),

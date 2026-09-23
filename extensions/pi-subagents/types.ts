@@ -16,6 +16,7 @@ export interface AgentRecord {
 	toolUses: number;
 	result?: string;
 	error?: string;
+	damagedSession?: boolean;
 	model?: string;
 	thinking?: ThinkingLevel;
 	messages: RpcMessage[];
