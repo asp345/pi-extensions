@@ -31,9 +31,9 @@ const SCOPES = [
 ].join(" ");
 
 const CLAUDE_CODE_VERSION = "2.1.280";
-const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
+export const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
 const CLAUDE_CODE_BETA =
-	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07,mid-conversation-output-config-2026-07-01,fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01";
+	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07,mid-conversation-output-config-2026-07-01,fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01,compact-2026-09-04";
 const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
 const CLAUDE_CODE_LEGACY_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -280,7 +280,7 @@ function billingVersionSuffix(text: string): string {
 		.slice(0, 3);
 }
 
-function firstUserText(messages: unknown): string {
+export function firstUserText(messages: unknown): string {
 	if (!Array.isArray(messages)) return "";
 	for (const message of messages) {
 		if (typeof message !== "object" || message === null) continue;
@@ -586,7 +586,15 @@ function patchCch(body: Uint8Array): Uint8Array<ArrayBuffer> | undefined {
 	return unsigned;
 }
 
-function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch {
+export function buildBillingPlaceholder(promptId: string, firstUserText: string): string {
+	const suffix = billingVersionSuffix(firstUserText);
+	return (
+		`x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}.${suffix}; ` +
+		`cc_entrypoint=sdk-cli; ${CCH_PLACEHOLDER}; cc_prompt_id=${promptId}; cc_turn_origin=sdk;`
+	);
+}
+
+export function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch {
 	return ((input: Parameters<typeof globalThis.fetch>[0], init?: Parameters<typeof globalThis.fetch>[1]) => {
 		try {
 			const url = typeof input === "string" ? input : input instanceof URL ? input.href : undefined;
@@ -639,10 +647,7 @@ function stream(
 				onPayload: async (payload: unknown, innerModel: Model<Api>) => {
 					const next = (await previousOnPayload?.(payload, innerModel)) ?? payload;
 					const params = next as Record<string, unknown>;
-					const suffix = billingVersionSuffix(firstUserText(params.messages));
-					const billing =
-						`x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}.${suffix}; ` +
-						`cc_entrypoint=sdk-cli; ${CCH_PLACEHOLDER}; cc_prompt_id=${promptId}; cc_turn_origin=sdk;`;
+					const billing = buildBillingPlaceholder(promptId, firstUserText(params.messages));
 					const system = Array.isArray(params.system) ? [...(params.system as unknown[])] : [];
 					system.unshift({ type: "text", text: billing });
 					const legacy = system[1] as { type?: unknown; text?: unknown } | undefined;
