@@ -153,7 +153,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		},
 		renderCall(args, theme, context) {
 			const summary = taskCallSummary(args, runtime);
-			if (summary.name === "done") return new Text(theme.fg("dim", `Read ${args.id?.trim() || "task"} result`), 0, 0);
+			if (summary.name === "done") return new Text(` ${theme.fg("dim", `Read ${args.id?.trim() || "task"} result`)}`, 0, 0);
 			return compactCallLine("background_task", args, theme, context, summary) as Component;
 		},
 		renderResult(result, options, _theme, _context): Component {
