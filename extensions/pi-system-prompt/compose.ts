@@ -13,7 +13,7 @@ function normalizeCwd(cwd: string): string {
 	return cwd.replace(/\\/g, "/");
 }
 
-// No phrasing-based filters by design: pi core's generic guidelines never arrive
+// No phrasing-based filters by design: harness core generic guidelines never arrive
 // via promptGuidelines (buildSystemPrompt adds them internally, and this path
 // bypasses it). Only tool-registered strings arrive, so matching their wording
 // would couple to third-party phrasing. A guideline fully contained in the base
@@ -55,32 +55,32 @@ export function filterContextFiles(
 	});
 }
 
-export function buildPiDocsBlock(packageDir: string | undefined): string | undefined {
+export function buildHarnessDocsBlock(packageDir: string | undefined): string | undefined {
 	const dir = packageDir?.trim();
 	if (!dir) return undefined;
 	const clean = dir.replace(/\/+$/, "");
-	return shortPiDocsBlock(`${clean}/README.md`, `${clean}/docs`, `${clean}/examples`);
+	return shortHarnessDocsBlock(`${clean}/README.md`, `${clean}/docs`, `${clean}/examples`);
 }
 
-export function extractPiDocsBlock(systemPrompt: string): string | undefined {
+export function extractHarnessDocsBlock(systemPrompt: string): string | undefined {
 	const match = /Pi documentation \(read only when[\s\S]*?tui\.md for TUI API details\)/.exec(systemPrompt);
 	return match?.[0];
 }
 
-export function resolvePiDocsBlock(systemPrompt: string, packageDir: string | undefined): string | undefined {
-	const extracted = extractPiDocsBlock(systemPrompt);
+export function resolveHarnessDocsBlock(systemPrompt: string, packageDir: string | undefined): string | undefined {
+	const extracted = extractHarnessDocsBlock(systemPrompt);
 	if (extracted) {
 		const readme = /^- Main documentation: (.+)$/mu.exec(extracted)?.[1]?.trim();
 		const docs = /^- Additional docs: (.+)$/mu.exec(extracted)?.[1]?.trim();
 		const examples = /^- Examples: (.+?) \(extensions, custom tools, SDK\)$/mu.exec(extracted)?.[1]?.trim();
-		if (readme && docs && examples) return shortPiDocsBlock(readme, docs, examples);
+		if (readme && docs && examples) return shortHarnessDocsBlock(readme, docs, examples);
 	}
-	return buildPiDocsBlock(packageDir);
+	return buildHarnessDocsBlock(packageDir);
 }
 
-function shortPiDocsBlock(readme: string, docs: string, examples: string): string {
+function shortHarnessDocsBlock(readme: string, docs: string, examples: string): string {
 	return [
-		"Pi documentation (only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):",
+		"Harness documentation (only when the user asks about harness itself, its SDK, extensions, themes, skills, or TUI):",
 		`- README: ${readme} | Docs: ${docs} | Examples: ${examples}`,
 		"- Resolve docs/... under Docs and examples/... under Examples, never under the working directory.",
 		"- Topic map: extensions, themes, skills, prompt-templates, tui, keybindings, sdk, custom-provider, models, packages, environment-variables (docs/<topic>.md).",
@@ -90,7 +90,7 @@ function shortPiDocsBlock(readme: string, docs: string, examples: string): strin
 
 export function composeSystemPrompt(
 	options: BuildSystemPromptOptions,
-	piDocsBlock?: string,
+	harnessDocsBlock?: string,
 	agentRules?: string,
 ): string | undefined {
 	const customPrompt = trimmed(options.customPrompt);
@@ -123,7 +123,7 @@ export function composeSystemPrompt(
 			...guidelines,
 		].join("\n"),
 	);
-	if (piDocsBlock?.trim()) sections.push(piDocsBlock.trim());
+	if (harnessDocsBlock?.trim()) sections.push(harnessDocsBlock.trim());
 	if (contextFiles.length > 0) {
 		const body = contextFiles
 			.map((file) => `<project_instructions path="${file.path}">\n${file.content.trim()}\n</project_instructions>`)

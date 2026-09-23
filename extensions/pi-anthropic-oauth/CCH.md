@@ -49,8 +49,8 @@ the exact bytes on the wire.
 4. CLIProxyAPI's `internal/runtime/executor/claude_signing.go` documents the
    missing piece: the hash covers a *normalized* view (rules above), with
    seed `0x4D659218E32A3268`. A from-scratch Python reimplementation
-   reproduced both captured values exactly, confirming seed and rules for
-   2.1.278.
+   reproduced captured values exactly, confirming seed and rules for
+   2.1.278 and re-confirmed on a 2.1.280 capture.
 5. The version suffix salt `59cf53e54c78` was confirmed the same way: it
    reproduces the captured `02b` suffix for the prompt
    `"reply with the single word ok"`.

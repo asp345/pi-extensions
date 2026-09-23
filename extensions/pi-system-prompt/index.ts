@@ -1,16 +1,11 @@
+import { getCurrentSystemMessage, type SystemMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { loadAgentRules } from "./agents.ts";
-import { composeSystemPrompt, resolvePiDocsBlock } from "./compose.ts";
-
-interface TurnRecord {
-	length: number;
-	startsWithRules: boolean;
-	corePreamble: boolean;
-}
+import { composeSystemPrompt, resolveHarnessDocsBlock } from "./compose.ts";
 
 function reportSystemPrompt(
 	agentRules: string | undefined,
-	lastTurn: TurnRecord | undefined,
+	lastPrompt: string | undefined,
 	ctx: ExtensionCommandContext,
 ): string {
 	const prompt = ctx.getSystemPrompt();
@@ -20,9 +15,9 @@ function reportSystemPrompt(
 		`  length: ${prompt.length} chars`,
 		`  core preamble present: ${prompt.includes("You are an expert coding assistant")}`,
 		`  appendSystemPrompt: ${options.appendSystemPrompt ? `${options.appendSystemPrompt.length} chars (in base; excluded from rebuild)` : "absent"}`,
-		`last turn sent by this extension: ${
-			lastTurn
-				? `${lastTurn.length} chars, startsWithRules=${lastTurn.startsWithRules}, corePreamble=${lastTurn.corePreamble}`
+		`last prompt composed by this extension: ${
+			lastPrompt && agentRules
+				? `${lastPrompt.length} chars, startsWithRules=${lastPrompt.startsWith(agentRules)}, corePreamble=${lastPrompt.includes("You are an expert coding assistant")}`
 				: agentRules
 					? "no agent turn yet since load"
 					: "no bundled rules loaded"
@@ -36,7 +31,7 @@ function reportSystemPrompt(
 	for (const marker of [
 		"Available tools:",
 		"Guidelines:",
-		"Pi documentation",
+		"Harness documentation",
 		"<project_context>",
 		"<available_skills>",
 		"Current working directory:",
@@ -53,25 +48,38 @@ export default function systemPromptExtension(pi: ExtensionAPI): void {
 	} catch {
 		agentRules = undefined;
 	}
-	let lastTurn: TurnRecord | undefined;
+	let lastPrompt: string | undefined;
 
 	pi.registerCommand("system-prompt", {
 		description: "Show how the current system prompt was composed",
 		handler: async (_args, ctx) => {
-			ctx.ui.notify(reportSystemPrompt(agentRules, lastTurn, ctx), "info");
+			ctx.ui.notify(reportSystemPrompt(agentRules, lastPrompt, ctx), "info");
 		},
+	});
+
+	pi.on("session_start", () => {
+		lastPrompt = undefined;
 	});
 
 	pi.on("before_agent_start", async (event) => {
 		if (!agentRules) return undefined;
-		const piDocsBlock = resolvePiDocsBlock(event.systemPrompt, process.env.PI_PACKAGE_DIR);
-		const systemPrompt = composeSystemPrompt(event.systemPromptOptions, piDocsBlock, agentRules);
-		if (!systemPrompt || systemPrompt === event.systemPrompt) return undefined;
-		lastTurn = {
-			length: systemPrompt.length,
-			startsWithRules: systemPrompt.startsWith(agentRules),
-			corePreamble: systemPrompt.includes("You are an expert coding assistant"),
-		};
+		const harnessDocsBlock = resolveHarnessDocsBlock(event.systemPrompt, process.env.PI_PACKAGE_DIR);
+		const systemPrompt = composeSystemPrompt(event.systemPromptOptions, harnessDocsBlock, agentRules);
+		if (!systemPrompt) return undefined;
+		lastPrompt = systemPrompt;
+		if (systemPrompt === event.systemPrompt) return undefined;
 		return { systemPrompt };
+	});
+
+	pi.on("context_with_system", (event) => {
+		if (!lastPrompt) return undefined;
+		const current = getCurrentSystemMessage(event.messages);
+		const head: SystemMessage = {
+			role: "system",
+			content: lastPrompt,
+			...(current?.toolsAdded ? { toolsAdded: current.toolsAdded } : {}),
+			timestamp: current?.timestamp ?? Date.now(),
+		};
+		return { messages: [head, ...event.messages.filter((message) => message.role !== "system")] };
 	});
 }

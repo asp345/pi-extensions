@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { loadAgentRules } from "./agents.ts";
-import { composeSystemPrompt, dedupeGuidelines, filterContextFiles, resolvePiDocsBlock } from "./compose.ts";
+import { composeSystemPrompt, dedupeGuidelines, filterContextFiles, resolveHarnessDocsBlock } from "./compose.ts";
 
 const AGENTS = "# System Instructions\n\nYou are a coding and research agent.\n\nPrefer built-in tools over bash.";
 
@@ -33,7 +33,7 @@ test("uses bundled rules and ignores incoming appendSystemPrompt", () => {
 	assert.ok(!prompt.includes("stale appended rules"));
 });
 
-test("puts agent rules first and drops pi core preamble", () => {
+test("puts agent rules first and drops harness core preamble", () => {
 	const prompt = composeSystemPrompt(options(), undefined, AGENTS) ?? assert.fail("expected a prompt");
 	assert.ok(!prompt.includes("You are an expert coding assistant"));
 	assert.ok(!prompt.includes("Be concise in your responses"));
@@ -86,7 +86,7 @@ test("places a custom prompt before agent rules", () => {
 	assert.ok(prompt.startsWith("Custom identity.\n\n# System Instructions"));
 });
 
-test("resolves a short pi docs block keeping core paths", () => {
+test("resolves a short harness docs block keeping core paths", () => {
 	const coreBlock = [
 		"Pi documentation (read only when the user asks about pi itself):",
 		"- Main documentation: /pkg/README.md",
@@ -94,7 +94,7 @@ test("resolves a short pi docs block keeping core paths", () => {
 		"- Examples: /pkg/examples (extensions, custom tools, SDK)",
 		"- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)",
 	].join("\n");
-	const short = resolvePiDocsBlock(`head\n\n${coreBlock}\n\ntail`, undefined) ?? assert.fail("expected a block");
+	const short = resolveHarnessDocsBlock(`head\n\n${coreBlock}\n\ntail`, undefined) ?? assert.fail("expected a block");
 	assert.ok(short.includes("/pkg/README.md"));
 	assert.ok(short.includes("/pkg/docs"));
 	assert.ok(short.includes("/pkg/examples"));
@@ -103,7 +103,7 @@ test("resolves a short pi docs block keeping core paths", () => {
 });
 
 test("falls back to the package dir when core block is absent", () => {
-	const short = resolvePiDocsBlock("no docs here", "/pkg") ?? assert.fail("expected a block");
+	const short = resolveHarnessDocsBlock("no docs here", "/pkg") ?? assert.fail("expected a block");
 	assert.ok(short.includes("/pkg/docs"));
-	assert.equal(resolvePiDocsBlock("no docs here", undefined), undefined);
+	assert.equal(resolveHarnessDocsBlock("no docs here", undefined), undefined);
 });

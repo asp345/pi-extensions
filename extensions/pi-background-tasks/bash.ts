@@ -17,13 +17,15 @@ import { compactCallLine, PadLeft, toolSummary } from "pi-compact-ui";
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
-const HANDOFF_MS = 10 * 60_000;
+const HANDOFF_MINUTES = 1;
+const HANDOFF_MS = HANDOFF_MINUTES * 60_000;
+const HANDOFF_LABEL = `${HANDOFF_MINUTES} minute${HANDOFF_MINUTES === 1 ? "" : "s"}`;
 const HANDOFF_SHORTCUT = "alt+h";
 
 const HANDOFF_GUIDELINE =
 	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait. Never use the timeout shell command. Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to 10 minutes, then continue as a background task. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to ${HANDOFF_LABEL}, then continue as a background task. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
@@ -154,7 +156,7 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 				const timeoutNote = timeout === undefined ? "" : ` timeout ${timeout}s from command start.`;
 				const reason = handoff.signal.aborted
 					? `Handoff requested with ${HANDOFF_SHORTCUT}`
-					: "Command still running after 10 minutes";
+					: `Command still running after ${HANDOFF_LABEL}`;
 				onData(
 					Buffer.from(
 						`\n\n${reason}; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
