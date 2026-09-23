@@ -15,6 +15,8 @@ Builds the harness system prompt from the bundled `SYSTEM.txt` rules instead of 
 7. Skills via harness core exported `formatSkillsForPrompt`, excluding `disableModelInvocation`
 8. `Current working directory`
 
+The composed prompt is stored until the next `session_start`. `context_with_system` replaces the system messages of every provider request with one leading system message holding the stored prompt and the current tool declarations. Runs started by `pi.sendMessage(..., { triggerTurn: true })` (background task and subagent notifications) skip `before_agent_start`, so this keeps their request prefix identical to user-started runs. Before the first `before_agent_start` of a session, requests keep the harness core prompt.
+
 `options.appendSystemPrompt` (`APPEND_SYSTEM.md`) is ignored. The nixos `xdg.configFile "pi/APPEND_SYSTEM.md"` mapping for harness is obsolete once this extension is active and should be removed there; while it remains, its content has no effect on harness.
 
 ## Overlap with harness core
@@ -31,7 +33,7 @@ Extension `promptGuidelines` entries are kept except exact duplicates and lines 
 
 ## Command
 
-`/system-prompt` reports the last effective prompt (`agent.state.systemPrompt`, which keeps the chained per-turn result) plus the base inputs: whether the sent turn started with the bundled `SYSTEM.txt`, whether the core preamble is present, tool/guideline counts, context file paths, skill names, and section offsets. Context file contents are never printed.
+`/system-prompt` reports the last effective prompt (`agent.state.systemPrompt`, which keeps the chained per-turn result) plus the base inputs: the length of the stored composed prompt, whether it starts with the bundled `SYSTEM.txt`, whether the core preamble is present, tool/guideline counts, context file paths, skill names, and section offsets. Context file contents are never printed.
 
 ## Load order
 
