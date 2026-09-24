@@ -12,15 +12,16 @@ export default function question(pi: ExtensionAPI) {
 			question: Type.String(),
 			options: Type.Array(Type.String(), { minItems: 1 }),
 		}),
-		async execute(_id, { question, options }, _signal, _update, ctx) {
+		executionMode: "sequential",
+		async execute(_id, { question, options }, signal, _update, ctx) {
 			if (ctx.mode !== "tui") return result("Interactive UI is unavailable.");
 
 			const custom = options.includes(CUSTOM) ? `${CUSTOM}…` : CUSTOM;
-			const choice = await ctx.ui.select(question, [...options, custom]);
+			const choice = await ctx.ui.select(question, [...options, custom], { signal });
 			if (!choice) return result("User cancelled.");
 			if (choice !== custom) return result(`User selected: ${choice}`);
 
-			const answer = (await ctx.ui.input(question))?.trim();
+			const answer = (await ctx.ui.input(question, undefined, { signal }))?.trim();
 			return result(answer ? `User answered: ${answer}` : "User cancelled.");
 		},
 	});
