@@ -115,7 +115,7 @@ export function buildNativeInstructions(input: NativeInstructionsInput): string 
 		instructions += `\n\nEnd the summary with exactly these file sections, using verbatim paths:\n\n${sections.join("\n\n")}`;
 	}
 	if (input.isSplitTurn) {
-		instructions += `\n\nThe trailing messages of this request belong to the current user turn, which is still in progress. Cover them in a closing Turn Context section with Original Request, Progress So Far, and Context Needed to Continue, after the history summary above.`;
+		instructions += `\n\nThe trailing messages of this request belong to the current user turn, which is still in progress. Write the history summary first, then a horizontal rule, then a Turn Context section with Original Request, Progress So Far, and Context Needed to Continue.`;
 	}
 	return instructions;
 }
