@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
 	buildBillingPlaceholder,
+	CLAUDE_CODE_LEGACY_IDENTITY,
 	CLAUDE_CODE_USER_AGENT,
 	firstUserText,
 	wrapFetchForCch,
@@ -253,10 +254,6 @@ export async function modelSupportsOnDemandCompaction(
 	} catch {}
 	compactionSupportByModel.set(key, supported);
 	return supported;
-}
-
-export function markCompactionUnsupported(model: Model<Api>): void {
-	compactionSupportByModel.set(modelKey(model), false);
 }
 
 type WireBlock = { type: string; [key: string]: unknown };
@@ -573,7 +570,17 @@ export async function requestOnDemandSummary(params: SummaryRequest): Promise<Su
 		const identityIndex = system.findIndex(
 			(block) => isJsonObject(block) && block.type === "text" && block.text === CLAUDE_CODE_IDENTITY,
 		);
-		if (identityIndex < 0) system.splice(1, 0, { type: "text", text: CLAUDE_CODE_IDENTITY });
+		const legacy = system[1];
+		if (
+			identityIndex < 0 &&
+			isJsonObject(legacy) &&
+			legacy.type === "text" &&
+			legacy.text === CLAUDE_CODE_LEGACY_IDENTITY
+		) {
+			system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
+		} else if (identityIndex < 0) {
+			system.splice(1, 0, { type: "text", text: CLAUDE_CODE_IDENTITY });
+		}
 	}
 	const tools = params.oauth ? toWireToolsForOAuth([...params.tools]) : [...params.tools];
 	const messages = params.messages.map((message) =>

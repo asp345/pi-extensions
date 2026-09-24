@@ -1,4 +1,5 @@
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
+import { getOpencodeSessionHeaders } from "./headers.ts";
 import { isJsonObject, type JsonObject } from "./protocol.ts";
 
 export const OPENAI_COMPLETIONS_API = "openai-completions";
@@ -37,6 +38,21 @@ function resolveCompletionsUrl(baseUrl: string | undefined): string {
 		typeof baseUrl === "string" && baseUrl.trim().length > 0 ? baseUrl.trim() : "https://api.openai.com"
 	).replace(/\/+$/, "");
 	return `${base}/chat/completions`;
+}
+
+function sessionAffinityHeaders(model: Model<Api>, sessionId: string): Record<string, string> {
+	const compat = model.compat as
+		| { sendSessionAffinityHeaders?: boolean; sessionAffinityFormat?: "openai" | "openai-nosession" | "openrouter" }
+		| undefined;
+	const openRouter = model.provider === "openrouter" || model.baseUrl.includes("openrouter.ai");
+	if (!(compat?.sendSessionAffinityHeaders ?? openRouter)) return {};
+	const format = compat?.sessionAffinityFormat ?? (openRouter ? "openrouter" : "openai");
+	if (format === "openrouter") return { "x-session-id": sessionId };
+	return {
+		...(format === "openai" ? { session_id: sessionId } : {}),
+		"x-client-request-id": sessionId,
+		"x-session-affinity": sessionId,
+	};
 }
 
 function isRetryableStatus(status: number): boolean {
@@ -84,14 +100,21 @@ export async function requestOpenAISummary(params: OpenAISummaryRequest): Promis
 		messages,
 		stream: true,
 		stream_options: { include_usage: true },
-		max_tokens: params.maxTokens,
 	};
-	delete (body as Record<string, unknown>).max_completion_tokens;
+	if (wire.max_completion_tokens !== undefined) {
+		body.max_completion_tokens = params.maxTokens;
+		delete body.max_tokens;
+	} else {
+		body.max_tokens = params.maxTokens;
+		delete body.max_completion_tokens;
+	}
 	const headers: Record<string, string> = {
 		accept: "text/event-stream",
 		"content-type": "application/json",
 		authorization: `Bearer ${params.apiKey}`,
 		"x-client-request-id": crypto.randomUUID(),
+		...sessionAffinityHeaders(params.model, params.sessionId),
+		...getOpencodeSessionHeaders(params.model, params.sessionId),
 		...params.callerHeaders,
 	};
 	const url = resolveCompletionsUrl(params.model.baseUrl);

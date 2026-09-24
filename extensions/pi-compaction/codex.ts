@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { CompactionConfig } from "./config.ts";
 import { withoutDeletedHeaders } from "./headers.ts";
 import {
@@ -53,6 +53,10 @@ function setFeatureHeader(headers: Record<string, string | null>): void {
 export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
 	const payloadShapeBySession = new Map<string, CachedPayloadShape>();
 	const nativeCompactionConfigured = () => getConfig().nativeCodex;
+	const activeTools = (): ToolInfo[] => {
+		const names = new Set(pi.getActiveTools());
+		return pi.getAllTools().filter((tool) => names.has(tool.name));
+	};
 
 	const createNativeCheckpoint = async (params: {
 		ctx: ExtensionContext;
@@ -69,13 +73,12 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 			throw new Error(auth.ok ? "OpenAI Codex authentication is unavailable." : auth.error);
 		}
 		const sessionId = params.ctx.sessionManager.getSessionId();
-		const allTools = pi.getAllTools();
 		const body = buildCompactionRequestBody({
 			basePayload: params.basePayload,
 			model: params.model,
 			input: params.input,
 			instructions: params.ctx.getSystemPrompt(),
-			tools: buildToolPayload(allTools, pi.getActiveTools()),
+			tools: buildToolPayload(params.model, pi.getAllTools(), pi.getActiveTools()),
 			sessionId,
 		});
 		const remote = await callRemoteCompaction({
@@ -139,7 +142,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 
 		try {
 			if (checkpoint.status === "none") return undefined;
-			const input = effectiveInputForBranch({ branch, model, tools: pi.getAllTools() });
+			const input = effectiveInputForBranch({ branch, model, tools: activeTools() });
 			const payload: JsonObject = { ...event.payload, input };
 			delete payload.messages;
 			delete payload.previous_response_id;
@@ -169,8 +172,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 			const input = effectiveInputForBranch({
 				branch,
 				model,
-				tools: pi.getAllTools(),
-				excludeLastAssistantError: event.reason === "overflow" && event.willRetry,
+				tools: activeTools(),
 			});
 			const cached = payloadShapeBySession.get(sessionId);
 			const native = await createNativeCheckpoint({

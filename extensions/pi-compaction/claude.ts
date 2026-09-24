@@ -13,7 +13,6 @@ import {
 	findAnthropicCheckpoint,
 	hashStrippedTools,
 	isAnthropicMessagesModel,
-	markCompactionUnsupported,
 	modelSupportsOnDemandCompaction,
 	requestOnDemandSummary,
 	type WireMessage,
@@ -258,15 +257,18 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 			const cutIndex = branch.findIndex((entry) => entry?.id === event.preparation.firstKeptEntryId);
 			if (cutIndex < 0) return undefined;
 			const lookup = findAnthropicCheckpoint(branch);
-			const sameModel = lookup.status === "valid" && lookup.checkpoint.details.modelKey === modelKey(model);
-			const priorBlock = sameModel ? lookup.checkpoint.details.block : undefined;
-			const startIndex = sameModel ? lookup.checkpoint.entryIndex + 1 : 0;
+			const checkpoint = lookup.status === "valid" ? lookup.checkpoint : undefined;
+			const reusable =
+				checkpoint !== undefined &&
+				checkpoint.details.modelKey === modelKey(model) &&
+				!staleCheckpointIds.has(checkpoint.entryId);
+			const priorBlock = checkpoint && reusable ? checkpoint.details.block : undefined;
+			const startIndex = checkpoint ? checkpoint.entryIndex + 1 : 0;
 			if (startIndex >= cutIndex) return undefined;
 			let assembled = assembleRangeAgentMessages(branch, startIndex, cutIndex);
 			if (event.reason === "overflow" && event.willRetry) {
 				assembled = dropTrailingErrorAssistants(assembled);
 			}
-			assembled.push(...event.preparation.turnPrefixMessages);
 			const llmMessages = repairOrphanToolCalls(convertToLlm(assembled));
 			const wire = convertToAnthropicMessages(llmMessages);
 			if (!wire.ok) {
@@ -320,7 +322,6 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 		} catch (error) {
 			if (event.signal.aborted) return undefined;
 			const message = errorMessage(error);
-			if (error instanceof Error && "status" in error && error.status === 400) markCompactionUnsupported(model);
 			notifyFailure(ctx, event.signal, `Anthropic native compaction failed, using text compaction: ${message}`);
 			return undefined;
 		}

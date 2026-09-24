@@ -66,8 +66,10 @@ export function findNativeCheckpoint(branch: SessionEntry[]): CheckpointLookup {
 			if (!isJsonObject(entry.details) || entry.details.kind !== NATIVE_COMPACTION_KIND) {
 				return { status: "none" };
 			}
+			if (entry.details.version !== NATIVE_COMPACTION_VERSION) return { status: "none" };
 			rawDetails = entry.details;
 		} else if (entry.type === "custom" && entry.customType === NATIVE_COMPACTION_KIND) {
+			if (!isJsonObject(entry.data) || entry.data.version !== NATIVE_COMPACTION_VERSION) return { status: "none" };
 			rawDetails = entry.data;
 		} else {
 			continue;
