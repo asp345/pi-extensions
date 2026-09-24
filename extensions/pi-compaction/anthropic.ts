@@ -30,13 +30,105 @@ const MODELS_API_TIMEOUT_MS = 15000;
 const SUMMARY_TIMEOUT_MS = 300000;
 const MAX_SUMMARY_ATTEMPTS = 3;
 
-const SUMMARY_INSTRUCTIONS =
-	"Summarize this agentic coding session so work can continue from the summary. " +
-	"Do not call any tools; respond with the summary text only. Preserve exact successful setup, install, build, test, run, and lint commands; " +
-	"working directories, required environment variables, prerequisites, and success criteria; " +
-	"files read, created, or modified with full paths and why each mattered; key decisions and rationale; " +
-	"errors encountered and how each was fixed, especially any user corrections, with security-relevant instructions or constraints quoted verbatim; " +
-	"pending tasks and the precise current state.";
+export const COMMAND_INSTRUCTIONS = `In the \`## Critical Context\` section, preserve a \`Build & Run Commands\` subsection. Record the exact setup, install, build, test, run, and lint commands from successful bash tool calls verbatim. Preserve the working directory, required environment variables, prerequisites, and success criteria for each command. If a category has no applicable command, explicitly write \`none\`. If a command or any of its details has not been verified, explicitly write \`unknown\` instead of guessing. Do not invent, normalize, shorten, or replace commands with equivalent commands. Preserve existing command entries across later compactions unless a newer successful command supersedes one. Also write a \`Mistakes\` subsection to record previous mistakes.`;
+
+const SUMMARY_FORMAT = `Use this EXACT format:
+
+## Goal
+[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
+
+## Constraints & Preferences
+- [Any constraints, preferences, or requirements mentioned by user]
+- [Or "(none)" if none were mentioned]
+
+## Progress
+### Done
+- [x] [Completed tasks/changes]
+
+### In Progress
+- [ ] [Current work]
+
+### Blocked
+- [Issues preventing progress, if any]
+
+## Key Decisions
+- **[Decision]**: [Brief rationale]
+
+## Next Steps
+1. [Ordered list of what should happen next]
+
+## Critical Context
+- [Any data, examples, or references needed to continue]
+- [Or "(none)" if not applicable]
+
+Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+
+const SUMMARIZATION_BASE = `Summarize the conversation in this request. Create a structured context checkpoint summary that another LLM will use to continue the work.
+
+${SUMMARY_FORMAT}`;
+
+const UPDATE_SUMMARIZATION_BASE = `Update the existing structured summary with new information from the conversation in this request. The existing summary is provided in <previous-summary> tags and is also carried in the leading compaction block of the messages. RULES:
+- PRESERVE all existing information from the previous summary
+- ADD new progress, decisions, and context from the new messages
+- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
+- UPDATE "Next Steps" based on what was accomplished
+- PRESERVE exact file paths, function names, and error messages
+- If something is no longer relevant, you may remove it
+
+${SUMMARY_FORMAT}`;
+
+const TURN_PREFIX_FORMAT = `## Original Request
+[What did the user ask for?]
+
+## Progress So Far
+- [Key decisions and work completed in these messages]
+
+## Context Needed to Continue
+- [Information from these messages needed to understand the later work]
+
+Only summarize information explicitly present above. Do not infer or recreate later messages.`;
+
+export interface NativeInstructionsInput {
+	customInstructions?: string;
+	previousSummary?: string;
+	isSplitTurn: boolean;
+	readFiles: string[];
+	modifiedFiles: string[];
+}
+
+export function computeNativeFileLists(fileOps: { read: Set<string>; written: Set<string>; edited: Set<string> }): {
+	readFiles: string[];
+	modifiedFiles: string[];
+} {
+	const modified = new Set([...fileOps.edited, ...fileOps.written]);
+	return {
+		readFiles: [...fileOps.read].filter((file) => !modified.has(file)).sort(),
+		modifiedFiles: [...modified].sort(),
+	};
+}
+
+export function buildNativeInstructions(input: NativeInstructionsInput): string {
+	const custom = input.customInstructions
+		? `${input.customInstructions}\n\n${COMMAND_INSTRUCTIONS}`
+		: COMMAND_INSTRUCTIONS;
+	const base = input.previousSummary ? UPDATE_SUMMARIZATION_BASE : SUMMARIZATION_BASE;
+	let instructions = input.previousSummary
+		? `<previous-summary>\n${input.previousSummary}\n</previous-summary>\n\n${base}`
+		: base;
+	instructions += `\n\nAdditional focus: ${custom}`;
+	const sections: string[] = [];
+	if (input.readFiles.length > 0) sections.push(`<read-files>\n${input.readFiles.join("\n")}\n</read-files>`);
+	if (input.modifiedFiles.length > 0) {
+		sections.push(`<modified-files>\n${input.modifiedFiles.join("\n")}\n</modified-files>`);
+	}
+	if (sections.length > 0) {
+		instructions += `\n\nEnd the summary with exactly these file sections, using verbatim paths:\n\n${sections.join("\n\n")}`;
+	}
+	if (input.isSplitTurn) {
+		instructions += `\n\nThe trailing messages of this request are the prefix of the current (split) user turn; earlier messages are the older history. First write the history summary in the EXACT format above, then append exactly "\n\n---\n\n**Turn Context (split turn):**\n\n" followed by the turn-prefix checkpoint in this format:\n\n${TURN_PREFIX_FORMAT}`;
+	}
+	return instructions;
+}
 
 export interface AnthropicCompactionBlock {
 	type: "compaction";
@@ -338,6 +430,27 @@ export function hashStrippedTools(tools: unknown): string {
 	return canonicalJson(list);
 }
 
+function stripCacheControl(blocks: unknown[]): void {
+	for (let index = 0; index < blocks.length; index++) {
+		const block = blocks[index];
+		if (isJsonObject(block) && block.cache_control !== undefined) {
+			const copy = { ...block };
+			delete copy.cache_control;
+			blocks[index] = copy;
+		}
+	}
+}
+
+function markEphemeral(blocks: unknown[], skipDeferredTools = false): void {
+	for (let index = blocks.length - 1; index >= 0; index--) {
+		const block = blocks[index];
+		if (!isJsonObject(block)) continue;
+		if (skipDeferredTools && block.defer_loading === true) continue;
+		blocks[index] = { ...block, cache_control: { type: "ephemeral" } };
+		return;
+	}
+}
+
 class SummaryRequestError extends Error {
 	constructor(
 		message: string,
@@ -377,6 +490,7 @@ export type SummaryRequest = {
 	systemBlocks: unknown[];
 	tools: unknown[];
 	messages: WireMessage[];
+	instructions: string;
 	signal?: AbortSignal;
 };
 
@@ -402,29 +516,96 @@ function usageFromIterations(model: Model<Api>, json: unknown): Usage | undefine
 	if (!isJsonObject(entry)) return undefined;
 	const input = typeof entry.input_tokens === "number" ? entry.input_tokens : 0;
 	const output = typeof entry.output_tokens === "number" ? entry.output_tokens : 0;
+	const cacheRead = typeof entry.cache_read_input_tokens === "number" ? entry.cache_read_input_tokens : 0;
+	const cacheWrite = typeof entry.cache_creation_input_tokens === "number" ? entry.cache_creation_input_tokens : 0;
 	const usage: Usage = {
 		input,
 		output,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: input + output,
+		cacheRead,
+		cacheWrite,
+		totalTokens: input + output + cacheRead + cacheWrite,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
 	calculateCost(model, usage);
 	return usage;
 }
 
+const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+
+const CC_TOOL_NAMES = [
+	"Read",
+	"Write",
+	"Edit",
+	"Bash",
+	"Grep",
+	"Glob",
+	"AskUserQuestion",
+	"EnterPlanMode",
+	"ExitPlanMode",
+	"KillShell",
+	"NotebookEdit",
+	"Skill",
+	"Task",
+	"TaskOutput",
+	"TodoWrite",
+	"WebFetch",
+	"WebSearch",
+];
+const CC_TOOL_LOOKUP = new Map(CC_TOOL_NAMES.map((name) => [name.toLowerCase(), name]));
+
+const DEFERRED_TOOL_PLACEHOLDER = {
+	name: "__pi_deferred_placeholder__",
+	description: "Reserved placeholder. Never available. Never call this.",
+	input_schema: { type: "object", properties: {}, required: [] },
+	defer_loading: true,
+};
+
+function toClaudeCodeToolName(name: unknown): unknown {
+	if (typeof name !== "string") return name;
+	return CC_TOOL_LOOKUP.get(name.toLowerCase()) ?? name;
+}
+
+function toWireToolsForOAuth(tools: unknown[]): unknown[] {
+	const mapped = tools.map((tool) => {
+		if (!isJsonObject(tool)) return tool;
+		return { ...tool, name: toClaudeCodeToolName(tool.name) };
+	});
+	if (mapped.length > 0 && !mapped.some((tool) => isJsonObject(tool) && tool.name === DEFERRED_TOOL_PLACEHOLDER.name)) {
+		mapped.push({ ...DEFERRED_TOOL_PLACEHOLDER });
+	}
+	return mapped;
+}
+
 export async function requestOnDemandSummary(params: SummaryRequest): Promise<SummaryResult> {
 	const promptId = randomUUID();
 	const billing = params.oauth ? buildBillingPlaceholder(promptId, firstUserText(params.messages)) : undefined;
+	const system = [...(billing ? [{ type: "text", text: billing }] : []), ...params.systemBlocks];
+	if (params.oauth && billing) {
+		const identityIndex = system.findIndex(
+			(block) => isJsonObject(block) && block.type === "text" && block.text === CLAUDE_CODE_IDENTITY,
+		);
+		if (identityIndex < 0) system.splice(1, 0, { type: "text", text: CLAUDE_CODE_IDENTITY });
+	}
+	const tools = params.oauth ? toWireToolsForOAuth([...params.tools]) : [...params.tools];
+	const messages = params.messages.map((message) =>
+		Array.isArray(message.content)
+			? { ...message, content: message.content.map((block) => ({ ...block })) }
+			: { ...message },
+	);
+	stripCacheControl(system);
+	stripCacheControl(tools);
+	markEphemeral(system);
+	markEphemeral(tools, true);
+	const lastMessage = messages.at(-1);
+	if (lastMessage && Array.isArray(lastMessage.content)) markEphemeral(lastMessage.content);
 	const body: JsonObject = {
 		model: params.model.id,
 		max_tokens: SUMMARY_MAX_TOKENS,
 		stream: false,
-		system: [...(billing ? [{ type: "text", text: billing }] : []), ...params.systemBlocks],
-		...(params.tools.length > 0 ? { tools: params.tools } : {}),
-		messages: params.messages,
-		compaction: { type: "summarize", instructions: SUMMARY_INSTRUCTIONS },
+		system,
+		...(tools.length > 0 ? { tools } : {}),
+		messages,
+		compaction: { type: "summarize", instructions: params.instructions },
 	};
 	const headers: Record<string, string> = {
 		accept: "application/json",

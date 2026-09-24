@@ -1,18 +1,65 @@
-import { compact, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
-import { findAnthropicCheckpoint, isAnthropicMessagesModel } from "./anthropic.ts";
+import {
+	compact,
+	type ExtensionAPI,
+	type SessionEntry,
+	sessionEntryToContextMessages,
+} from "@earendil-works/pi-coding-agent";
+import {
+	buildNativeInstructions,
+	COMMAND_INSTRUCTIONS,
+	computeNativeFileLists,
+	findAnthropicCheckpoint,
+	isAnthropicMessagesModel,
+} from "./anthropic.ts";
 import type { CompactionConfig } from "./config.ts";
 import { getOpencodeSessionHeaders, withoutDeletedHeaders } from "./headers.ts";
 import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
+import {
+	clearOpenAIWireSnapshots,
+	getOpenAIWireBody,
+	isOpenAICompletionsModel,
+	recordOpenAIWireBody,
+	requestOpenAISummary,
+} from "./openai-summarize.ts";
+import { isJsonObject } from "./protocol.ts";
 
-const COMMAND_INSTRUCTIONS = `In the \`## Critical Context\` section, preserve a \`Build & Run Commands\` subsection. Record the exact setup, install, build, test, run, and lint commands from successful bash tool calls verbatim. Preserve the working directory, required environment variables, prerequisites, and success criteria for each command. If a category has no applicable command, explicitly write \`none\`. If a command or any of its details has not been verified, explicitly write \`unknown\` instead of guessing. Do not invent, normalize, shorten, or replace commands with equivalent commands. Preserve existing command entries across later compactions unless a newer successful command supersedes one. Also write a \`Mistakes\` subsection to record previous mistakes.`;
+export type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
 
-type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
+function findBoundaryQuote(branch: SessionEntry[], firstKeptEntryId: string): string | undefined {
+	const entry = branch.find((candidate) => candidate?.id === firstKeptEntryId);
+	if (!entry) return undefined;
+	for (const message of sessionEntryToContextMessages(entry)) {
+		const content = (message as { content?: unknown }).content;
+		const blocks =
+			typeof content === "string" ? [{ type: "text", text: content }] : Array.isArray(content) ? content : [];
+		for (const block of blocks) {
+			if (typeof block === "object" && block !== null && (block as { type?: unknown }).type === "text") {
+				const text = (block as { text?: unknown }).text;
+				if (typeof text === "string" && text.trim().length >= 20) return text.slice(0, 200);
+			}
+		}
+	}
+	return undefined;
+}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
 export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
+	pi.on("session_start", () => {
+		clearOpenAIWireSnapshots();
+	});
+	pi.on("session_shutdown", () => {
+		clearOpenAIWireSnapshots();
+	});
+	pi.on("before_provider_request", (_event, ctx) => {
+		try {
+			if (!isOpenAICompletionsModel(ctx.model) || !isJsonObject(_event.payload)) return undefined;
+			recordOpenAIWireBody(ctx.sessionManager.getSessionId(), _event.payload);
+		} catch {}
+		return undefined;
+	});
 	pi.on("session_before_compact", async (event, ctx) => {
 		try {
 			const activeModel = ctx.model;
@@ -41,11 +88,51 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 				...getOpencodeSessionHeaders(requestModel, sessionId),
 				...withoutDeletedHeaders(auth.headers),
 			};
-			const streamFn: CompactionStream = (streamModel, context, options) =>
-				provider.streamSimple(streamModel, context, options);
 			const customInstructions = event.customInstructions
 				? `${event.customInstructions}\n\n${COMMAND_INSTRUCTIONS}`
 				: COMMAND_INSTRUCTIONS;
+			if (isOpenAICompletionsModel(requestModel) && getOpenAIWireBody(sessionId)) {
+				const preparation = event.preparation;
+				const { readFiles, modifiedFiles } = computeNativeFileLists(preparation.fileOps);
+				const boundary = findBoundaryQuote(event.branchEntries as SessionEntry[], preparation.firstKeptEntryId);
+				if (boundary) {
+					const instructions =
+						buildNativeInstructions({
+							customInstructions: event.customInstructions,
+							previousSummary: preparation.previousSummary,
+							isSplitTurn: preparation.turnPrefixMessages.length > 0,
+							readFiles,
+							modifiedFiles,
+						}) +
+						`\n\nScope: summarize ONLY the conversation strictly BEFORE the message quoted below (exclusive). Messages from the quote onward are later context kept separately; ignore them for content.\n\n<boundary>\n${boundary}\n</boundary>`;
+					const maxTokens = Math.min(
+						Math.floor(0.8 * preparation.settings.reserveTokens),
+						requestModel.maxTokens > 0 ? requestModel.maxTokens : Number.POSITIVE_INFINITY,
+					);
+					const apiKey = auth.apiKey;
+					if (!apiKey) throw new Error("API key is unavailable.");
+					const summary = await requestOpenAISummary({
+						model: requestModel,
+						apiKey,
+						callerHeaders: withoutDeletedHeaders(auth.headers) ?? {},
+						sessionId,
+						instruction: instructions,
+						maxTokens,
+						signal: event.signal,
+					});
+					return {
+						compaction: {
+							summary: summary.text,
+							firstKeptEntryId: preparation.firstKeptEntryId,
+							tokensBefore: preparation.tokensBefore,
+							usage: summary.usage,
+							details: { readFiles, modifiedFiles },
+						},
+					};
+				}
+			}
+			const streamFn: CompactionStream = (streamModel, context, options) =>
+				provider.streamSimple(streamModel, context, options);
 			const result = await compact(
 				event.preparation,
 				requestModel,

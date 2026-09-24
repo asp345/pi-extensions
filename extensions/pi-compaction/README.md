@@ -38,12 +38,12 @@ An existing native checkpoint remains native while an `openai-codex` model is ac
 
 ## Claude native behavior
 
-When native compaction is selected for an Anthropic model, the extension uses on-demand compaction (beta `compact-2026-09-04`, top-level `compaction` parameter):
+When native compaction is selected for an Anthropic model, the extension uses on-demand compaction (beta `compact-2026-09-04`, top-level `compaction` parameter). The summary instructions mirror Pi prompt-based compaction: the fixed section template (`Goal`, `Constraints & Preferences`, `Progress`, `Key Decisions`, `Next Steps`, `Critical Context`), the update variant when a previous summary exists, the `Build & Run Commands`/`Mistakes` focus, the `/compact` custom instructions, the read/modified file lists, and the split-turn `Turn Context` merge format:
 
-1. Converts the summarized branch range to Anthropic Messages items (flaky shapes cancel native compaction and fall back to text compaction).
-2. Sends the history with `compaction: {"type": "summarize"}` in a separate non-streaming request reusing the exact wire system prompt and tools from the last request.
+1. Converts the summarized branch range to Anthropic Messages items. Orphaned `tool_use` blocks without `tool_result` get synthetic `No result provided` error results, mirroring the normal provider request path. Unsupported shapes still fall back to text compaction with a warning.
+2. Sends the history with `compaction: {"type": "summarize"}` in a separate non-streaming request reusing the exact wire system prompt and tools from the last request. OAuth requests map tool names to Claude Code casing, append the deferred placeholder, insert the SDK identity block, and set `cache_control` breakpoints so the summary can hit prompt cache reads.
 3. Stores the returned signed `compaction` block in `CompactionEntry.details`.
-4. Rewrites subsequent Anthropic request payloads by replacing the summary text message with the signed block.
+4. Rewrites subsequent Anthropic request payloads by replacing the summary text message with the signed block. Tail assistant `thinking` blocks are converted to plain text because their signatures were computed over the pre-compaction prefix and the server would drop them with `prefix_binding_mismatch`.
 
 Requests carrying the block need beta `compact-2026-09-04`; the Anthropic provider fingerprint includes it on every request.
 
@@ -62,6 +62,8 @@ Prompt-based compaction uses Pi's text summarizer. Its additional instructions p
 - exact successful setup, install, build, test, run, and lint commands;
 - working directories, required environment variables, prerequisites, and success criteria;
 - a record of mistakes relevant to subsequent work.
+
+For `openai-completions` models, the extension instead reuses the last recorded wire request body for the session and appends the summary instructions (same section template, file lists, and split-turn format as above). The scope is bounded by a quoted boundary message. This keeps the shared prefix byte-identical so prompt-cache reads hit.
 
 ## Data handling
 

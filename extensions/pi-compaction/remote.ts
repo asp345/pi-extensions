@@ -34,7 +34,7 @@ export function buildCompactionRequestBody(params: {
 		model: params.model.id,
 		store: false,
 		stream: true,
-		instructions: params.instructions,
+		...(typeof base.instructions === "string" ? {} : { instructions: params.instructions }),
 		input: [...params.input.map(cloneItem), { type: "compaction_trigger" }],
 		tool_choice: "auto",
 		parallel_tool_calls: true,
@@ -45,8 +45,10 @@ export function buildCompactionRequestBody(params: {
 				? { verbosity: previousText.verbosity }
 				: { verbosity: "low" },
 	};
-	if (params.tools) body.tools = params.tools;
-	else delete body.tools;
+	if (!Array.isArray(base.tools)) {
+		if (params.tools) body.tools = params.tools;
+		else delete body.tools;
+	}
 	delete body.messages;
 	delete body.previous_response_id;
 	return body;
