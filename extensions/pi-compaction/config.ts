@@ -2,32 +2,23 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
-interface TextCompactionModel {
-	provider: string;
-	id: string;
-}
-
 export interface CompactionConfig {
 	nativeCodex: boolean;
-	textModel?: TextCompactionModel;
+	nativeClaude: boolean;
 }
 
 const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
+	nativeClaude: true,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function nonEmptyString(value: unknown, label: string): string {
-	if (typeof value !== "string" || !value.trim()) throw new Error(`${label} must be a non-empty string.`);
-	return value.trim();
-}
-
 export function parseCompactionConfig(value: unknown, source: string): Partial<CompactionConfig> {
 	if (!isRecord(value)) throw new Error(`${source} must contain a JSON object.`);
-	const unsupported = Object.keys(value).filter((key) => key !== "nativeCodex" && key !== "textModel");
+	const unsupported = Object.keys(value).filter((key) => key !== "nativeCodex" && key !== "nativeClaude");
 	if (unsupported.length > 0) throw new Error(`${source}: unsupported setting ${unsupported.join(", ")}.`);
 
 	const config: Partial<CompactionConfig> = {};
@@ -35,16 +26,9 @@ export function parseCompactionConfig(value: unknown, source: string): Partial<C
 		if (typeof value.nativeCodex !== "boolean") throw new Error(`${source}: nativeCodex must be a boolean.`);
 		config.nativeCodex = value.nativeCodex;
 	}
-	if (value.textModel !== undefined) {
-		if (!isRecord(value.textModel)) throw new Error(`${source}: textModel must be an object.`);
-		const unsupportedModel = Object.keys(value.textModel).filter((key) => key !== "provider" && key !== "id");
-		if (unsupportedModel.length > 0) {
-			throw new Error(`${source}: unsupported textModel setting ${unsupportedModel.join(", ")}.`);
-		}
-		config.textModel = {
-			provider: nonEmptyString(value.textModel.provider, `${source}: textModel.provider`),
-			id: nonEmptyString(value.textModel.id, `${source}: textModel.id`),
-		};
+	if (value.nativeClaude !== undefined) {
+		if (typeof value.nativeClaude !== "boolean") throw new Error(`${source}: nativeClaude must be a boolean.`);
+		config.nativeClaude = value.nativeClaude;
 	}
 	return config;
 }

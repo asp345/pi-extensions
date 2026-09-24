@@ -9,18 +9,17 @@ The global configuration file is `pi-compaction.json` in Pi's agent configuratio
 ```json
 {
   "nativeCodex": true,
-  "textModel": {
-    "provider": "provider-id",
-    "id": "model-id"
-  }
+  "nativeClaude": true
 }
 ```
 
 `nativeCodex` defaults to `true`. It controls native compaction when the active model uses provider `openai-codex` and API `openai-codex-responses`.
 
-`textModel` selects the model used for prompt-based compaction. When it is omitted, the active session model is used. The configured provider and model must exist in Pi's model registry and have valid authentication. A resolution or authentication error cancels compaction instead of selecting another model.
+`nativeClaude` defaults to `true`. It controls native compaction when the active model uses provider `anthropic` and API `anthropic-messages`.
 
-A model selected through `textModel` is always called with Pi's ordinary summarization prompt, including when its provider is `openai-codex`. This call uses the provider's `streamSimple` implementation and does not append `compaction_trigger`, so it does not request native encrypted compaction. `nativeCodex` applies only to compaction of the active session model. Set it to `false` when active Codex sessions must also use prompt-based compaction.
+Prompt-based compaction always uses the active session model.
+
+`nativeCodex` and `nativeClaude` apply only to compaction of the active session model. Set them to `false` to always use prompt-based compaction.
 
 ## Codex native behavior
 
@@ -36,6 +35,21 @@ The local compaction summary is a unique checkpoint marker required by Pi. The `
 Remote compaction is fail-closed. A failed request cancels compaction and retains the existing history. A malformed checkpoint blocks the next Codex request.
 
 An existing native checkpoint remains native while an `openai-codex` model is active, including after switching Codex models or setting `nativeCodex` to `false`, because its `encrypted_content` cannot be converted to text locally. If a non-Codex model is active, the extension performs prompt-based compaction without replaying the checkpoint. The resulting text compaction supersedes the native checkpoint for subsequent requests; the old encrypted entry remains only in the full JSONL history.
+
+## Claude native behavior
+
+When native compaction is selected for an Anthropic model, the extension uses on-demand compaction (beta `compact-2026-09-04`, top-level `compaction` parameter):
+
+1. Converts the summarized branch range to Anthropic Messages items (flaky shapes cancel native compaction and fall back to text compaction).
+2. Sends the history with `compaction: {"type": "summarize"}` in a separate non-streaming request reusing the exact wire system prompt and tools from the last request.
+3. Stores the returned signed `compaction` block in `CompactionEntry.details`.
+4. Rewrites subsequent Anthropic request payloads by replacing the summary text message with the signed block.
+
+Requests carrying the block need beta `compact-2026-09-04`; the Anthropic provider fingerprint includes it on every request.
+
+Unlike text compaction, the server-written swap keeps recent turns valid with their thinking blocks on models with preserved thinking (for example Fable), provided the system prompt and tools are unchanged since the swap. The extension records both at compaction time and retires the checkpoint when either drifts, falling back to text history. A model change or a disabled `nativeClaude` flag also retires the checkpoint.
+
+Native compaction applies only to models reporting `capabilities.compaction` on the Models API, with a static family fallback. A failed summary request falls back to Pi prompt-based text compaction instead of cancelling compaction.
 
 ## Automatic compaction
 
@@ -53,7 +67,7 @@ Prompt-based compaction uses Pi's text summarizer. Its additional instructions p
 
 Native compaction sends the current Codex conversation to the ChatGPT Codex Responses endpoint. OpenAI returns `encrypted_content`, which is persisted in the local session JSONL and replayed to OpenAI Codex models.
 
-Prompt-based compaction sends the text selected by Pi's compaction preparation to the active session model, or to `textModel` when configured. Its plaintext summary is persisted in the session JSONL.
+Prompt-based compaction sends the text selected by Pi's compaction preparation to the active session model. Its plaintext summary is persisted in the session JSONL.
 
 ## Source
 

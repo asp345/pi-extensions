@@ -3,9 +3,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { recoveryPrompt } from "./delegation.ts";
+import { bounded } from "./format.ts";
 import { resolveThinking } from "./models.ts";
 import type { RpcMessage, RpcProcess } from "./rpc.ts";
 import { type RpcCallbacks, type RunResult, resumeProc, runNew } from "./runner.ts";
+import { compactTranscript } from "./transcript.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";
 import { message, onAbort } from "./util.ts";
 
@@ -69,8 +72,20 @@ export class AgentManager {
 		if (record.promise !== previousRun) {
 			throw new Error(`Subagent ${id} is already running.`);
 		}
-		const live = record.proc && !record.proc.closed ? record.proc : undefined;
-		const prompt = live || record.sessionFile ? CONTINUATION : record.prompt;
+		const damaged = record.damagedSession === true;
+		if (damaged && record.proc && !record.proc.closed) {
+			void record.proc.stop().catch(() => undefined);
+		}
+		const live = !damaged && record.proc && !record.proc.closed ? record.proc : undefined;
+		const restartFresh = !live && (!record.sessionFile || damaged);
+		let prompt: string;
+		if (damaged) {
+			prompt = recoveryPrompt(record.prompt, recoveryContext(record));
+		} else if (restartFresh) {
+			prompt = record.prompt;
+		} else {
+			prompt = CONTINUATION;
+		}
 		record.title = options.title;
 		record.background = options.background;
 		record.status = "running";
@@ -84,7 +99,7 @@ export class AgentManager {
 		this.resumed(record);
 		this.changed();
 		this.persisted(record);
-		if (!live && !record.sessionFile) {
+		if (restartFresh) {
 			record.promise = this.run(record, ctx, prompt, options);
 			if (!options.background) await record.promise;
 			return record;
@@ -246,6 +261,7 @@ export class AgentManager {
 	private applyResult(record: AgentRecord, result: RunResult): void {
 		record.proc = result.proc;
 		record.messages = result.messages;
+		record.damagedSession = result.damagedSession ? true : undefined;
 		if (result.sessionFile) record.sessionFile = result.sessionFile;
 		if (result.model) record.model = result.model;
 		record.result = result.text;
@@ -320,6 +336,10 @@ export class AgentManager {
 		this.persisted(record);
 		this.completed(record);
 	}
+}
+
+function recoveryContext(record: AgentRecord): string {
+	return bounded(compactTranscript(record.messages), 4_000, 60).text;
 }
 
 function outputPath(record: AgentRecord): string {

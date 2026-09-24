@@ -1,4 +1,5 @@
 import { compact, type ExtensionAPI, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { findAnthropicCheckpoint, isAnthropicMessagesModel } from "./anthropic.ts";
 import type { CompactionConfig } from "./config.ts";
 import { getOpencodeSessionHeaders, withoutDeletedHeaders } from "./headers.ts";
 import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
@@ -17,19 +18,15 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 			const activeModel = ctx.model;
 			const checkpoint = findNativeCheckpoint(event.branchEntries as SessionEntry[]);
 			if (checkpoint.status !== "none" && isOpenAICodexModel(activeModel)) return;
+			const claudeCheckpoint = findAnthropicCheckpoint(event.branchEntries as SessionEntry[]);
+			if (claudeCheckpoint.status !== "none" && isAnthropicMessagesModel(activeModel)) return;
 
 			const config = getConfig();
 			if (config.nativeCodex && isOpenAICodexModel(activeModel)) return;
+			if (config.nativeClaude && isAnthropicMessagesModel(activeModel)) return;
 
-			const model = config.textModel
-				? ctx.modelRegistry.find(config.textModel.provider, config.textModel.id)
-				: activeModel;
+			const model = activeModel;
 			if (!model) {
-				if (config.textModel) {
-					throw new Error(
-						`Configured text compaction model not found: ${config.textModel.provider}/${config.textModel.id}`,
-					);
-				}
 				throw new Error("Cannot customize compaction without an active model.");
 			}
 
@@ -56,7 +53,7 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 				Object.keys(headers).length > 0 ? headers : undefined,
 				customInstructions,
 				event.signal,
-				config.textModel ? "off" : ctx.thinkingLevel,
+				ctx.thinkingLevel,
 				streamFn,
 				auth.env,
 				undefined,

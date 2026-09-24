@@ -3,7 +3,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { resolveModel, resolveThinking } from "./models.ts";
 import { PARENT_ONLY_TOOLS, REPORT_TOOL_NAME, type RpcMessage, type RpcProcess, spawnRpcProcess } from "./rpc.ts";
-import { finalError, lastAssistantText } from "./transcript.ts";
+import { finalError, hasDamagedToolCall, lastAssistantText } from "./transcript.ts";
 import type { RunRequest, ThinkingLevel } from "./types.ts";
 import { contentText, message, onAbort } from "./util.ts";
 
@@ -20,6 +20,7 @@ export interface RunResult {
 	proc: RpcProcess;
 	text: string;
 	error?: string;
+	damagedSession?: boolean;
 	messages: RpcMessage[];
 	sessionFile?: string;
 	model?: string;
@@ -63,6 +64,7 @@ export async function runNew(ctx: ExtensionContext, request: RunRequest, callbac
 		proc,
 		text: outcome.text,
 		error: outcome.error,
+		damagedSession: outcome.damagedSession,
 		messages: outcome.messages,
 		sessionFile,
 		model: outcome.model ?? `${model.provider}/${model.id}`,
@@ -106,7 +108,13 @@ export async function resumeProc(
 	}
 	if (request.signal?.aborted) {
 		const messages = await safeMessages(active);
-		return { proc: active, text: "", messages, sessionFile: request.sessionFile };
+		return {
+			proc: active,
+			text: "",
+			messages,
+			sessionFile: request.sessionFile,
+			damagedSession: hasDamagedToolCall(messages),
+		};
 	}
 	if (request.model) {
 		const target = resolveModel(request.model, ctx);
@@ -130,6 +138,7 @@ export async function resumeProc(
 		proc: active,
 		text: outcome.text,
 		error: outcome.error,
+		damagedSession: outcome.damagedSession,
 		messages: outcome.messages,
 		sessionFile,
 		model,
@@ -145,6 +154,7 @@ interface DriveOutcome {
 	text: string;
 	error?: string;
 	aborted: boolean;
+	damagedSession: boolean;
 	model?: string;
 	messages: RpcMessage[];
 }
@@ -194,8 +204,9 @@ export async function driveRun(proc: RpcProcess, prompt: string, options: DriveO
 		const messages = await safeMessages(proc);
 		callbacks.onMessages(messages);
 		const text = lastAssistantText(messages) || current;
-		if (attempt.aborted || signal?.aborted) return { text, aborted: true, model, messages };
-		return { text, error: attempt.error ?? finalError(messages), aborted: false, model, messages };
+		const damagedSession = hasDamagedToolCall(messages) || isDamagedSessionError(attempt.error);
+		if (attempt.aborted || signal?.aborted) return { text, aborted: true, model, messages, damagedSession };
+		return { text, error: attempt.error ?? finalError(messages), aborted: false, model, messages, damagedSession };
 	} finally {
 		unsubscribe();
 	}
@@ -224,6 +235,12 @@ async function runAttempt(
 	}
 	if (signal?.aborted) return { aborted: true };
 	return { aborted: false };
+}
+
+const DAMAGED_SESSION_PATTERN = /missing a function name/i;
+
+function isDamagedSessionError(error: string | undefined): boolean {
+	return error !== undefined && DAMAGED_SESSION_PATTERN.test(error);
 }
 
 async function safeMessages(proc: RpcProcess): Promise<RpcMessage[]> {

@@ -27,6 +27,7 @@ export function metadata(record: AgentRecord): Record<string, unknown> {
 	return {
 		...completionDetails(record),
 		background: record.background,
+		damagedSession: record.damagedSession === true,
 		model: record.model,
 		thinking: record.thinking,
 	};
@@ -52,6 +53,7 @@ export function formatMetadata(record: AgentRecord): string {
 		`Turns: ${record.turns}`,
 		`Tool uses: ${record.toolUses}`,
 		record.error ? `Error: ${bounded(record.error, 1_000, 8).text}` : "",
+		record.damagedSession ? "Damaged session: resume restarts it in a fresh session" : "",
 	]
 		.filter(Boolean)
 		.join("\n");

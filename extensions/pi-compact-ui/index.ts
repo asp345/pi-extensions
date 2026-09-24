@@ -300,13 +300,13 @@ function wrapCodeLine(prefix: string, code: string, width: number): string[] {
 		let col = 0;
 		const take = Math.max(1, width);
 		while (col < total) {
-			const chunk = sliceByColumn(full, col, take);
+			const chunk = sliceByColumn(full, col, take, true);
 			const w = visibleWidth(chunk);
 			if (w <= 0 || out.length > 1000) break;
 			out.push(chunk);
 			col += w;
 		}
-		return out.length > 0 ? out : [full];
+		return out.length > 0 ? out : [truncateToWidth(full, width, "")];
 	}
 	const chunkWidth = width - prefixWidth;
 	const indent = " ".repeat(prefixWidth);
@@ -314,14 +314,14 @@ function wrapCodeLine(prefix: string, code: string, width: number): string[] {
 	let col = 0;
 	let first = true;
 	while (col < codeWidth) {
-		const chunk = sliceByColumn(code, col, chunkWidth);
+		const chunk = sliceByColumn(code, col, chunkWidth, true);
 		const w = visibleWidth(chunk);
 		if (w <= 0 || out.length > 1000) break;
 		out.push(`${first ? prefix : indent}${chunk}`);
 		col += w;
 		first = false;
 	}
-	return out.length > 0 ? out : [`${prefix}${code}`];
+	return out.length > 0 ? out : [`${prefix}${truncateToWidth(code, Math.max(0, chunkWidth), "")}`];
 }
 
 class CodeBlock implements Component {
@@ -340,7 +340,10 @@ class CodeBlock implements Component {
 	invalidate(): void {}
 
 	render(width: number): string[] {
-		const pad = (line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line)));
+		const pad = (line: string) => {
+			const clipped = visibleWidth(line) > width ? truncateToWidth(line, width, "") : line;
+			return clipped + " ".repeat(Math.max(0, width - visibleWidth(clipped)));
+		};
 		const out: string[] = [];
 		for (const line of this.lines) {
 			const sign = this.theme.fg(GUTTER_COLOR[line.kind], line.sign);
