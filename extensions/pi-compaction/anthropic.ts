@@ -77,17 +77,6 @@ const UPDATE_SUMMARIZATION_BASE = `Update the existing structured summary with n
 
 ${SUMMARY_FORMAT}`;
 
-const TURN_PREFIX_FORMAT = `## Original Request
-[What did the user ask for?]
-
-## Progress So Far
-- [Key decisions and work completed in these messages]
-
-## Context Needed to Continue
-- [Information from these messages needed to understand the later work]
-
-Only summarize information explicitly present above. Do not infer or recreate later messages.`;
-
 export interface NativeInstructionsInput {
 	customInstructions?: string;
 	previousSummary?: string;
@@ -125,7 +114,7 @@ export function buildNativeInstructions(input: NativeInstructionsInput): string 
 		instructions += `\n\nEnd the summary with exactly these file sections, using verbatim paths:\n\n${sections.join("\n\n")}`;
 	}
 	if (input.isSplitTurn) {
-		instructions += `\n\nThe trailing messages of this request are the prefix of the current (split) user turn; earlier messages are the older history. First write the history summary in the EXACT format above, then append exactly "\n\n---\n\n**Turn Context (split turn):**\n\n" followed by the turn-prefix checkpoint in this format:\n\n${TURN_PREFIX_FORMAT}`;
+		instructions += `\n\nThe trailing messages of this request belong to the current user turn, which is still in progress. Cover them in a closing Turn Context section with Original Request, Progress So Far, and Context Needed to Continue, after the history summary above.`;
 	}
 	return instructions;
 }
