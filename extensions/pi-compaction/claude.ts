@@ -282,7 +282,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 			const { readFiles, modifiedFiles } = computeNativeFileLists(event.preparation.fileOps);
 			const instructions = buildNativeInstructions({
 				customInstructions: event.customInstructions,
-				previousSummary: event.preparation.previousSummary,
+				previousSummary: priorBlock ? undefined : event.preparation.previousSummary,
 				isSplitTurn: event.preparation.turnPrefixMessages.length > 0,
 				readFiles,
 				modifiedFiles,
