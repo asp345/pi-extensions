@@ -33,6 +33,11 @@ function countsText(counts: Counts, theme: Theme): string {
 	].join("  ");
 }
 
+export function fitLine(line: string, width: number, theme: Theme): string {
+	if (visibleWidth(line) <= width) return line;
+	return `${truncateToWidth(line, Math.max(0, width - 1), "")}${theme.fg("dim", "…")}`;
+}
+
 function cell(value: string, width: number): string {
 	const truncated = truncateToWidth(value, width, "");
 	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
@@ -163,7 +168,7 @@ export class AgentsUI {
 					render: (width: number) => {
 						const current = countStatuses(this.manager.list());
 						const line = `${theme.fg("accent", "subagents")}  ${countsText(current, theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`;
-						return [truncateToWidth(line, width, "…")];
+						return [fitLine(line, width, theme)];
 					},
 					invalidate() {},
 					dispose: () => {
@@ -249,7 +254,7 @@ export class AgentsUI {
 							const detail = current.lastError ? `error: ${current.lastError}` : (current.lastText ?? "");
 							const wrapped = detail ? wrapTextWithAnsi(detail.trim(), inner) : [];
 							for (const line of wrapped.slice(0, DETAIL_LINES)) lines.push(theme.fg("dim", line));
-							if (current.sessionFile) lines.push(theme.fg("dim", truncateToWidth(current.sessionFile, inner, "…")));
+							if (current.sessionFile) lines.push(fitLine(theme.fg("dim", current.sessionFile), inner, theme));
 						}
 						lines.push("", theme.fg("dim", "↑/↓ navigate   s stop   q close"));
 						return frame(lines, width, theme, "Subagents");

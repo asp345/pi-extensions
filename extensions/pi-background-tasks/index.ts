@@ -142,7 +142,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			if (watch) {
 				const id = watch[1]?.trim();
 				if (!runtime.get(id)) return ctx.ui.notify(NO_MATCH, "warning");
-				return ui.open(ctx, id, "output");
+				return ui.open(ctx, id);
 			}
 			ctx.ui.notify("Usage: /bg [dashboard|list|run <command>|watch <id>|stop <id>|clear]", "warning");
 		},

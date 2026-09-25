@@ -5,7 +5,7 @@ import { SubagentManager } from "./manager.ts";
 import { parseStoredRecord, restoreRecord, STATE_KIND, storeRecord } from "./state.ts";
 import { formatRecord, registerSubagentTools } from "./tools.ts";
 import type { StoredAgent } from "./types.ts";
-import { AgentsUI, COMMAND, SHORTCUT } from "./ui.ts";
+import { AgentsUI, COMMAND, fitLine, SHORTCUT } from "./ui.ts";
 
 const MESSAGE_KIND = "subagent-message";
 const NOTICE_KIND = "subagent-notice";
@@ -43,7 +43,7 @@ class AgentMessageLine implements Component {
 		const header = [`${this.marker} ${theme.fg("muted", this.label)}`, theme.fg("dim", this.participant)].join(
 			theme.fg("dim", " · "),
 		);
-		const lines = [truncateToWidth(` ${header}`, width, "…")];
+		const lines = [fitLine(` ${header}`, width, theme)];
 		if (!this.body) return lines;
 		const textWidth = Math.max(1, width - 4);
 		const wrapped = this.body.split("\n").flatMap((line) => {

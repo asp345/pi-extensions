@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
 
-export type Pane = "tasks" | "output";
+export type TaskKind = "running" | "done" | "failed" | "stopped";
 
 export function duration(ms: number): string {
 	const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -32,6 +32,30 @@ export function taskStatus(task: TaskSnapshot): string {
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }
 
+export function taskKind(task: TaskSnapshot): TaskKind {
+	if (task.status === "running") return "running";
+	if (task.timedOut || task.status === "failed") return "failed";
+	if (task.status === "stopped") return "stopped";
+	return "done";
+}
+
+export function taskIcon(task: TaskSnapshot, theme: Theme): string {
+	switch (taskKind(task)) {
+		case "running":
+			return theme.bold("◈");
+		case "done":
+			return theme.fg("success", "✓");
+		case "failed":
+			return theme.fg("error", "✗");
+		case "stopped":
+			return theme.fg("dim", "•");
+	}
+}
+
+export function elapsed(task: TaskSnapshot, now = Date.now()): number {
+	return (task.status === "running" ? now : task.updatedAt) - task.startedAt;
+}
+
 export function eventText(event: TaskEvent): string {
 	if (event.type === "running")
 		return `Background task ${event.task.id} is still running (${duration(Date.now() - event.task.startedAt)} elapsed).`;
@@ -56,21 +80,28 @@ export function lastOutputLine(output: string | undefined): string {
 	);
 }
 
-export function pad(text: string, width: number): string {
-	const value = truncateToWidth(text, width);
+export function fitLine(line: string, width: number, theme: Theme): string {
+	if (visibleWidth(line) <= width) return line;
+	return `${truncateToWidth(line, Math.max(0, width - 1), "")}${theme.fg("dim", "…")}`;
+}
+
+export function cell(text: string, width: number): string {
+	const value = truncateToWidth(text, width, "");
 	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }
 
+export function cellEnd(text: string, width: number): string {
+	return " ".repeat(Math.max(0, width - visibleWidth(text))) + text;
+}
+
 export function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
-	if (width < 5) return lines.map((line) => truncateToWidth(line, width));
-	const innerWidth = width - 2;
-	const contentWidth = Math.max(1, innerWidth - 2);
-	const label = truncateToWidth(` ${title} `, innerWidth);
-	const topFill = "─".repeat(Math.max(0, innerWidth - visibleWidth(label)));
+	const inner = Math.max(1, width - 2);
+	const label = theme.fg("accent", theme.bold(` ${title} `));
+	const fill = "─".repeat(Math.max(0, inner - 1 - visibleWidth(label)));
 	return [
-		`${theme.fg("border", "╭")}${theme.fg("accent", theme.bold(label))}${theme.fg("border", `${topFill}╮`)}`,
-		...lines.map((line) => `${theme.fg("border", "│")} ${pad(line, contentWidth)} ${theme.fg("border", "│")}`),
-		`${theme.fg("border", `╰${"─".repeat(innerWidth)}╯`)}`,
+		truncateToWidth(`${theme.fg("border", "╭─")}${label}${theme.fg("border", `${fill}╮`)}`, width, ""),
+		...lines.map((line) => `${theme.fg("border", "│")}${cell(` ${line}`, inner)}${theme.fg("border", "│")}`),
+		theme.fg("border", `╰${"─".repeat(inner)}╯`),
 	];
 }
 
