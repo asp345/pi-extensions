@@ -1,43 +1,48 @@
 # pi-system-prompt
 
-Builds the harness system prompt from the bundled `SYSTEM.txt` rules instead of appending those rules to the harness core default prompt.
+Replaces the harness core system prompt construction with one built from the bundled `SYSTEM.txt` rules.
 
 ## Behavior
 
-`before_agent_start` replaces `event.systemPrompt` with `composeSystemPrompt(event.systemPromptOptions, harnessDocsBlock, agentRules)`:
+The extension patches `AgentSession.prototype._rebuildSystemPrompt` once per process. After the original method builds the base prompt options, `composePromptOptions` replaces them:
 
-1. `customPrompt` (`SYSTEM.md`) when present
-2. Bundled `SYSTEM.txt` rules as the base
-3. `Available tools` from `selectedTools`/`toolSnippets`
-4. `Guidelines` from `promptGuidelines` plus `Show file paths clearly when working with files`
-5. Short Harness documentation block (paths taken from the core prompt when found, otherwise `PI_PACKAGE_DIR`)
-6. `<project_context>` from `contextFiles`, excluding files already contained in the base
-7. Skills via harness core exported `formatSkillsForPrompt`, excluding `disableModelInvocation`
-8. `Current working directory`
+| Option | Value |
+| --- | --- |
+| `customPrompt` | `SYSTEM.md` (when present), then the bundled `SYSTEM.txt` |
+| `sections.tools` | `- <tool>: <snippet>` for each selected tool with a snippet, then `In addition to the tools above, you may have access to other custom tools depending on the project.` |
+| `sections.rules` | `toolGuidelines` of the selected tools and `promptGuidelines`, without exact duplicates and without lines contained verbatim in the base, then `Show file paths clearly when working with files` |
+| `sections.docs` | Short harness documentation block with the paths from `getReadmePath()`, `getDocsPath()`, and `getExamplesPath()` |
+| `appendSystemPrompt` | Empty; `APPEND_SYSTEM.md` has no effect |
+| `contextFiles` | Context files, excluding files already contained in `SYSTEM.md` or `SYSTEM.txt` |
 
-The composed prompt is stored until the next `session_start`. `context_with_system` replaces the system messages of every provider request with one leading system message holding the stored prompt and the current tool declarations. Runs started by `pi.sendMessage(..., { triggerTurn: true })` (background task and subagent notifications) skip `before_agent_start`, so this keeps their request prefix identical to user-started runs. Before the first `before_agent_start` of a session, requests keep the harness core prompt.
+Because `customPrompt` is set, the core builds no preamble, tools, rules, or docs of its own; it adds `<project_context>`, `<skills>`, and `<cwd>`. The rendered prompt is ordered `preamble`, `project_context`, `skills`, `cwd`, `tools`, `rules`, `docs`.
 
-`options.appendSystemPrompt` (`APPEND_SYSTEM.md`) is ignored. The nixos `xdg.configFile "pi/APPEND_SYSTEM.md"` mapping for harness is obsolete once this extension is active and should be removed there; while it remains, its content has no effect on harness.
+The composed options are the session's base options, so the same prompt is:
+
+- stored as the structured sections of the transcript's system message,
+- sent for runs started by a user prompt and for runs started by `pi.sendMessage(..., { triggerTurn: true })`,
+- returned by `ctx.getSystemPrompt()` and recorded in compaction entries.
+
+`_rebuildSystemPrompt` runs on session creation and whenever the active tools or the tool registry change, so the tools and rules sections follow the active tool set. `SYSTEM.txt` is read on each rebuild. Subagent sessions in the same process use the same patch.
+
+`_rebuildSystemPrompt` and `_baseSystemPromptOptions` are private members of `AgentSession`; check them when updating Pi.
 
 ## Overlap with harness core
 
 | harness core default | This extension |
 | --- | --- |
-| `You are an expert coding assistant ...` | Dropped, `SYSTEM.txt` identity stays first |
-| `Be concise in your responses` | Dropped, `SYSTEM.txt` writing rules are stricter |
+| `You are an expert coding assistant ...` | Replaced by `SYSTEM.txt` |
+| `Be concise in your responses` | Dropped |
 | `Use bash/powershell for file operations ...` | Dropped, conflicts with `Prefer built-in tools over bash` |
 | `Show file paths clearly ...` | Kept |
-| `Available tools`, `In addition ...`, harness docs, `<project_context>`, skills, cwd | Kept and rebuilt from `systemPromptOptions` |
+| Tool list, tool guidelines, harness docs | Rebuilt as the `tools`, `rules`, and `docs` sections |
+| `<project_context>`, skills, cwd | Built by the core |
 
-Extension `promptGuidelines` entries are kept except exact duplicates and lines restated verbatim in the base. No phrasing-based matching: harness core generic guidelines never arrive via `systemPromptOptions` (they are added inside `buildSystemPrompt`, which this path bypasses), so matching third-party wording would only add coupling. The remaining wording-coupled parser is the docs-path extraction in `resolveHarnessDocsBlock`, which degrades gracefully (core block → `PI_PACKAGE_DIR` → omit).
+Guidelines are not filtered by phrasing; only exact duplicates and lines restated verbatim in the base are dropped.
 
 ## Command
 
-`/system-prompt` reports the last effective prompt (`agent.state.systemPrompt`, which keeps the chained per-turn result) plus the base inputs: the length of the stored composed prompt, whether it starts with the bundled `SYSTEM.txt`, whether the core preamble is present, tool/guideline counts, context file paths, skill names, and section offsets. Context file contents are never printed.
-
-## Load order
-
-This extension must run before per-turn prompt appenders so later `before_agent_start` handlers chain on top of the rebuilt prompt. It is listed first in root `package.json` `pi.extensions`.
+`/system-prompt` reports the prompt length, whether it starts with the custom prompt, the section names, the number of selected tools and rules, the context file paths, and the skill names. Context file contents are never printed.
 
 ## Syncing rules
 

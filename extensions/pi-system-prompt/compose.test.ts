@@ -1,18 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
+import type { NormalizedBuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 import { loadAgentRules } from "./agents.ts";
-import { composeSystemPrompt, dedupeGuidelines, filterContextFiles, resolveHarnessDocsBlock } from "./compose.ts";
+import { composePromptOptions, dedupeGuidelines, filterContextFiles } from "./compose.ts";
 
 const AGENTS = "# System Instructions\n\nYou are a coding and research agent.\n\nPrefer built-in tools over bash.";
+const DOCS = { readme: "/pkg/README.md", docs: "/pkg/docs", examples: "/pkg/examples" };
 
-function options(overrides: Partial<BuildSystemPromptOptions> = {}): BuildSystemPromptOptions {
+function options(overrides: Partial<NormalizedBuildSystemPromptOptions> = {}): NormalizedBuildSystemPromptOptions {
 	return {
 		cwd: "/home/user/proj",
 		appendSystemPrompt: "stale appended rules that must be ignored",
 		selectedTools: ["read", "bash", "edit", "write"],
-		toolSnippets: { read: "Read files", bash: "Run commands" },
+		toolSnippets: { read: "Read files", bash: "Run commands", web: "Search the web" },
+		toolGuidelines: { bash: ["Bash guideline for the test"], web: ["Web guideline for the test"] },
 		promptGuidelines: [],
+		sections: {},
+		contextFiles: [],
+		skills: [],
 		...overrides,
 	};
 }
@@ -22,26 +27,27 @@ test("loads the bundled agent rules", () => {
 	assert.ok(rules.includes("You are a coding and research agent."));
 });
 
-test("returns undefined without bundled rules", () => {
-	assert.equal(composeSystemPrompt(options(), undefined, undefined), undefined);
-	assert.equal(composeSystemPrompt(options(), undefined, "  "), undefined);
+test("uses bundled rules as the custom prompt and ignores appendSystemPrompt", () => {
+	const composed = composePromptOptions(options(), AGENTS, DOCS);
+	assert.equal(composed.customPrompt, AGENTS);
+	assert.equal(composed.appendSystemPrompt, "");
 });
 
-test("uses bundled rules and ignores incoming appendSystemPrompt", () => {
-	const prompt = composeSystemPrompt(options(), undefined, AGENTS) ?? assert.fail("expected a prompt");
-	assert.ok(prompt.startsWith(AGENTS));
-	assert.ok(!prompt.includes("stale appended rules"));
+test("places a custom prompt before agent rules", () => {
+	const composed = composePromptOptions(options({ customPrompt: "Custom identity." }), AGENTS, DOCS);
+	assert.ok(composed.customPrompt?.startsWith("Custom identity.\n\n# System Instructions"));
 });
 
-test("puts agent rules first and drops harness core preamble", () => {
-	const prompt = composeSystemPrompt(options(), undefined, AGENTS) ?? assert.fail("expected a prompt");
-	assert.ok(!prompt.includes("You are an expert coding assistant"));
-	assert.ok(!prompt.includes("Be concise in your responses"));
-	assert.ok(!prompt.includes("Use bash for file operations"));
-	assert.ok(prompt.includes("Prefer built-in tools over bash."));
-	assert.ok(prompt.includes("Available tools:"));
-	assert.ok(prompt.includes("Show file paths clearly when working with files"));
-	assert.ok(prompt.endsWith("Current working directory: /home/user/proj"));
+test("builds tools, rules, and docs sections from selected tools", () => {
+	const { sections } = composePromptOptions(options(), AGENTS, DOCS);
+	assert.ok(sections.tools?.includes("- read: Read files"));
+	assert.ok(!sections.tools?.includes("web"));
+	assert.ok(sections.rules?.includes("- Bash guideline for the test"));
+	assert.ok(!sections.rules?.includes("Web guideline for the test"));
+	assert.ok(sections.rules?.endsWith("- Show file paths clearly when working with files"));
+	assert.ok(sections.docs?.includes("/pkg/README.md"));
+	assert.ok(sections.docs?.includes("/pkg/docs"));
+	assert.ok(sections.docs?.includes("/pkg/examples"));
 });
 
 test("collapses exact duplicates and drops verbatim restatements", () => {
@@ -70,40 +76,18 @@ test("skips context files already contained in the base", () => {
 		kept.map((file) => file.path),
 		["/proj/local.md"],
 	);
-	const prompt =
-		composeSystemPrompt(
-			options({ contextFiles: [{ path: "/proj/local.md", content: "Local rule" }] }),
-			undefined,
-			AGENTS,
-		) ?? assert.fail("expected a prompt");
-	assert.ok(prompt.includes('<project_instructions path="/proj/local.md">'));
-});
-
-test("places a custom prompt before agent rules", () => {
-	const prompt =
-		composeSystemPrompt(options({ customPrompt: "Custom identity." }), undefined, AGENTS) ??
-		assert.fail("expected a prompt");
-	assert.ok(prompt.startsWith("Custom identity.\n\n# System Instructions"));
-});
-
-test("resolves a short harness docs block keeping core paths", () => {
-	const coreBlock = [
-		"Pi documentation (read only when the user asks about pi itself):",
-		"- Main documentation: /pkg/README.md",
-		"- Additional docs: /pkg/docs",
-		"- Examples: /pkg/examples (extensions, custom tools, SDK)",
-		"- Always read pi .md files completely and follow links to related docs (e.g., tui.md for TUI API details)",
-	].join("\n");
-	const short = resolveHarnessDocsBlock(`head\n\n${coreBlock}\n\ntail`, undefined) ?? assert.fail("expected a block");
-	assert.ok(short.includes("/pkg/README.md"));
-	assert.ok(short.includes("/pkg/docs"));
-	assert.ok(short.includes("/pkg/examples"));
-	assert.ok(!short.includes("When asked about:"));
-	assert.ok(short.split("\n").length <= 6);
-});
-
-test("falls back to the package dir when core block is absent", () => {
-	const short = resolveHarnessDocsBlock("no docs here", "/pkg") ?? assert.fail("expected a block");
-	assert.ok(short.includes("/pkg/docs"));
-	assert.equal(resolveHarnessDocsBlock("no docs here", undefined), undefined);
+	const composed = composePromptOptions(
+		options({
+			contextFiles: [
+				{ path: "/proj/AGENTS.md", content: AGENTS },
+				{ path: "/proj/local.md", content: "Local rule" },
+			],
+		}),
+		AGENTS,
+		DOCS,
+	);
+	assert.deepEqual(
+		composed.contextFiles?.map((file) => file.path),
+		["/proj/local.md"],
+	);
 });
