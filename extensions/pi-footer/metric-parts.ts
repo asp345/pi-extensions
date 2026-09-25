@@ -1,4 +1,5 @@
-import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Usage } from "@earendil-works/pi-ai";
+import type { ExtensionContext, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
 import type { DisplayConfig } from "./config.ts";
 import { formatTokenSpeed, formatTokens } from "./format.ts";
 import type { QuotaController } from "./quota-controller.ts";
@@ -7,6 +8,36 @@ import type { UsageAccountant } from "./usage-accountant.ts";
 export interface MetricPartOptions {
 	speed?: boolean;
 	quota?: boolean;
+}
+
+interface UsageTotals {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+}
+
+function entryUsage(entry: SessionEntry): Usage | undefined {
+	if (entry.type === "usage") return entry.usage;
+	if (entry.type === "compaction" || entry.type === "branch_summary") return entry.usage;
+	if (entry.type !== "message") return undefined;
+	const message = entry.message;
+	return message.role === "assistant" || message.role === "toolResult" ? message.usage : undefined;
+}
+
+function sessionUsage(entries: readonly SessionEntry[]): UsageTotals {
+	const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+	for (const entry of entries) {
+		const usage = entryUsage(entry);
+		if (!usage) continue;
+		totals.input += usage.input;
+		totals.output += usage.output;
+		totals.cacheRead += usage.cacheRead;
+		totals.cacheWrite += usage.cacheWrite;
+		totals.cost += usage.cost?.total ?? 0;
+	}
+	return totals;
 }
 
 /** Footer metric segments, excluding run timing which index.ts appends. */
@@ -29,17 +60,15 @@ export function renderMetricParts(params: {
 	const cfg = displayConfig.items;
 
 	{
+		const totals = sessionUsage(ctx.sessionManager.getEntries());
 		const segParts: string[] = [];
-		if (cfg.input) segParts.push(`↑${formatTokens(accountant.totalInput)}`);
-		if (cfg.output) segParts.push(`↓${formatTokens(accountant.totalOutput)}`);
-		if (cfg.totalTokens) {
-			const total = accountant.totalInput + accountant.totalOutput;
-			segParts.push(`Σ${formatTokens(total)}`);
-		}
-		if (cfg.cost) segParts.push(`$${accountant.totalCost.toFixed(4)}`);
+		if (cfg.input) segParts.push(`↑${formatTokens(totals.input)}`);
+		if (cfg.output) segParts.push(`↓${formatTokens(totals.output)}`);
+		if (cfg.totalTokens) segParts.push(`Σ${formatTokens(totals.input + totals.output)}`);
+		if (cfg.cost) segParts.push(`$${totals.cost.toFixed(4)}`);
 		if (cfg.cacheHit) {
-			const totalPrompt = accountant.totalInput + accountant.totalCacheRead + accountant.totalCacheWrite;
-			const cumCH = totalPrompt > 0 ? (accountant.totalCacheRead / totalPrompt) * 100 : 0;
+			const totalPrompt = totals.input + totals.cacheRead + totals.cacheWrite;
+			const cumCH = totalPrompt > 0 ? (totals.cacheRead / totalPrompt) * 100 : 0;
 			segParts.push(`${dim("CH")}${dim(`${cumCH.toFixed(1)}%`)}`);
 		}
 		if (segParts.length > 0) parts.push(segParts.join(" "));

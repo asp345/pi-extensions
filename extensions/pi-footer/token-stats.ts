@@ -65,9 +65,8 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 
 	pi.on("message_end", (event) => {
 		if (event.message.role !== "assistant") return;
-		if (accountant.recordAssistantEnd(event.message as AssistantMessage, Date.now())) {
-			shared.requestRender?.();
-		}
+		accountant.recordAssistantEnd(event.message as AssistantMessage, Date.now());
+		shared.requestRender?.();
 	});
 
 	pi.on("agent_end", () => {
@@ -84,7 +83,7 @@ export function createTokenStats(pi: ExtensionAPI, shared: SharedState): TokenSt
 
 	pi.on("session_start", async (_event, ctx) => {
 		shared.sessionActive = true;
-		accountant.rebuildFromHistory(ctx.sessionManager.getBranch());
+		accountant.restoreLastSpeed(ctx.sessionManager.getBranch());
 		await store.load();
 		quota.start(ctx);
 	});

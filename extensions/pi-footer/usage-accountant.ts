@@ -42,13 +42,8 @@ function median(values: number[]): number {
 	return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/** Cumulative usage totals and live streaming-speed state, rebuilt from session history on start. */
+/** Live and last-message token speed, with the last speed restored from session history on start. */
 export class UsageAccountant {
-	totalInput = 0;
-	totalOutput = 0;
-	totalCacheRead = 0;
-	totalCacheWrite = 0;
-	totalCost = 0;
 	turnStartTime = 0;
 	streaming = false;
 	lastTokensPerSec = 0;
@@ -59,7 +54,6 @@ export class UsageAccountant {
 	private lastSpeedDisplayAt = 0;
 	private lastSpeedRenderRequestAt = 0;
 	private liveUsageOutputTokens = 0;
-	private accountedUsageKeys = new Set<string>();
 	private speedTracker = new ActiveTokenSpeed();
 	private calibrationRatios: number[] = [];
 	private calibrationText = "";
@@ -111,16 +105,9 @@ export class UsageAccountant {
 		return false;
 	}
 
-	/** Deduplicated usage accounting for one finished assistant message; returns true when recorded. */
-	recordAssistantEnd(message: AssistantMessage, nowMs: number): boolean {
+	/** Record the speed of one finished assistant message. */
+	recordAssistantEnd(message: AssistantMessage, nowMs: number): void {
 		const usage = message.usage;
-		if (!usage) return false;
-
-		// message_end and turn_end can report the same usage; deduplicate on a stable key.
-		const usageKey =
-			message.responseId || `${message.timestamp}:${message.provider}:${message.model}:${usage.input}:${usage.output}`;
-		if (this.accountedUsageKeys.has(usageKey)) return false;
-		this.accountedUsageKeys.add(usageKey);
 
 		// Prefer the pure generation window (first to last delta) so tool execution and TTFT are excluded.
 		const generationSeconds =
@@ -135,15 +122,7 @@ export class UsageAccountant {
 		this.lastTokensPerSec = tokensPerSec;
 		this.lastLiveTokenSpeed = liveSpeed ?? this.lastLiveTokenSpeed;
 		this.streaming = false;
-
-		this.totalInput += usage.input;
-		this.totalOutput += usage.output;
-		this.totalCacheRead += usage.cacheRead;
-		this.totalCacheWrite += usage.cacheWrite;
-		this.totalCost += usage.cost?.total ?? 0;
-
 		this.resetLiveState();
-		return true;
 	}
 
 	private turnElapsedTokensPerSec(outputTokens: number, nowMs: number): number {
@@ -184,13 +163,7 @@ export class UsageAccountant {
 		return liveSpeed;
 	}
 
-	rebuildFromHistory(branch: SessionEntry[]): void {
-		this.totalInput = 0;
-		this.totalOutput = 0;
-		this.totalCacheRead = 0;
-		this.totalCacheWrite = 0;
-		this.totalCost = 0;
-		this.accountedUsageKeys = new Set();
+	restoreLastSpeed(branch: SessionEntry[]): void {
 		this.lastTokensPerSec = 0;
 
 		let latestAssistantSpeed: number | null = null;
@@ -200,12 +173,6 @@ export class UsageAccountant {
 			if (entry?.type !== "message") continue;
 			const msg = entry.message;
 			if (msg.role !== "assistant" || !msg.usage) continue;
-
-			this.totalInput += msg.usage.input ?? 0;
-			this.totalOutput += msg.usage.output ?? 0;
-			this.totalCacheRead += msg.usage.cacheRead ?? 0;
-			this.totalCacheWrite += msg.usage.cacheWrite ?? 0;
-			this.totalCost += msg.usage.cost?.total ?? 0;
 
 			// Estimate speed from the preceding non-assistant message.
 			if ((msg.usage.output ?? 0) <= 0) continue;

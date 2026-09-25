@@ -69,7 +69,7 @@ test("usage-increment samples keep live speed accurate without calibration", () 
 	accountant.beginTurn(T);
 	for (let i = 0; i < 10; i++) accountant.recordStreamDelta("abcd", "m1", (i + 1) * 20, T + i * 100);
 	// The speed tracker itself is covered by live-speed.test.ts; here we assert clean accounting.
-	assert.ok(accountant.recordAssistantEnd(assistantMessage("m1", 200), T + 1_200));
+	accountant.recordAssistantEnd(assistantMessage("m1", 200), T + 1_200);
 	assert.equal(accountant.streaming, false);
 });
 
