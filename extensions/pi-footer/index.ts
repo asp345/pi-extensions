@@ -4,12 +4,11 @@ import { formatUserPath } from "./format.ts";
 import { createTokenStats } from "./token-stats.ts";
 import type { SharedState } from "./types.ts";
 
-const shared: SharedState = {
-	sessionActive: false,
-	requestRender: null,
-};
-
 export default function piFooterExtension(pi: ExtensionAPI): void {
+	const shared: SharedState = {
+		sessionActive: false,
+		requestRender: null,
+	};
 	const stats = createTokenStats(pi, shared);
 
 	pi.on("session_start", (_event, ctx) => {
