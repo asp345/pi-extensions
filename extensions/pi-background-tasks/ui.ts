@@ -74,7 +74,7 @@ export class BackgroundUI {
 			try {
 				this.pi.sendMessage(
 					{ customType: MESSAGE, content: eventText(event), details: event, display: false },
-					{ deliverAs: "steer", triggerTurn: true },
+					{ deliverAs: "followUp", triggerTurn: true },
 				);
 			} catch {}
 			return;
@@ -88,12 +88,13 @@ export class BackgroundUI {
 		this.pendingEvents.clear();
 		if (!events.length) return;
 		const content = events.map(eventText).join("\n");
-		// While the agent is streaming the message is queued as a steer and
-		// injected at the next turn iteration; when idle it triggers a run.
+		// Follow-up enters after the run finishes its pending work. A steer would be
+		// picked up by the catch-up poll right after compaction and continue the
+		// session mid-run; when idle it triggers a run.
 		try {
 			await this.pi.sendMessage(
 				{ customType: MESSAGE, content, details: events.length === 1 ? events[0] : undefined, display: true },
-				{ deliverAs: "steer", triggerTurn: true },
+				{ deliverAs: "followUp", triggerTurn: true },
 			);
 		} catch {
 			for (const event of events) if (this.runtime.get(event.task.id)) this.pendingEvents.set(event.task.id, event);

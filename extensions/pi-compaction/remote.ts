@@ -4,6 +4,8 @@ import { cloneItem, isJsonObject, isResponseItem, type JsonObject, type Response
 const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const MAX_REMOTE_RETRIES = 2;
+const MAX_RETRY_DELAY_MS = 60_000;
+const COMPACTION_TIMEOUT_MS = 300_000;
 
 type RemoteCompactionResult = {
 	compactionItem: ResponseItem;
@@ -34,7 +36,7 @@ export function buildCompactionRequestBody(params: {
 		model: params.model.id,
 		store: false,
 		stream: true,
-		instructions: params.instructions,
+		...(typeof base.instructions === "string" ? {} : { instructions: params.instructions }),
 		input: [...params.input.map(cloneItem), { type: "compaction_trigger" }],
 		tool_choice: "auto",
 		parallel_tool_calls: true,
@@ -45,8 +47,10 @@ export function buildCompactionRequestBody(params: {
 				? { verbosity: previousText.verbosity }
 				: { verbosity: "low" },
 	};
-	if (params.tools) body.tools = params.tools;
-	else delete body.tools;
+	if (!Array.isArray(base.tools)) {
+		if (params.tools) body.tools = params.tools;
+		else delete body.tools;
+	}
 	delete body.messages;
 	delete body.previous_response_id;
 	return body;
@@ -237,6 +241,8 @@ export async function callRemoteCompaction(params: {
 	fetchImpl?: typeof fetch;
 }): Promise<RemoteCompactionResult> {
 	const fetchImpl = params.fetchImpl ?? fetch;
+	const timeout = AbortSignal.timeout(COMPACTION_TIMEOUT_MS);
+	const signal = params.signal ? AbortSignal.any([params.signal, timeout]) : timeout;
 	let lastError: unknown;
 	for (let attempt = 0; attempt <= MAX_REMOTE_RETRIES; attempt++) {
 		try {
@@ -244,7 +250,7 @@ export async function callRemoteCompaction(params: {
 				method: "POST",
 				headers: params.headers,
 				body: JSON.stringify(params.body),
-				signal: params.signal,
+				signal,
 			});
 			if (!response.ok) {
 				const body = await response.text().catch(() => "");
@@ -253,16 +259,16 @@ export async function callRemoteCompaction(params: {
 				const error = new Error(message);
 				if (attempt === MAX_REMOTE_RETRIES) throw error;
 				lastError = error;
-				await delay(parseRetryDelay(response) ?? 1000 * 2 ** attempt, params.signal);
+				await delay(Math.min(parseRetryDelay(response) ?? 1000 * 2 ** attempt, MAX_RETRY_DELAY_MS), signal);
 				continue;
 			}
 			const parsed = await parseSseResponse(response);
 			return { compactionItem: parsed.item, usage: usageFromResponse(params.model, parsed.usage) };
 		} catch (error) {
-			if (params.signal?.aborted || error instanceof NonRetryableCompactionError) throw error;
+			if (signal.aborted || error instanceof NonRetryableCompactionError) throw error;
 			lastError = error;
 			if (attempt === MAX_REMOTE_RETRIES) throw error;
-			await delay(1000 * 2 ** attempt, params.signal);
+			await delay(Math.min(1000 * 2 ** attempt, MAX_RETRY_DELAY_MS), signal);
 		}
 	}
 	throw lastError instanceof Error ? lastError : new Error("OpenAI Codex compaction failed.");

@@ -5,13 +5,14 @@ import {
 	ANTHROPIC_NATIVE_COMPACTION_KIND,
 	ANTHROPIC_NATIVE_COMPACTION_VERSION,
 	type AnthropicNativeCompactionDetails,
+	buildNativeInstructions,
 	canonicalSystemText,
 	clearAnthropicCompactionCaches,
+	computeNativeFileLists,
 	convertToAnthropicMessages,
 	findAnthropicCheckpoint,
 	hashStrippedTools,
 	isAnthropicMessagesModel,
-	markCompactionUnsupported,
 	modelSupportsOnDemandCompaction,
 	requestOnDemandSummary,
 	type WireMessage,
@@ -74,28 +75,80 @@ function dropTrailingErrorAssistants(messages: AgentMessages): AgentMessages {
 	return trimmed as AgentMessages;
 }
 
-function hasUnansweredToolCall(messages: Message[]): boolean {
-	const called = new Set<string>();
-	const answered = new Set<string>();
+function repairOrphanToolCalls(messages: Message[]): Message[] {
+	const result: Message[] = [];
+	let pendingToolCalls: { id: string; name: string }[] = [];
+	let existingToolResultIds = new Set<string>();
+	const closePendingToolCalls = () => {
+		if (pendingToolCalls.length > 0) {
+			for (const tc of pendingToolCalls) {
+				if (!existingToolResultIds.has(tc.id)) {
+					result.push({
+						role: "toolResult",
+						toolCallId: tc.id,
+						toolName: tc.name,
+						content: [{ type: "text", text: "No result provided" }],
+						isError: true,
+						timestamp: Date.now(),
+					} as Message);
+				}
+			}
+			pendingToolCalls = [];
+			existingToolResultIds = new Set<string>();
+		}
+	};
 	for (const message of messages) {
 		if (message.role === "assistant") {
-			for (const block of message.content) {
-				if (block.type === "toolCall") called.add(block.id);
+			closePendingToolCalls();
+			const toolCalls = message.content.filter((block) => block.type === "toolCall");
+			if (toolCalls.length > 0) {
+				pendingToolCalls = toolCalls.map((block) => ({
+					id: (block as { id: string }).id,
+					name: (block as { name: string }).name,
+				}));
+				existingToolResultIds = new Set<string>();
 			}
+			result.push(message);
 		} else if (message.role === "toolResult") {
-			answered.add(message.toolCallId);
+			existingToolResultIds.add(message.toolCallId);
+			result.push(message);
+		} else if (message.role === "user") {
+			closePendingToolCalls();
+			result.push(message);
+		} else {
+			result.push(message);
 		}
 	}
-	for (const id of called) {
-		if (!answered.has(id)) return true;
-	}
-	return false;
+	closePendingToolCalls();
+	return result;
 }
 
 function summaryTextOf(branch: SessionEntry[], entryId: string): string | undefined {
 	const entry = branch.find((candidate) => candidate?.id === entryId);
 	if (entry?.type === "compaction" && typeof entry.summary === "string") return entry.summary;
 	return undefined;
+}
+
+function convertStaleThinkingToText(tail: unknown[]): unknown[] {
+	return tail.map((message) => {
+		if (!isJsonObject(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
+			return message;
+		}
+		const content: unknown[] = [];
+		for (const block of message.content) {
+			if (!isJsonObject(block)) {
+				content.push(block);
+				continue;
+			}
+			if (block.type === "thinking" && typeof block.thinking === "string" && block.thinking.trim().length > 0) {
+				content.push({ type: "text", text: block.thinking });
+			} else if (block.type === "redacted_thinking") {
+			} else {
+				content.push(block);
+			}
+		}
+		return { ...message, content };
+	});
 }
 
 function snapshotSessionWire(ctx: ExtensionContext, payload: unknown): void {
@@ -177,7 +230,10 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 			if (tail.length === 0) return undefined;
 			return {
 				...(event.payload as JsonObject),
-				messages: [{ role: "assistant", content: [{ ...checkpoint.details.block }] }, ...tail],
+				messages: [
+					{ role: "assistant", content: [{ ...checkpoint.details.block }] },
+					...convertStaleThinkingToText(tail),
+				],
 			};
 		} catch {
 			return undefined;
@@ -201,23 +257,36 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 			const cutIndex = branch.findIndex((entry) => entry?.id === event.preparation.firstKeptEntryId);
 			if (cutIndex < 0) return undefined;
 			const lookup = findAnthropicCheckpoint(branch);
-			const sameModel = lookup.status === "valid" && lookup.checkpoint.details.modelKey === modelKey(model);
-			const priorBlock = sameModel ? lookup.checkpoint.details.block : undefined;
-			const startIndex = sameModel ? lookup.checkpoint.entryIndex + 1 : 0;
+			const checkpoint = lookup.status === "valid" ? lookup.checkpoint : undefined;
+			const reusable =
+				checkpoint !== undefined &&
+				checkpoint.details.modelKey === modelKey(model) &&
+				!staleCheckpointIds.has(checkpoint.entryId);
+			const priorBlock = checkpoint && reusable ? checkpoint.details.block : undefined;
+			const startIndex = checkpoint ? checkpoint.entryIndex + 1 : 0;
 			if (startIndex >= cutIndex) return undefined;
 			let assembled = assembleRangeAgentMessages(branch, startIndex, cutIndex);
 			if (event.reason === "overflow" && event.willRetry) {
 				assembled = dropTrailingErrorAssistants(assembled);
 			}
-			assembled.push(...event.preparation.turnPrefixMessages);
-			const llmMessages = convertToLlm(assembled);
-			if (hasUnansweredToolCall(llmMessages)) return undefined;
+			const llmMessages = repairOrphanToolCalls(convertToLlm(assembled));
 			const wire = convertToAnthropicMessages(llmMessages);
-			if (!wire.ok) return undefined;
+			if (!wire.ok) {
+				notifyFailure(ctx, event.signal, `Anthropic native compaction skipped, using text compaction: ${wire.reason}`);
+				return undefined;
+			}
 			if (!wire.messages.some((message) => message.role === "user" || message.role === "assistant")) {
 				return undefined;
 			}
 			const summaryTools = Array.isArray(snapshot.tools) ? snapshot.tools : [];
+			const { readFiles, modifiedFiles } = computeNativeFileLists(event.preparation.fileOps);
+			const instructions = buildNativeInstructions({
+				customInstructions: event.customInstructions,
+				previousSummary: priorBlock ? undefined : event.preparation.previousSummary,
+				isSplitTurn: event.preparation.turnPrefixMessages.length > 0,
+				readFiles,
+				modifiedFiles,
+			});
 			const result = await requestOnDemandSummary({
 				model,
 				apiKey: auth.apiKey,
@@ -229,6 +298,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 					...(priorBlock ? [{ role: "assistant", content: [{ ...priorBlock }] } satisfies WireMessage] : []),
 					...wire.messages,
 				],
+				instructions,
 				signal: event.signal,
 			});
 			return {
@@ -244,13 +314,14 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 						block: result.block,
 						systemText: canonicalSystemText(snapshot.system),
 						toolsHash: hashStrippedTools(summaryTools),
+						readFiles,
+						modifiedFiles,
 					},
 				},
 			};
 		} catch (error) {
 			if (event.signal.aborted) return undefined;
 			const message = errorMessage(error);
-			if (error instanceof Error && "status" in error && error.status === 400) markCompactionUnsupported(model);
 			notifyFailure(ctx, event.signal, `Anthropic native compaction failed, using text compaction: ${message}`);
 			return undefined;
 		}

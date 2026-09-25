@@ -49,7 +49,7 @@ export default function subagents(pi: ExtensionAPI): void {
 					display: true,
 					details: { id: record.id, title: record.title, summary: content },
 				},
-				{ deliverAs: "steer", triggerTurn: true },
+				{ deliverAs: "followUp", triggerTurn: true },
 			);
 		},
 		(record) => {
@@ -177,7 +177,7 @@ export default function subagents(pi: ExtensionAPI): void {
 				display: true,
 				details: { records: records.map(completionDetails) },
 			},
-			{ deliverAs: "steer", triggerTurn: true },
+			{ deliverAs: "followUp", triggerTurn: true },
 		);
 	}
 

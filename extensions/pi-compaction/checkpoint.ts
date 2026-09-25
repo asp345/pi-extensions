@@ -33,7 +33,7 @@ export function modelKey(model: Pick<Model<Api>, "provider" | "api" | "id">): st
 
 function parseNativeCompactionDetails(value: unknown): NativeCompactionDetails | undefined {
 	if (!isJsonObject(value)) return undefined;
-	if (value.kind !== NATIVE_COMPACTION_KIND || value.version !== NATIVE_COMPACTION_VERSION) return undefined;
+	if (value.kind !== NATIVE_COMPACTION_KIND) return undefined;
 	if (typeof value.modelKey !== "string" || !Array.isArray(value.replacementHistory)) return undefined;
 
 	const replacementHistory = value.replacementHistory.filter(isResponseItem);

@@ -30,7 +30,7 @@ function exitEvent(): TaskEvent {
 	};
 }
 
-test("task exits are delivered immediately as steering messages", async () => {
+test("task exits are delivered immediately as follow-up messages", async () => {
 	const event = exitEvent();
 	const deliveries: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
@@ -45,7 +45,7 @@ test("task exits are delivered immediately as steering messages", async () => {
 	await Promise.resolve();
 
 	assert.equal(deliveries.length, 1);
-	assert.deepEqual(deliveries[0]?.options, { deliverAs: "steer", triggerTurn: true });
+	assert.deepEqual(deliveries[0]?.options, { deliverAs: "followUp", triggerTurn: true });
 	const delivered = deliveries[0];
 	assert.ok(delivered);
 	assert.match(String((delivered.message as { content?: unknown }).content), /Background task bg-1 finished/u);
