@@ -26,11 +26,11 @@ function countStatuses(records: readonly AgentRecord[]): Counts {
 }
 
 function countsText(counts: Counts, theme: Theme): string {
-	return [
-		theme.fg("success", `● ${counts.running} running`),
-		theme.fg("warning", `◐ ${counts.idle} idle`),
-		theme.fg("dim", `○ ${counts.inactive} inactive`),
-	].join("  ");
+	const parts: string[] = [];
+	if (counts.running > 0) parts.push(theme.fg("success", `● ${counts.running} running`));
+	if (counts.idle > 0) parts.push(theme.fg("warning", `◐ ${counts.idle} idle`));
+	if (counts.inactive > 0) parts.push(theme.fg("dim", `○ ${counts.inactive} inactive`));
+	return parts.join("  ");
 }
 
 export function fitLine(line: string, width: number, theme: Theme): string {
@@ -224,7 +224,8 @@ export class AgentsUI {
 						const now = Date.now();
 						const records = ordered();
 						const current = selected();
-						const lines = [countsText(countStatuses(records), theme), ""];
+						const counts = countsText(countStatuses(records), theme);
+						const lines = counts ? [counts, ""] : [];
 						if (!records.length) {
 							lines.push(theme.fg("dim", "No subagents yet."));
 						} else {

@@ -102,12 +102,12 @@ function countKinds(tasks: readonly TaskSnapshot[]): Record<TaskKind, number> {
 
 function countsText(tasks: readonly TaskSnapshot[], theme: Theme): string {
 	const counts = countKinds(tasks);
-	return [
-		theme.fg("success", `● ${counts.running} running`),
-		theme.fg("success", `✓ ${counts.done} done`),
-		theme.fg("error", `✗ ${counts.failed} failed`),
-		theme.fg("dim", `• ${counts.stopped} stopped`),
-	].join("  ");
+	const parts: string[] = [];
+	if (counts.running > 0) parts.push(theme.fg("success", `● ${counts.running} running`));
+	if (counts.done > 0) parts.push(theme.fg("success", `✓ ${counts.done} done`));
+	if (counts.failed > 0) parts.push(theme.fg("error", `✗ ${counts.failed} failed`));
+	if (counts.stopped > 0) parts.push(theme.fg("dim", `• ${counts.stopped} stopped`));
+	return parts.join("  ");
 }
 
 function highlight(line: string, width: number, theme: Theme): string {
@@ -321,7 +321,8 @@ export class BackgroundUI {
 						const now = Date.now();
 						const tasks = ordered();
 						const current = selected();
-						const lines = [countsText(tasks, theme), ""];
+						const counts = countsText(tasks, theme);
+						const lines = counts ? [counts, ""] : [];
 						if (!tasks.length) {
 							lines.push(theme.fg("dim", "No background tasks yet. Use /bg run <command> or background_task."));
 						} else {

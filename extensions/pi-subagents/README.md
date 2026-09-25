@@ -45,7 +45,7 @@ Extensions share module-level state between the parent and its subagents because
 
 ## UI
 
-- Below the editor, while any subagent is running or idle: `subagents  ● 1 running  ◐ 1 idle  ○ 2 inactive  · ctrl+shift+s`.
+- Below the editor, while any subagent is running or idle: `subagents  ● 1 running  ◐ 1 idle  ○ 2 inactive  · ctrl+shift+s`. Counts of zero are omitted, here and in the dashboard.
 - `/agents` or `ctrl+shift+s` opens the dashboard: counts, then `Running` (`◈`), `Idle` (`•`), and `Inactive` (`•`, dim) sections with `Session`, `Model` (`id:thinking`), `Activity`, `Cost`, and `Age` columns, and the last text or error of the selected subagent. It re-renders every second while any subagent is running. Keys: `↑`/`↓` or `j`/`k` move, `s` stops the selected subagent, `q` or `esc` closes.
 - `/agents list` prints all subagents; `/agents stop <name|id>` stops one.
 - Messages from subagents render as `◆ Agent message received · child:<name>` and notices as `◆ Subagent finished without reply · child:<name>`, `◆ Subagent failed · …`, or `◆ Subagent stopped · …`; `ctrl+o` expands the body.

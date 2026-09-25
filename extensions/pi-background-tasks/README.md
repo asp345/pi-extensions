@@ -15,7 +15,7 @@ Tool calls have no renderers of their own; `pi-compact-ui` renders them.
 
 ## UI
 
-- Below the editor, while any task is running: `bg tasks  ● 1 running  ✓ 2 done  ✗ 1 failed  • 0 stopped  · ctrl+shift+b`. Failed includes timed-out tasks.
+- Below the editor, while any task is running: `bg tasks  ● 1 running  ✓ 2 done  ✗ 1 failed  · ctrl+shift+b`. Failed includes timed-out tasks. Counts of zero are omitted, here and in the dashboard.
 - `/bg` or `ctrl+shift+b` opens the dashboard: counts, then `Running` (`◈`) and `Finished` (`✓` done, `✗` failed, `•` stopped) sections with `Task`, `Command`, `Status`, `Last output`, and `Time` columns (10 rows around the selection), then the selected task's pid, cwd, the last 10 output lines, and the log file. It re-renders every second while any task is running. Keys: `↑`/`↓` or `j`/`k` select, `shift+↑`/`shift+↓` scroll the output, `f` toggles following the output end, `s` stops the selected task, `c` clears finished tasks, `q` or `esc` closes. `/bg watch <id>` opens it with that task selected.
 - `/bg list`, `/bg run <command>`, `/bg stop <id>`, and `/bg clear` work without the dashboard.
 - Exits are delivered as a follow-up message and render as `◆ Background task finished · <id> · <command> · <time>` (`failed`, `stopped`, or `running` for heartbeat notices, which are not displayed); `ctrl+o` expands the output. Messages batched from several exits render one line per task.
