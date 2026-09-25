@@ -1,24 +1,39 @@
-# pi-compact-ui (vendored)
+# pi-compact-ui
 
-One line per built-in tool call for the Pi Coding Agent. No grouping.
+Renders every tool call in the Pi Coding Agent transcript in one uniform format. Tool definitions do not need their own renderers: the format is applied to all tools, including built-in tools and tools from other packages, and `renderCall`/`renderResult`/`renderShell` of tool definitions are ignored.
 
-- Upstream: `npm:pi-compact-ui@0.1.1` by geoffreychen777 (https://pi.dev/packages/pi-compact-ui)
-- Upstream ships no license file and no license field; treat this directory as third-party code vendored for personal use. Do not redistribute it separately.
+## Format
 
-## Behavior
+Collapsed, each call is one line:
 
-Each tool call renders separately as exactly one plain line (`✓ read ~/cfg/pi/package.json`, pending calls show `◌`) with no background block (`renderShell: "self"`). The line is truncated to the viewport width with `…`; a summary `suffix` (for example the bash elapsed time) always stays visible. Collapsed results render nothing, except `edit` and `write`, which share one code-block renderer: every line has a `<sign><line number> ` gutter whose sign uses `toolDiffAdded`/`toolDiffRemoved`/`toolDiffContext` and whose line number uses `thinkingText`, the code is syntax highlighted for the language of the path (tabs become three spaces), and added or removed lines carry a full-width `toolSuccessBg`/`toolErrorBg` background. `edit` takes the lines from `details.diff`, `write` from the `content` argument numbered from 1. Both show 30 lines with a `... (N more lines, M total, <key> to expand)` hint and expand to the full block with `Ctrl+O`. Errors, `edit` without a diff, and `write` without content delegate to the native result renderer. Thinking and everything else render natively.
+```
+ ✓ read · extensions/pi-compact-ui/row.ts · ↓ 214 lines · 38ms
+ ◈ bash · bun run check · 12.4s
+ ✗ edit · README.md · 21ms · error
+```
 
-## Vendor adaptations
+- Marker: `◇` queued, `◇ ◈ ◆ ◈` animated every 250 ms while running, `✓` done, `✗` error.
+- Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
+- `↓ N lines`: the line count of the text result, shown once the call has finished.
+- Duration: measured from `markExecutionStarted` to the final result. Calls replayed from a saved session have no duration.
+- The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
-Diverged from upstream `index.ts` (grouping and thinking interception removed):
+A result whose `details.diff` is a string (the `edit` tool) adds a summary line in both states:
 
-- Bare `fs`/`os`/`path` imports use the `node:` prefix (required by `scripts/check.ts`).
-- Tool internals are typed against `pi-coding-agent` 0.85.1 with no `any`; the repo lint preset applies with no exceptions.
+```
+    ╰─ extensions/pi-compact-ui/row.ts +12 -3
+```
 
-## Interactions
+Expanded (`ctrl+o`, or a click on the header line):
 
-- Re-registers the built-in tools (`read`, `edit`, `write`, `find`, `grep`, `ls`) with a one-line call renderer and execution delegated to the native per-cwd definitions, so tool-guard extensions (`pi-nix-store-guard`, `pi-sensitive-guard`, `pi-tool-loop-guard`) keep working. `bash` is owned by `pi-background-tasks`, whose hybrid definition renders its call line through the exported `compactCallLine`/`toolSummary` helpers.
-- Patches once, on load: `Container.prototype.addChild` records each component's parent, and `ToolExecutionComponent.prototype.render`/`handleMouse` drop the blank line that a `renderShell: "self"` row prepends when its previous visible sibling is another tool row (mouse rows are shifted by the removed line). A tool row that follows assistant text or thinking keeps its blank line.
-- Keeps no transcript state. The code-block renderer reuses `context.lastComponent` when it is already a code block; delegated native renderers receive `lastComponent` unchanged.
-- In `--mode rpc` children it loads inertly (no TUI): no stdout protocol output.
+- `╰─ key: value` for each top-level argument; non-string values are JSON.
+- ` › ` followed by the text result, or the syntax-highlighted diff with line-number gutters when `details.diff` is present.
+- `waiting for output...` while running, `no output` for an empty result.
+
+Images in results render below the row. A tool row directly after another tool row, or after an assistant message without visible text, has no leading blank line.
+
+## Implementation
+
+- Patches `ToolExecutionComponent.prototype` once per process: `render` and `handleMouse` are replaced when a TUI session starts (`ctx.mode === "tui"`), `markExecutionStarted` and `updateResult` record the timing, and `Container.prototype.addChild` records each component's parent for the spacing rule.
+- Sessions without a TUI (print, RPC, and in-process subagent sessions) do not install the renderer.
+- `row.ts` builds the lines, `diff.ts` renders the diff block.

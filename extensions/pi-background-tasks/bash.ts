@@ -9,11 +9,7 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 	getAgentDir,
-	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { compactCallLine, PadLeft, toolSummary } from "pi-compact-ui";
 import { Type } from "typebox";
 import type { BackgroundRuntime } from "./runtime.ts";
 
@@ -62,67 +58,6 @@ export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
 	}
 	if (ctx.thinkingLevel) env.PI_REASONING_LEVEL = ctx.thinkingLevel;
 	return env;
-}
-
-interface BashRenderContext {
-	toolCallId: string;
-	invalidate: () => void;
-	cwd: string;
-	executionStarted: boolean;
-	isPartial: boolean;
-	isError: boolean;
-}
-
-interface BashElapsedState {
-	startedAt: number;
-	lastSeen: number;
-	invalidate: () => void;
-	timer: ReturnType<typeof setInterval>;
-}
-
-const bashElapsed = new Map<string, BashElapsedState>();
-const BASH_ELAPSED_STALE_MS = 3000;
-
-function stopBashElapsed(toolCallId: string): void {
-	const state = bashElapsed.get(toolCallId);
-	if (state) {
-		clearInterval(state.timer);
-		bashElapsed.delete(toolCallId);
-	}
-}
-
-function bashCallLine(args: unknown, theme: Theme, context: BashRenderContext): Component {
-	if (!context.executionStarted || !context.isPartial) {
-		stopBashElapsed(context.toolCallId);
-		return compactCallLine("bash", args, theme, context);
-	}
-	let state = bashElapsed.get(context.toolCallId);
-	if (!state) {
-		const toolCallId = context.toolCallId;
-		const record: BashElapsedState = {
-			startedAt: Date.now(),
-			lastSeen: Date.now(),
-			invalidate: context.invalidate,
-			timer: setInterval(() => {
-				const current = bashElapsed.get(toolCallId);
-				if (!current) return;
-				if (Date.now() - current.lastSeen > BASH_ELAPSED_STALE_MS) {
-					stopBashElapsed(toolCallId);
-					return;
-				}
-				current.invalidate();
-			}, 1000),
-		};
-		record.timer.unref?.();
-		bashElapsed.set(toolCallId, record);
-		state = record;
-	} else {
-		state.invalidate = context.invalidate;
-		state.lastSeen = Date.now();
-	}
-	const secs = Math.max(0, Math.floor((Date.now() - state.startedAt) / 1000));
-	const base = toolSummary("bash", args);
-	return compactCallLine("bash", args, theme, context, { ...base, suffix: `(${secs}s)` });
 }
 
 function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, foreground: Map<string, AbortController>) {
@@ -175,33 +110,6 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
-		renderShell: "self" as const,
-		renderCall: ((args: unknown, theme: Theme, context: BashRenderContext): Component =>
-			bashCallLine(args, theme, context)) as typeof definition.renderCall,
-		renderResult: ((
-			result: unknown,
-			options: { expanded: boolean },
-			theme: Theme,
-			context: BashRenderContext,
-		): Component => {
-			if (!options.expanded) return new Container();
-			const native = definition.renderResult;
-			if (typeof native === "function") {
-				const rawLast = (context as unknown as { lastComponent?: Component }).lastComponent;
-				const prevInner = rawLast instanceof PadLeft ? rawLast.inner : rawLast;
-				const lastComponent = prevInner instanceof Text ? prevInner : undefined;
-				const component = (
-					native as (
-						callResult: unknown,
-						callOptions: unknown,
-						callTheme: Theme,
-						callContext: { cwd: string },
-					) => Component
-				)(result, options, theme, { ...context, lastComponent } as { cwd: string });
-				return new PadLeft(component);
-			}
-			return new Container();
-		}) as typeof definition.renderResult,
 	};
 }
 

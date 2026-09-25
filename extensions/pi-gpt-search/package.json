@@ -25,8 +25,5 @@
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
 		"typebox": "*"
-	},
-	"dependencies": {
-		"pi-compact-ui": "workspace:*"
 	}
 }
