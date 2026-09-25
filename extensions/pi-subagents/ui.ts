@@ -7,8 +7,7 @@ import { type AgentRecord, type AgentStatus, agentStatus } from "./types.ts";
 export const COMMAND = "agents";
 export const SHORTCUT = "ctrl+shift+s";
 const WIDGET = "pi-subagents";
-const WORKING_ICON_FRAMES = ["◇", "◈", "◆", "◈"] as const;
-const WORKING_ICON_INTERVAL_MS = 250;
+const REFRESH_MS = 1000;
 const STATUS_ROW_ICON = "•";
 const SECTIONS: readonly AgentStatus[] = ["running", "idle", "inactive"];
 const SECTION_TITLES: Record<AgentStatus, string> = { running: "Running", idle: "Idle", inactive: "Inactive" };
@@ -65,9 +64,9 @@ function activityLabel(record: AgentRecord, now: number): string {
 	return preview(record.lastText) ?? "";
 }
 
-function rowIcon(status: AgentStatus, theme: Theme, now: number): string {
+function rowIcon(status: AgentStatus, theme: Theme): string {
 	if (status === "running") {
-		return theme.bold(WORKING_ICON_FRAMES[Math.floor(now / WORKING_ICON_INTERVAL_MS) % WORKING_ICON_FRAMES.length]);
+		return theme.bold("◈");
 	}
 	return theme.bold(theme.fg(status === "idle" ? "warning" : "dim", STATUS_ROW_ICON));
 }
@@ -182,7 +181,7 @@ export class AgentsUI {
 				let selectedId: string | undefined;
 				const ticker = setInterval(() => {
 					if (this.manager.list().some((record) => record.running)) tui.requestRender();
-				}, WORKING_ICON_INTERVAL_MS);
+				}, REFRESH_MS);
 				ticker.unref?.();
 
 				const ordered = (): AgentRecord[] => {
@@ -233,7 +232,7 @@ export class AgentsUI {
 								for (const record of group) {
 									const row = tableRow(
 										[
-											`${rowIcon(status, theme, now)} ${record.name}`,
+											`${rowIcon(status, theme)} ${record.name}`,
 											theme.fg("muted", modelLabel(record)),
 											theme.fg("dim", activityLabel(record, now)),
 											theme.fg("dim", `$${record.cost.toFixed(2)}`),
