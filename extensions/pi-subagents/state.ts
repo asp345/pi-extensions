@@ -1,103 +1,62 @@
-import type { AgentRecord, AgentStatus, ThinkingLevel } from "./types.ts";
+import { type AgentRecord, isThinkingLevel, type StoredAgent } from "./types.ts";
 
-export interface StoredAgentState {
-	version: 1;
-	id: string;
-	title: string;
-	prompt: string;
-	cwd: string;
-	status: AgentStatus;
-	background: boolean;
-	startedAt: number;
-	completedAt?: number;
-	turns: number;
-	toolUses: number;
-	result?: string;
-	error?: string;
-	damagedSession?: boolean;
-	model?: string;
-	thinking?: ThinkingLevel;
-	sessionFile?: string;
-	resultConsumed?: boolean;
-}
+export const STATE_KIND = "pi-subagent-state";
 
-export function storeRecord(record: AgentRecord): StoredAgentState {
+export function storeRecord(record: AgentRecord): StoredAgent {
 	return {
-		version: 1,
+		version: 2,
 		id: record.id,
-		title: record.title,
+		name: record.name,
 		prompt: record.prompt,
 		cwd: record.cwd,
-		status: record.status,
-		background: record.background,
-		startedAt: record.startedAt,
-		completedAt: record.completedAt,
-		turns: record.turns,
-		toolUses: record.toolUses,
-		result: record.result,
-		error: record.error,
-		damagedSession: record.damagedSession ? true : undefined,
 		model: record.model,
 		thinking: record.thinking,
 		sessionFile: record.sessionFile,
-		resultConsumed: record.resultConsumed,
+		createdAt: record.createdAt,
+		updatedAt: record.updatedAt,
+		cost: record.cost,
+		lastText: record.lastText,
+		lastError: record.lastError,
 	};
 }
 
-export function parseStoredRecord(value: unknown): StoredAgentState | undefined {
-	if (!isRecord(value) || value.version !== 1) return undefined;
+export function parseStoredRecord(value: unknown): StoredAgent | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const data = value as Record<string, unknown>;
 	if (
-		typeof value.id !== "string" ||
-		typeof value.title !== "string" ||
-		typeof value.prompt !== "string" ||
-		typeof value.cwd !== "string" ||
-		typeof value.background !== "boolean" ||
-		typeof value.startedAt !== "number" ||
-		typeof value.turns !== "number" ||
-		typeof value.toolUses !== "number" ||
-		!isAgentStatus(value.status)
+		data.version !== 2 ||
+		typeof data.id !== "string" ||
+		typeof data.name !== "string" ||
+		typeof data.prompt !== "string" ||
+		typeof data.cwd !== "string" ||
+		typeof data.createdAt !== "number" ||
+		typeof data.updatedAt !== "number" ||
+		typeof data.cost !== "number"
 	) {
 		return undefined;
 	}
-	const thinking = typeof value.thinking === "string" && isThinkingLevel(value.thinking) ? value.thinking : undefined;
 	return {
-		version: 1,
-		id: value.id,
-		title: value.title,
-		prompt: value.prompt,
-		cwd: value.cwd,
-		status: value.status,
-		background: value.background,
-		startedAt: value.startedAt,
-		completedAt: numberValue(value.completedAt),
-		turns: value.turns,
-		toolUses: value.toolUses,
-		result: stringValue(value.result),
-		error: stringValue(value.error),
-		damagedSession: value.damagedSession === true ? true : undefined,
-		model: stringValue(value.model),
-		thinking,
-		sessionFile: stringValue(value.sessionFile),
-		resultConsumed: typeof value.resultConsumed === "boolean" ? value.resultConsumed : undefined,
+		version: 2,
+		id: data.id,
+		name: data.name,
+		prompt: data.prompt,
+		cwd: data.cwd,
+		model: optionalString(data.model),
+		thinking: isThinkingLevel(data.thinking) ? data.thinking : undefined,
+		sessionFile: optionalString(data.sessionFile),
+		createdAt: data.createdAt,
+		updatedAt: data.updatedAt,
+		cost: data.cost,
+		lastText: optionalString(data.lastText),
+		lastError: optionalString(data.lastError),
 	};
 }
 
-function isAgentStatus(value: unknown): value is AgentStatus {
-	return value === "running" || value === "completed" || value === "stopped" || value === "error";
+export function restoreRecord(stored: StoredAgent): AgentRecord {
+	const { version: _version, ...fields } = stored;
+	return { ...fields, running: false, repliesThisRun: 0, backgroundTasks: [] };
 }
 
-function isThinkingLevel(value: string): value is ThinkingLevel {
-	return ["off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function stringValue(value: unknown): string | undefined {
+function optionalString(value: unknown): string | undefined {
 	return typeof value === "string" ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-	return typeof value === "number" ? value : undefined;
 }

@@ -1,10 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { ThinkingLevel } from "./types.ts";
-
-export function resolveThinking(input: ThinkingLevel | undefined, ctx: ExtensionContext): ThinkingLevel | undefined {
-	return input ?? (ctx.thinkingLevel as ThinkingLevel | undefined);
-}
 
 export function resolveModel(input: string | undefined, ctx: ExtensionContext): Model<Api> | undefined {
 	if (!input || input.trim().toLowerCase() === "parent") return ctx.model as Model<Api> | undefined;

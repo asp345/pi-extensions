@@ -1,349 +1,297 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { recoveryPrompt } from "./delegation.ts";
-import { bounded } from "./format.ts";
-import { resolveThinking } from "./models.ts";
-import type { RpcMessage, RpcProcess } from "./rpc.ts";
-import { type RpcCallbacks, type RunResult, resumeProc, runNew } from "./runner.ts";
-import { compactTranscript } from "./transcript.ts";
+import { basename, dirname, join } from "node:path";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { AgentSession, AgentSessionEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { closeChildSession, createChildSession } from "./child.ts";
+import { type NoticeKind, parentMessagePrompt, preview } from "./delegation.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";
-import { message, onAbort } from "./util.ts";
 
-interface SpawnOptions {
-	background: boolean;
-	model?: string;
+export interface ManagerHooks {
+	changed(): void;
+	persist(record: AgentRecord): void;
+	message(record: AgentRecord, message: string): void;
+	notice(record: AgentRecord, kind: NoticeKind, body: string | undefined): void;
+}
+
+export interface LaunchInput {
+	name: string;
+	prompt: string;
+	model?: Model<Api>;
 	thinking?: ThinkingLevel;
-	signal?: AbortSignal;
 }
 
-interface ResumeOptions extends SpawnOptions {
-	title: string;
+export type SendOutcome = "steered" | "started" | "resumed";
+
+function childSessionDir(parentSessionFile: string): string {
+	return join(dirname(parentSessionFile), `${basename(parentSessionFile, ".jsonl")}.subagents`);
 }
 
-const CONTINUATION = "Continue the assigned task from where it stopped.";
+function errorText(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
 
-export class AgentManager {
+function finalError(session: AgentSession): string | undefined {
+	const last = session.messages.findLast((message) => message.role === "assistant");
+	if (last?.role !== "assistant") return undefined;
+	if (last.stopReason === "error") return last.errorMessage?.trim() || "provider error";
+	if (last.stopReason === "aborted") return last.errorMessage?.trim() || "aborted";
+	return undefined;
+}
+
+function activityOf(event: AgentSessionEvent): string | undefined {
+	switch (event.type) {
+		case "message_update": {
+			const kind = event.assistantMessageEvent.type;
+			if (kind.startsWith("thinking")) return "Thinking";
+			if (kind.startsWith("text")) return "Writing";
+			if (kind.startsWith("toolcall")) return "Writing tool call";
+			return undefined;
+		}
+		case "tool_execution_start":
+			return `Running ${event.toolName}`;
+		case "compaction_start":
+			return "Compacting";
+		case "auto_retry_start":
+			return `Retrying ${event.attempt}/${event.maxAttempts}`;
+		case "tool_execution_end":
+		case "compaction_end":
+		case "auto_retry_end":
+		case "message_end":
+			return "Waiting";
+		default:
+			return undefined;
+	}
+}
+
+export class SubagentManager {
 	private readonly records = new Map<string, AgentRecord>();
-	private renderTimer?: ReturnType<typeof setTimeout>;
+	private readonly stopRequests = new Map<string, "parent" | "user">();
+	private closed = false;
 
-	constructor(
-		private readonly changed: () => void,
-		private readonly completed: (record: AgentRecord) => void,
-		private readonly resumed: (record: AgentRecord) => void,
-		private readonly reported: (record: AgentRecord, summary: string) => void,
-		private readonly persisted: (record: AgentRecord) => void,
-		private readonly startSession: typeof runNew = runNew,
-	) {}
-
-	spawn(ctx: ExtensionContext, title: string, prompt: string, options: SpawnOptions): AgentRecord {
-		const id = randomUUID();
-		const record: AgentRecord = {
-			id,
-			title,
-			prompt,
-			cwd: ctx.cwd,
-			status: "running",
-			background: options.background,
-			startedAt: Date.now(),
-			turns: 0,
-			toolUses: 0,
-			model: options.model,
-			thinking: resolveThinking(options.thinking, ctx),
-			messages: [],
-			abortController: new AbortController(),
-			pendingSteers: [],
-		};
-		this.records.set(id, record);
-		this.changed();
-		this.persisted(record);
-		record.promise = this.run(record, ctx, prompt, options);
-		return record;
-	}
-
-	async resume(ctx: ExtensionContext, id: string, options: ResumeOptions): Promise<AgentRecord> {
-		const record = this.get(id);
-		if (!record) throw new Error(`Unknown or ambiguous subagent ID: ${id}`);
-		if (record.status === "running") throw new Error(`Subagent ${id} is already running.`);
-		const previousRun = record.promise;
-		if (previousRun) await previousRun;
-		if (record.promise !== previousRun) {
-			throw new Error(`Subagent ${id} is already running.`);
-		}
-		const damaged = record.damagedSession === true;
-		if (damaged && record.proc && !record.proc.closed) {
-			void record.proc.stop().catch(() => undefined);
-		}
-		const live = !damaged && record.proc && !record.proc.closed ? record.proc : undefined;
-		const restartFresh = !live && (!record.sessionFile || damaged);
-		let prompt: string;
-		if (damaged) {
-			prompt = recoveryPrompt(record.prompt, recoveryContext(record));
-		} else if (restartFresh) {
-			prompt = record.prompt;
-		} else {
-			prompt = CONTINUATION;
-		}
-		record.title = options.title;
-		record.background = options.background;
-		record.status = "running";
-		record.error = undefined;
-		record.result = undefined;
-		record.completedAt = undefined;
-		record.abortController = new AbortController();
-		if (options.model) record.model = options.model;
-		record.thinking = options.thinking ?? record.thinking;
-		record.resultConsumed = false;
-		this.resumed(record);
-		this.changed();
-		this.persisted(record);
-		if (restartFresh) {
-			record.promise = this.run(record, ctx, prompt, options);
-			if (!options.background) await record.promise;
-			return record;
-		}
-		const callbacks = this.callbacks(record);
-		record.promise = (async () => {
-			const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
-			try {
-				const result = await resumeProc(
-					live,
-					ctx,
-					{
-						id: record.id,
-						title: record.title,
-						cwd: record.cwd,
-						sessionFile: record.sessionFile,
-						prompt,
-						model: options.model,
-						thinking: options.thinking ?? record.thinking,
-						signal: record.abortController.signal,
-					},
-					callbacks,
-				);
-				this.applyResult(record, result);
-				this.settle(record, result.error);
-			} catch (error) {
-				this.settle(record, message(error));
-			} finally {
-				detach();
-				this.finish(record);
-			}
-		})();
-		if (!options.background) await record.promise;
-		return record;
-	}
+	constructor(private readonly hooks: ManagerHooks) {}
 
 	restore(records: AgentRecord[]): void {
 		this.records.clear();
+		this.stopRequests.clear();
+		this.closed = false;
 		for (const record of records) this.records.set(record.id, record);
-		this.changed();
-	}
-
-	get(id: string): AgentRecord | undefined {
-		const needle = id.trim();
-		if (!needle) return undefined;
-		const exact = this.records.get(needle) ?? this.records.get(id);
-		if (exact) return exact;
-		const lower = needle.toLowerCase();
-		const exactCaseInsensitive = [...this.records.values()].find((record) => record.id.toLowerCase() === lower);
-		if (exactCaseInsensitive) return exactCaseInsensitive;
-		const matches = [...this.records.values()].filter(
-			(record) => record.id.startsWith(needle) || record.id.toLowerCase().startsWith(lower),
-		);
-		return matches.length === 1 ? matches[0] : undefined;
-	}
-
-	matches(id: string): AgentRecord[] {
-		const needle = id.trim().toLowerCase();
-		if (!needle) return [];
-		return [...this.records.values()].filter((record) => record.id.toLowerCase().startsWith(needle));
-	}
-
-	describeIds(): string {
-		const records = this.list();
-		if (!records.length) return "none";
-		return records.map((record) => `${record.id} (${record.title}, ${record.status})`).join(", ");
+		this.hooks.changed();
 	}
 
 	list(): AgentRecord[] {
-		return [...this.records.values()].sort((a, b) => b.startedAt - a.startedAt);
+		return [...this.records.values()].sort((a, b) => a.createdAt - b.createdAt);
 	}
 
-	running(): AgentRecord[] {
-		return [...this.records.values()]
-			.filter((record) => record.status === "running")
-			.sort((a, b) => a.startedAt - b.startedAt);
+	find(ref: string): AgentRecord | undefined {
+		const needle = ref.trim().toLowerCase();
+		if (!needle) return undefined;
+		const records = this.list();
+		const byName = records.find((record) => record.name.toLowerCase() === needle);
+		if (byName) return byName;
+		const byId = records.filter((record) => record.id.toLowerCase().startsWith(needle));
+		return byId.length === 1 ? byId[0] : undefined;
 	}
 
-	async steer(id: string, text: string): Promise<boolean> {
-		const record = this.get(id);
-		if (record?.status !== "running") return false;
-		if (!record.proc || record.proc.closed) {
-			record.pendingSteers.push(text);
-			return true;
+	describe(): string {
+		const records = this.list();
+		return records.length ? records.map((record) => `${record.name} (${record.id})`).join(", ") : "none";
+	}
+
+	async launch(ctx: ExtensionContext, input: LaunchInput): Promise<AgentRecord> {
+		const lower = input.name.toLowerCase();
+		if (this.list().some((record) => record.name.toLowerCase() === lower)) {
+			throw new Error(`A subagent named ${input.name} already exists. Use send_message to give it more work.`);
 		}
+		const now = Date.now();
+		const record: AgentRecord = {
+			id: randomUUID(),
+			name: input.name,
+			prompt: input.prompt,
+			cwd: ctx.cwd,
+			thinking: input.thinking,
+			createdAt: now,
+			updatedAt: now,
+			cost: 0,
+			running: false,
+			repliesThisRun: 0,
+			backgroundTasks: [],
+		};
+		this.records.set(record.id, record);
+		let session: AgentSession;
 		try {
-			await record.proc.steer(text);
-			return true;
-		} catch {
-			return false;
+			session = await this.open(ctx, record, input.model, input.thinking);
+		} catch (error) {
+			this.records.delete(record.id);
+			this.hooks.changed();
+			throw error;
 		}
+		this.startRun(record, session, record.prompt);
+		return record;
 	}
 
-	stop(id: string, markConsumed = true): boolean {
-		const record = this.get(id);
-		if (record?.status !== "running") return false;
-		record.status = "stopped";
-		record.completedAt = Date.now();
-		record.abortController.abort();
-		// Tool-initiated stops are acknowledged by the tool result itself, so the
-		// background completion notification must not fire. User-initiated stops
-		// (dashboard, /agents) pass markConsumed=false so the parent still learns
-		// about the stop through the normal completion steering.
-		if (markConsumed) record.resultConsumed = true;
-		void record.proc?.abort().catch(() => undefined);
-		this.changed();
-		this.persisted(record);
+	async send(ctx: ExtensionContext, record: AgentRecord, message: string): Promise<SendOutcome> {
+		const text = parentMessagePrompt(message);
+		if (record.session?.isStreaming) {
+			await record.session.steer(text);
+			return "steered";
+		}
+		const resumed = !record.session;
+		const session = await this.open(ctx, record);
+		this.startRun(record, session, text);
+		return resumed ? "resumed" : "started";
+	}
+
+	stop(record: AgentRecord, by: "parent" | "user"): boolean {
+		const session = record.session;
+		if (!record.running || !session) return false;
+		this.stopRequests.set(record.id, by);
+		record.session = undefined;
+		void closeChildSession(session).finally(() => this.finishEpisode(record, session));
 		return true;
 	}
 
 	async shutdown(): Promise<void> {
-		const records = [...this.records.values()];
-		for (const record of records) {
-			if (record.status !== "running") continue;
-			record.status = "stopped";
-			record.completedAt = Date.now();
-			record.abortController.abort();
-			void record.proc?.abort().catch(() => undefined);
-			this.persisted(record);
-		}
-		await Promise.race([
-			Promise.allSettled(records.map((record) => record.promise).filter(Boolean)),
-			new Promise((resolve) => setTimeout(resolve, 2_000)),
-		]);
-		await Promise.allSettled(records.map((record) => record.proc?.stop().catch(() => undefined)));
-		if (this.renderTimer) clearTimeout(this.renderTimer);
-		this.renderTimer = undefined;
+		const records = this.list();
+		this.closed = true;
+		await Promise.allSettled(
+			records.map(async (record) => {
+				const session = record.session ?? (await record.opening?.catch(() => undefined));
+				if (!session) return;
+				await closeChildSession(session);
+				record.cost = session.getSessionStats().cost;
+				record.lastText = session.getLastAssistantText() ?? record.lastText;
+				record.session = undefined;
+				record.running = false;
+				record.activity = undefined;
+				record.updatedAt = Date.now();
+				this.hooks.persist(record);
+			}),
+		);
 		this.records.clear();
-		this.changed();
+		this.hooks.changed();
 	}
 
-	private async run(record: AgentRecord, ctx: ExtensionContext, prompt: string, options: SpawnOptions): Promise<void> {
-		const detach = onAbort(options.background ? undefined : options.signal, () => record.abortController.abort());
-		try {
-			if (record.abortController.signal.aborted) throw new Error("Subagent cancelled before setup.");
-			const result = await this.startSession(
-				ctx,
-				{
-					id: record.id,
-					title: record.title,
-					prompt,
-					model: options.model,
-					thinking: options.thinking,
-					cwd: record.cwd,
-					parentSignal: record.abortController.signal,
-				},
-				this.callbacks(record),
-			);
-			this.applyResult(record, result);
-			this.settle(record, result.error);
-		} catch (error) {
-			this.settle(record, message(error));
-		} finally {
-			detach();
-			this.finish(record);
-		}
+	private open(
+		ctx: ExtensionContext,
+		record: AgentRecord,
+		model?: Model<Api>,
+		thinking?: ThinkingLevel,
+	): Promise<AgentSession> {
+		if (record.session) return Promise.resolve(record.session);
+		record.opening ??= this.createSession(ctx, record, model, thinking).finally(() => {
+			record.opening = undefined;
+		});
+		return record.opening;
 	}
 
-	private applyResult(record: AgentRecord, result: RunResult): void {
-		record.proc = result.proc;
-		record.messages = result.messages;
-		record.damagedSession = result.damagedSession ? true : undefined;
-		if (result.sessionFile) record.sessionFile = result.sessionFile;
-		if (result.model) record.model = result.model;
-		record.result = result.text;
+	private async createSession(
+		ctx: ExtensionContext,
+		record: AgentRecord,
+		model: Model<Api> | undefined,
+		thinking: ThinkingLevel | undefined,
+	): Promise<AgentSession> {
+		const parentSessionFile = ctx.sessionManager.getSessionFile();
+		const session = await createChildSession({
+			cwd: record.cwd,
+			trusted: ctx.isProjectTrusted(),
+			sessionFile: record.sessionFile,
+			sessionDir: parentSessionFile ? childSessionDir(parentSessionFile) : undefined,
+			parentSessionFile,
+			model,
+			thinking,
+			sendToParent: (message) => {
+				record.repliesThisRun += 1;
+				this.hooks.message(record, message);
+			},
+			onBackgroundTasks: (runningTaskIds) => this.setBackgroundTasks(record, runningTaskIds),
+			onExtensionError: (message) => {
+				record.lastError = message;
+				this.hooks.changed();
+			},
+		});
+		if (!record.sessionFile) session.setSessionName(record.name);
+		record.session = session;
+		record.sessionFile = session.sessionFile;
+		if (session.model) record.model = `${session.model.provider}/${session.model.id}`;
+		record.thinking = session.thinkingLevel;
+		session.subscribe((event) => this.observe(record, session, event));
+		this.touch(record);
+		return session;
 	}
 
-	private settle(record: AgentRecord, error: string | undefined): void {
-		if (record.status === "stopped") return;
-		if (record.abortController.signal.aborted) {
-			record.status = "stopped";
+	private observe(record: AgentRecord, session: AgentSession, event: AgentSessionEvent): void {
+		if (event.type === "agent_start") {
+			this.startEpisode(record);
 			return;
 		}
-		record.status = error ? "error" : "completed";
-		record.error = error;
+		if (event.type === "agent_settled") {
+			if (record.backgroundTasks.length === 0) this.finishEpisode(record, session);
+			else this.setActivity(record, `Waiting for ${record.backgroundTasks.join(", ")}`);
+			return;
+		}
+		if (!record.running) return;
+		if (event.type === "message_end") record.cost = session.getSessionStats().cost;
+		const activity = activityOf(event);
+		if (activity !== undefined) this.setActivity(record, activity);
 	}
 
-	private callbacks(record: AgentRecord): RpcCallbacks {
-		return {
-			onSession: (proc: RpcProcess, info) => {
-				record.proc = proc;
-				if (info.sessionFile) record.sessionFile = info.sessionFile;
-				if (info.model) record.model = info.model;
-				if (info.thinking) record.thinking = info.thinking;
-				if (record.pendingSteers.length) {
-					for (const pending of record.pendingSteers.splice(0)) {
-						void proc.steer(pending).catch(() => undefined);
-					}
-				}
-				this.changed();
-				this.persisted(record);
-			},
-			onMessages: (messages: RpcMessage[]) => {
-				record.messages = messages;
-				this.changed();
-			},
-			onText: (text: string) => {
-				record.result = text;
-				this.scheduleRender();
-			},
-			onTurn: () => {
-				record.turns += 1;
-				this.changed();
-			},
-			onTool: () => {
-				record.toolUses += 1;
-				this.changed();
-			},
-			onReport: (summary: string) => this.reported(record, summary),
-		};
+	private setBackgroundTasks(record: AgentRecord, runningTaskIds: string[]): void {
+		record.backgroundTasks = runningTaskIds;
+		if (record.running && record.session && !record.session.isStreaming && runningTaskIds.length > 0) {
+			this.setActivity(record, `Waiting for ${runningTaskIds.join(", ")}`);
+		}
 	}
 
-	private scheduleRender(): void {
-		if (this.renderTimer) return;
-		this.renderTimer = setTimeout(() => {
-			this.renderTimer = undefined;
-			this.changed();
-		}, 80);
-		this.renderTimer.unref?.();
+	private setActivity(record: AgentRecord, activity: string): void {
+		if (activity === record.activity) return;
+		record.activity = activity;
+		this.hooks.changed();
 	}
 
-	private finish(record: AgentRecord): void {
-		record.completedAt ??= Date.now();
-		if (record.messages.length) {
-			try {
-				const outputFile = outputPath(record);
-				mkdirSync(dirname(outputFile), { recursive: true });
-				writeFileSync(outputFile, JSON.stringify(record.messages, null, 2), { mode: 0o600 });
-			} catch {
-				/* transcript output is best effort */
+	private startEpisode(record: AgentRecord): void {
+		if (record.running) return;
+		record.running = true;
+		record.runStartedAt = Date.now();
+		record.repliesThisRun = 0;
+		record.activity = "Waiting";
+		record.lastError = undefined;
+		this.stopRequests.delete(record.id);
+		this.touch(record);
+	}
+
+	private startRun(record: AgentRecord, session: AgentSession, text: string): void {
+		this.startEpisode(record);
+		session
+			.prompt(text, { expandPromptTemplates: false, source: "extension", streamingBehavior: "steer" })
+			.catch((error: unknown) => this.finishEpisode(record, session, errorText(error)));
+	}
+
+	private finishEpisode(record: AgentRecord, session: AgentSession, thrown?: string): void {
+		const stop = this.stopRequests.get(record.id);
+		this.stopRequests.delete(record.id);
+		if (!record.running || this.closed) return;
+		record.running = false;
+		record.runStartedAt = undefined;
+		record.activity = undefined;
+		record.cost = session.getSessionStats().cost;
+		record.lastText = session.getLastAssistantText() ?? record.lastText;
+		if (stop) {
+			if (stop === "user") this.hooks.notice(record, "cancelled", "Stopped by the user. The session is kept.");
+		} else {
+			const error = thrown ?? finalError(session);
+			if (error) {
+				record.lastError = error;
+				this.hooks.notice(record, "failed", error);
+			} else if (record.repliesThisRun === 0) {
+				this.hooks.notice(record, "no-reply", preview(record.lastText));
 			}
 		}
-		this.changed();
-		this.persisted(record);
-		this.completed(record);
+		this.touch(record);
 	}
-}
 
-function recoveryContext(record: AgentRecord): string {
-	return bounded(compactTranscript(record.messages), 4_000, 60).text;
-}
-
-function outputPath(record: AgentRecord): string {
-	return record.sessionFile
-		? `${record.sessionFile}.output.json`
-		: join(tmpdir(), "pi-subagents", `${record.id}.output.json`);
+	private touch(record: AgentRecord): void {
+		record.updatedAt = Date.now();
+		this.hooks.changed();
+		this.hooks.persist(record);
+	}
 }

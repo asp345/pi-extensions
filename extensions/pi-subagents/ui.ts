@@ -1,52 +1,121 @@
-import type { ExtensionCommandContext, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import type { AgentManager } from "./manager.ts";
-import { compactTranscript } from "./transcript.ts";
-import type { AgentRecord } from "./types.ts";
+import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { preview } from "./delegation.ts";
+import type { SubagentManager } from "./manager.ts";
+import { type AgentRecord, type AgentStatus, agentStatus } from "./types.ts";
 
 export const COMMAND = "agents";
 export const SHORTCUT = "ctrl+shift+s";
 const WIDGET = "pi-subagents";
-const AGENT_ROWS = 10;
-const DETAIL_ROWS = 12;
+const WORKING_ICON_FRAMES = ["◇", "◈", "◆", "◈"] as const;
+const WORKING_ICON_INTERVAL_MS = 250;
+const STATUS_ROW_ICON = "•";
+const SECTIONS: readonly AgentStatus[] = ["running", "idle", "inactive"];
+const SECTION_TITLES: Record<AgentStatus, string> = { running: "Running", idle: "Idle", inactive: "Inactive" };
+const DETAIL_LINES = 6;
 
-function oneLine(value: string): string {
-	return value.replace(/\s+/gu, " ").trim();
+interface Counts {
+	running: number;
+	idle: number;
+	inactive: number;
 }
 
-function shortId(id: string): string {
-	return id.length <= 8 ? id : id.slice(0, 8);
+function countStatuses(records: readonly AgentRecord[]): Counts {
+	const counts: Counts = { running: 0, idle: 0, inactive: 0 };
+	for (const record of records) counts[agentStatus(record)] += 1;
+	return counts;
 }
 
-function pad(text: string, width: number): string {
-	const value = truncateToWidth(text, width);
-	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
+function countsText(counts: Counts, theme: Theme): string {
+	return [
+		theme.fg("success", `● ${counts.running} running`),
+		theme.fg("warning", `◐ ${counts.idle} idle`),
+		theme.fg("dim", `○ ${counts.inactive} inactive`),
+	].join("  ");
+}
+
+function cell(value: string, width: number): string {
+	const truncated = truncateToWidth(value, width, "");
+	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
+}
+
+function cellEnd(value: string, width: number): string {
+	return " ".repeat(Math.max(0, width - visibleWidth(value))) + value;
+}
+
+function age(since: number, now: number): string {
+	const seconds = Math.max(0, Math.floor((now - since) / 1000));
+	if (seconds < 60) return `${seconds}s`;
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h`;
+	return `${Math.floor(hours / 24)}d`;
+}
+
+function modelLabel(record: AgentRecord): string {
+	if (!record.model) return "-";
+	const bare = record.model.slice(record.model.lastIndexOf("/") + 1) || record.model;
+	return record.thinking && record.thinking !== "off" ? `${bare}:${record.thinking}` : bare;
+}
+
+function activityLabel(record: AgentRecord, now: number): string {
+	if (record.running) return `${record.activity ?? "Waiting"} · ${age(record.runStartedAt ?? now, now)}`;
+	if (record.lastError) return `error: ${record.lastError}`;
+	return preview(record.lastText) ?? "";
+}
+
+function rowIcon(status: AgentStatus, theme: Theme, now: number): string {
+	if (status === "running") {
+		return theme.bold(WORKING_ICON_FRAMES[Math.floor(now / WORKING_ICON_INTERVAL_MS) % WORKING_ICON_FRAMES.length]);
+	}
+	return theme.bold(theme.fg(status === "idle" ? "warning" : "dim", STATUS_ROW_ICON));
+}
+
+function highlight(line: string, width: number, theme: Theme): string {
+	const padded = cell(line, width);
+	return padded
+		.split("\x1b[0m")
+		.map((segment) => theme.bg("selectedBg", segment))
+		.join("\x1b[0m");
 }
 
 function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
-	if (width < 5) return lines.map((line) => truncateToWidth(line, width));
-	const innerWidth = width - 2;
-	const contentWidth = Math.max(1, innerWidth - 2);
-	const label = truncateToWidth(` ${title} `, innerWidth);
-	const topFill = "─".repeat(Math.max(0, innerWidth - visibleWidth(label)));
+	const inner = Math.max(1, width - 2);
+	const label = theme.fg("accent", theme.bold(` ${title} `));
+	const fill = "─".repeat(Math.max(0, inner - 1 - visibleWidth(label)));
 	return [
-		`${theme.fg("border", "╭")}${theme.fg("accent", theme.bold(label))}${theme.fg("border", `${topFill}╮`)}`,
-		...lines.map((line) => `${theme.fg("border", "│")} ${pad(line, contentWidth)} ${theme.fg("border", "│")}`),
-		`${theme.fg("border", `╰${"─".repeat(innerWidth)}╯`)}`,
+		truncateToWidth(`${theme.fg("border", "╭─")}${label}${theme.fg("border", `${fill}╮`)}`, width, ""),
+		...lines.map((line) => `${theme.fg("border", "│")}${cell(` ${line}`, inner)}${theme.fg("border", "│")}`),
+		theme.fg("border", `╰${"─".repeat(inner)}╯`),
 	];
 }
 
-function duration(ms: number): string {
-	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+interface Layout {
+	name: number;
+	model: number;
+	activity: number;
+	cost: number;
+	age: number;
 }
 
-function agentLine(record: AgentRecord): string {
-	const elapsed = (record.completedAt ?? Date.now()) - record.startedAt;
-	return `${record.id} · ${record.status} · ${record.turns} turns · ${record.toolUses} tools · ${duration(elapsed)} · ${oneLine(record.title)}`;
+function layout(records: readonly AgentRecord[], width: number, now: number): Layout {
+	const cost = records.reduce((size, record) => Math.max(size, `$${record.cost.toFixed(2)}`.length), 4);
+	const ageWidth = records.reduce((size, record) => Math.max(size, age(record.createdAt, now).length), 3);
+	const available = Math.max(0, width - cost - ageWidth - 4);
+	const desiredModel = records.reduce((size, record) => Math.max(size, visibleWidth(modelLabel(record))), 5);
+	const model = Math.min(desiredModel, 32, Math.max(0, available - 12));
+	const name = Math.min(28, Math.max(0, available - model - 2));
+	const activity = Math.max(0, available - model - name - 4);
+	return { name, model, activity, cost, age: ageWidth };
+}
+
+function tableRow(columns: string[], widths: Layout): string {
+	const [name = "", model = "", activity = "", cost = "", ageText = ""] = columns;
+	const cells = [cell(name, widths.name), cell(model, widths.model)];
+	if (widths.activity > 0) cells.push(cell(activity, widths.activity));
+	cells.push(`${cellEnd(cost, widths.cost)}  ${cellEnd(ageText, widths.age)}`);
+	return cells.join("  ");
 }
 
 interface WidgetTui {
@@ -57,37 +126,33 @@ export class AgentsUI {
 	private context?: ExtensionContext;
 	private widgetTui?: WidgetTui;
 	private mounted = false;
-	private resumeHandler?: (id: string) => Promise<string>;
 
-	constructor(private readonly manager: AgentManager) {}
-
-	setResumeHandler(handler: (id: string) => Promise<string>): void {
-		this.resumeHandler = handler;
-	}
+	constructor(private readonly manager: SubagentManager) {}
 
 	attach(ctx: ExtensionContext): void {
 		this.context = ctx;
-		this.updateWidget();
+		this.update();
 	}
 
-	detach(ctx: ExtensionContext): void {
-		ctx.ui.setWidget(WIDGET, undefined);
+	detach(): void {
+		this.context?.ui.setWidget(WIDGET, undefined);
 		this.context = undefined;
 		this.widgetTui = undefined;
 		this.mounted = false;
 	}
 
-	updateWidget(force = false): void {
+	update(): void {
 		const ctx = this.context;
-		if (!ctx) return;
-		if (!this.manager.running().length) {
+		if (!ctx?.hasUI) return;
+		const counts = countStatuses(this.manager.list());
+		if (counts.running + counts.idle === 0) {
 			if (this.mounted) ctx.ui.setWidget(WIDGET, undefined);
 			this.mounted = false;
 			this.widgetTui = undefined;
 			return;
 		}
 		if (this.mounted) {
-			this.widgetTui?.requestRender(force);
+			this.widgetTui?.requestRender();
 			return;
 		}
 		this.mounted = true;
@@ -97,9 +162,9 @@ export class AgentsUI {
 				this.widgetTui = tui;
 				return {
 					render: (width: number) => {
-						const running = this.manager.running();
-						const line = `${theme.fg("accent", theme.bold("Subagents"))} ${theme.fg("muted", `${running.length} running`)} ${theme.fg("dim", `· ${SHORTCUT} dashboard`)}`;
-						return [truncateToWidth(line, width, theme.fg("dim", "..."))];
+						const current = countStatuses(this.manager.list());
+						const line = `${theme.fg("accent", "subagents")}  ${countsText(current, theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`;
+						return [truncateToWidth(line, width, "…")];
 					},
 					invalidate() {},
 					dispose: () => {
@@ -111,181 +176,88 @@ export class AgentsUI {
 		);
 	}
 
-	listText(): string {
-		const records = this.manager.list();
-		if (!records.length) return "No subagents.";
-		return records.map(agentLine).join("\n");
-	}
-
-	async open(ctx: ExtensionCommandContext | ExtensionContext, initialId?: string): Promise<void> {
-		if (!ctx.hasUI) {
-			ctx.ui.notify(this.listText(), "info");
-			return;
-		}
-		await ctx.ui.custom(
+	async open(ctx: ExtensionContext): Promise<void> {
+		await ctx.ui.custom<undefined>(
 			(tui, theme, _keys, done) => {
-				let selectedId = initialId?.trim() ?? this.manager.running()[0]?.id ?? this.manager.list()[0]?.id;
-				let agentScroll = 0;
-				let detailScroll = 0;
-				let showFinished = false;
+				let selectedId: string | undefined;
+				const ticker = setInterval(() => {
+					if (this.manager.list().some((record) => record.running)) tui.requestRender();
+				}, WORKING_ICON_INTERVAL_MS);
+				ticker.unref?.();
 
-				const visible = (): AgentRecord[] => {
+				const ordered = (): AgentRecord[] => {
 					const records = this.manager.list();
-					return showFinished ? records : records.filter((item) => item.status === "running");
+					return SECTIONS.flatMap((status) => records.filter((record) => agentStatus(record) === status));
 				};
-				const fingerprint = (): string =>
-					this.manager
-						.list()
-						.map((item) => `${item.id}:${item.status}:${item.turns}:${item.toolUses}:${item.result?.length ?? 0}`)
-						.join("|");
-				let lastFingerprint = fingerprint();
-				const timer: ReturnType<typeof setInterval> = setInterval(() => {
-					const current = fingerprint();
-					if (current === lastFingerprint) return;
-					lastFingerprint = current;
-					tui.requestRender();
-				}, 1000);
-				timer.unref?.();
-
 				const selected = (): AgentRecord | undefined => {
-					const records = visible();
+					const records = ordered();
 					const record = records.find((item) => item.id === selectedId) ?? records[0];
 					selectedId = record?.id;
 					return record;
 				};
-				const detailLines = (record: AgentRecord | undefined): string[] => {
-					if (!record) return ["(no subagents)"];
-					const transcript = record.messages.length ? compactTranscript(record.messages) : "";
-					const answer = (record.result || record.error || "").trim();
-					const lines = [
-						`ID: ${record.id}`,
-						`Title: ${record.title}`,
-						`Status: ${record.status}`,
-						`Turns: ${record.turns} · Tools: ${record.toolUses}`,
-						`Model: ${record.model ?? "parent"}`,
-						`Duration: ${duration((record.completedAt ?? Date.now()) - record.startedAt)}`,
-					];
-					if (answer) lines.push("", "Answer:", ...answer.split(/\r?\n/).slice(0, 6));
-					if (transcript) lines.push("", "Transcript:", ...transcript.split(/\r?\n/).slice(0, 6));
-					return lines.length ? lines : ["(no details)"];
-				};
 				const move = (delta: number): void => {
-					const records = visible();
-					if (!records.length) return;
-					const current = Math.max(
-						0,
-						records.findIndex((item) => item.id === selectedId),
-					);
-					const next = Math.max(0, Math.min(records.length - 1, current + delta));
-					selectedId = records[next]?.id;
-					detailScroll = 0;
-					agentScroll = Math.max(
-						0,
-						Math.min(
-							Math.max(0, records.length - AGENT_ROWS),
-							next < agentScroll ? next : next >= agentScroll + AGENT_ROWS ? next - AGENT_ROWS + 1 : agentScroll,
-						),
-					);
+					const records = ordered();
+					const index = records.findIndex((item) => item.id === selected()?.id);
+					selectedId = records[Math.max(0, Math.min(records.length - 1, index + delta))]?.id;
 					tui.requestRender();
 				};
 
 				return {
-					dispose: () => {
-						clearInterval(timer);
-					},
+					dispose: () => clearInterval(ticker),
 					invalidate() {},
 					handleInput: (data: string) => {
 						if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || data === "q") return done(undefined);
-						if (data === "a") {
-							showFinished = !showFinished;
-							detailScroll = 0;
-							return tui.requestRender();
-						}
 						if (matchesKey(data, "up") || data === "k") return move(-1);
 						if (matchesKey(data, "down") || data === "j") return move(1);
-						if (matchesKey(data, "shift+up")) return move(-AGENT_ROWS);
-						if (matchesKey(data, "shift+down")) return move(AGENT_ROWS);
-						if (data === "s" || data === "x") {
-							if (selectedId) this.manager.stop(selectedId, false);
-							return tui.requestRender();
-						}
-						if (data === "r") {
-							const id = selectedId;
-							if (id && this.resumeHandler) {
-								void this.resumeHandler(id)
-									.then((message) => ctx.ui.notify(message, "info"))
-									.catch((error) => ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"))
-									.finally(() => tui.requestRender());
-							}
-							return tui.requestRender();
-						}
-						if (data === "J") {
-							detailScroll = Math.max(0, detailScroll + 1);
-							return tui.requestRender();
-						}
-						if (data === "K") {
-							detailScroll = Math.max(0, detailScroll - 1);
-							return tui.requestRender();
+						if (data === "s") {
+							const record = selected();
+							if (record) this.manager.stop(record, "user");
+							tui.requestRender();
 						}
 					},
 					render: (width: number) => {
-						const records = visible();
-						const total = this.manager.list().length;
-						const record = selected();
-						const running = this.manager.running().length;
-						const finished = total - running;
-						const result = [
-							theme.fg(
-								"muted",
-								showFinished
-									? `${running} running · ${finished} finished`
-									: finished > 0
-										? `${running} running · ${finished} finished (hidden)`
-										: `${running} running`,
-							),
-							theme.fg("dim", "[↑↓] move · [s] stop · [r] resume · [a] finished · [q] close"),
-							"",
-						];
+						const inner = Math.max(1, width - 3);
+						const now = Date.now();
+						const records = ordered();
+						const current = selected();
+						const lines = [countsText(countStatuses(records), theme), ""];
 						if (!records.length) {
-							result.push(
-								theme.fg(
-									"dim",
-									finished > 0 && !showFinished
-										? "No running subagents. Press a to show finished."
-										: "No subagents yet. Use launch_subagent.",
-								),
-							);
-							return frame(result, width, theme, "Subagents");
+							lines.push(theme.fg("dim", "No subagents yet."));
+						} else {
+							const widths = layout(records, inner, now);
+							lines.push(theme.bold(tableRow(["Session", "Model", "Activity", "Cost", "Age"], widths)));
+							for (const status of SECTIONS) {
+								const group = records.filter((record) => agentStatus(record) === status);
+								if (!group.length) continue;
+								lines.push("", theme.fg("muted", `${SECTION_TITLES[status]} (${group.length})`));
+								for (const record of group) {
+									const row = tableRow(
+										[
+											`${rowIcon(status, theme, now)} ${record.name}`,
+											theme.fg("muted", modelLabel(record)),
+											theme.fg("dim", activityLabel(record, now)),
+											theme.fg("dim", `$${record.cost.toFixed(2)}`),
+											theme.fg("dim", age(record.createdAt, now)),
+										],
+										widths,
+									);
+									lines.push(record.id === current?.id ? highlight(row, inner, theme) : row);
+								}
+							}
 						}
-						const contentWidth = Math.max(1, width - 4);
-						const leftWidth = Math.max(30, Math.min(42, Math.floor(contentWidth * 0.34)));
-						const rightWidth = Math.max(24, contentWidth - leftWidth - 3);
-						const left = [theme.fg("accent", theme.bold(`Agents (${records.length})`)), ""];
-						for (const item of records.slice(agentScroll, agentScroll + AGENT_ROWS)) {
-							left.push(
-								`${item.id === record?.id ? theme.fg("accent", "→") : "·"} ${shortId(item.id)} ${theme.fg("dim", item.status)}`,
-							);
-							left.push(`  ${oneLine(item.title)}`);
+						if (current) {
+							lines.push("", theme.fg("muted", `${current.name} · ${current.id}`));
+							const detail = current.lastError ? `error: ${current.lastError}` : (current.lastText ?? "");
+							const wrapped = detail ? wrapTextWithAnsi(detail.trim(), inner) : [];
+							for (const line of wrapped.slice(0, DETAIL_LINES)) lines.push(theme.fg("dim", line));
+							if (current.sessionFile) lines.push(theme.fg("dim", truncateToWidth(current.sessionFile, inner, "…")));
 						}
-						const details = detailLines(record).slice(detailScroll, detailScroll + DETAIL_ROWS);
-						const right = [
-							theme.fg("accent", theme.bold(`Detail ${record ? shortId(record.id) : ""}`)),
-							"",
-							...details,
-						];
-						for (let row = 0; row < Math.max(left.length, right.length); row++) {
-							result.push(
-								`${pad(left[row] ?? "", leftWidth)}${theme.fg("dim", " │ ")}${truncateToWidth(right[row] ?? "", rightWidth)}`,
-							);
-						}
-						return frame(result, width, theme, "Subagents");
+						lines.push("", theme.fg("dim", "↑/↓ navigate   s stop   q close"));
+						return frame(lines, width, theme, "Subagents");
 					},
 				};
 			},
-			{
-				overlay: true,
-				overlayOptions: { anchor: "bottom-center", width: 96, maxHeight: "80%", margin: { bottom: 4 } },
-			},
+			{ overlay: true, overlayOptions: { anchor: "center", width: "90%", maxHeight: "80%" } },
 		);
 	}
 }

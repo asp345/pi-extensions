@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,13 +79,19 @@ function snapshot(task: ManagedTask): TaskSnapshot {
 
 export class BackgroundRuntime {
 	private readonly tasks = new Map<string, ManagedTask>();
-	private counter = 0;
 	private shuttingDown = false;
 	constructor(
 		private readonly emit: (event: TaskEvent) => void,
 		private readonly update: () => void,
 		private readonly stateChanged: (runningTaskIds: readonly string[]) => void,
 	) {}
+
+	private newId(): string {
+		let id: string;
+		do id = `bg-${randomBytes(3).toString("hex")}`;
+		while (this.tasks.has(id));
+		return id;
+	}
 
 	activate(): void {
 		this.shuttingDown = false;
@@ -123,7 +130,7 @@ export class BackgroundRuntime {
 		const timeoutMs = resolveTimeoutMs(options.timeout);
 		const reason = sleepBlockReason(command) ?? processPollBlockReason(command);
 		if (reason !== null) throw new Error(reason);
-		const id = `bg-${++this.counter}`;
+		const id = this.newId();
 		const now = Date.now();
 		const logFile = join(tmpdir(), `pi-bg-${id}-${now}.log`);
 		const { shell, args } = getShellConfig();
