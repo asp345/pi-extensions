@@ -1,14 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ExtensionContext, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
-import type { CompactionConfig } from "./config.ts";
-import { withoutDeletedHeaders } from "./headers.ts";
 import {
-	buildCodexHeaders,
+	buildSessionContext,
+	convertToLlm,
+	type ExtensionAPI,
+	type SessionEntry,
+	type ToolInfo,
+} from "@earendil-works/pi-coding-agent";
+import type { CompactionConfig } from "./config.ts";
+import {
 	buildCompactionRequestBody,
 	buildReplacementHistory,
-	buildToolPayload,
-	callRemoteCompaction,
 	effectiveInputForBranch,
 	findNativeCheckpoint,
 	isJsonObject,
@@ -18,16 +20,10 @@ import {
 	modelKey,
 	NATIVE_COMPACTION_KIND,
 	NATIVE_COMPACTION_VERSION,
-	type NativeCompactionDetails,
 	type ResponseItem,
-	resolveCodexResponsesUrl,
-	stripInputFromPayload,
+	readCodexCompactionResponse,
 } from "./native-compaction.ts";
-
-type CachedPayloadShape = {
-	modelKey: string;
-	payload: JsonObject;
-};
+import { requestThroughProvider, sessionReasoning } from "./provider-request.ts";
 
 function localMarker(): string {
 	return `OpenAI Codex native compaction checkpoint (${randomUUID()}).`;
@@ -37,8 +33,11 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function effectiveBaseUrl(model: Model<Api>): string | undefined {
-	return model.baseUrl;
+function withInput(payload: JsonObject, input: ResponseItem[]): JsonObject {
+	const next: JsonObject = { ...payload, input };
+	delete next.messages;
+	delete next.previous_response_id;
+	return next;
 }
 
 function setFeatureHeader(headers: Record<string, string | null>): void {
@@ -51,67 +50,15 @@ function setFeatureHeader(headers: Record<string, string | null>): void {
 }
 
 export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
-	const payloadShapeBySession = new Map<string, CachedPayloadShape>();
 	const nativeCompactionConfigured = () => getConfig().nativeCodex;
 	const activeTools = (): ToolInfo[] => {
 		const names = new Set(pi.getActiveTools());
 		return pi.getAllTools().filter((tool) => names.has(tool.name));
 	};
-
-	const createNativeCheckpoint = async (params: {
-		ctx: ExtensionContext;
-		model: Model<Api>;
-		input: ResponseItem[];
-		basePayload?: JsonObject;
-		signal?: AbortSignal;
-	}): Promise<{
-		details: NativeCompactionDetails;
-		usage?: Awaited<ReturnType<typeof callRemoteCompaction>>["usage"];
-	}> => {
-		const auth = await params.ctx.modelRegistry.getApiKeyAndHeaders(params.model);
-		if (!auth.ok || !auth.apiKey) {
-			throw new Error(auth.ok ? "OpenAI Codex authentication is unavailable." : auth.error);
-		}
-		const sessionId = params.ctx.sessionManager.getSessionId();
-		const body = buildCompactionRequestBody({
-			basePayload: params.basePayload,
-			model: params.model,
-			input: params.input,
-			instructions: params.ctx.getSystemPrompt(),
-			tools: buildToolPayload(params.model, pi.getAllTools(), pi.getActiveTools()),
-			sessionId,
-		});
-		const remote = await callRemoteCompaction({
-			url: resolveCodexResponsesUrl(effectiveBaseUrl(params.model)),
-			headers: buildCodexHeaders({
-				apiKey: auth.apiKey,
-				headers: withoutDeletedHeaders(auth.headers),
-				sessionId,
-			}),
-			body,
-			model: params.model,
-			signal: params.signal,
-		});
-		return {
-			details: {
-				kind: NATIVE_COMPACTION_KIND,
-				version: NATIVE_COMPACTION_VERSION,
-				modelKey: modelKey(params.model),
-				replacementHistory: buildReplacementHistory(params.input, remote.compactionItem),
-			},
-			usage: remote.usage,
-		};
+	const checkpointInput = (branch: SessionEntry[], model: Model<Api>): ResponseItem[] | undefined => {
+		if (findNativeCheckpoint(branch).status === "none") return undefined;
+		return effectiveInputForBranch({ branch, model, tools: activeTools() });
 	};
-
-	pi.on("session_start", () => {
-		payloadShapeBySession.clear();
-	});
-	pi.on("session_shutdown", () => {
-		payloadShapeBySession.clear();
-	});
-	pi.on("model_select", (_event, ctx) => {
-		payloadShapeBySession.delete(ctx.sessionManager.getSessionId());
-	});
 
 	pi.on("context", (event, ctx) => {
 		const checkpoint = findNativeCheckpoint(ctx.sessionManager.getBranch() as SessionEntry[]);
@@ -131,31 +78,15 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 	pi.on("before_provider_request", async (event, ctx) => {
 		const model = ctx.model;
 		if (!isOpenAICodexModel(model) || !isJsonObject(event.payload)) return undefined;
-
-		const branch = ctx.sessionManager.getBranch() as SessionEntry[];
-		const checkpoint = findNativeCheckpoint(branch);
-		if (checkpoint.status === "none" && !nativeCompactionConfigured()) return undefined;
-
-		const sessionId = ctx.sessionManager.getSessionId();
-		const basePayload = stripInputFromPayload(event.payload);
-		payloadShapeBySession.set(sessionId, { modelKey: modelKey(model), payload: basePayload });
-
 		try {
-			if (checkpoint.status === "none") return undefined;
-			const input = effectiveInputForBranch({ branch, model, tools: activeTools() });
-			const payload: JsonObject = { ...event.payload, input };
-			delete payload.messages;
-			delete payload.previous_response_id;
-			return payload;
+			const input = checkpointInput(ctx.sessionManager.getBranch() as SessionEntry[], model);
+			return input ? withInput(event.payload, input) : undefined;
 		} catch (error) {
 			ctx.abort();
 			if (ctx.hasUI) {
 				ctx.ui.notify(`OpenAI Codex request blocked: ${errorMessage(error)}`, "error");
 			}
-			const payload: JsonObject = { ...event.payload, input: [] };
-			delete payload.messages;
-			delete payload.previous_response_id;
-			return payload;
+			return withInput(event.payload, []);
 		}
 	});
 
@@ -168,19 +99,21 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 		if (checkpoint.status === "none" && !nativeCompactionConfigured()) return undefined;
 
 		try {
-			const sessionId = ctx.sessionManager.getSessionId();
-			const input = effectiveInputForBranch({
-				branch,
-				model,
-				tools: activeTools(),
-			});
-			const cached = payloadShapeBySession.get(sessionId);
-			const native = await createNativeCheckpoint({
+			let input: ResponseItem[] = [];
+			const remote = await requestThroughProvider({
 				ctx,
 				model,
-				input,
-				basePayload: cached?.modelKey === modelKey(model) ? cached.payload : undefined,
+				context: { messages: convertToLlm(buildSessionContext(branch).messages) },
 				signal: event.signal,
+				reasoning: sessionReasoning(model, ctx.thinkingLevel),
+				transport: "sse",
+				headers: { "x-codex-beta-features": mergeFeatureHeader(undefined) },
+				editPayload: (payload) => {
+					input =
+						checkpointInput(branch, model) ?? (Array.isArray(payload.input) ? payload.input.filter(isJsonObject) : []);
+					return buildCompactionRequestBody(payload, input);
+				},
+				readResponse: readCodexCompactionResponse(model),
 			});
 
 			return {
@@ -188,8 +121,13 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 					summary: localMarker(),
 					firstKeptEntryId: event.preparation.firstKeptEntryId,
 					tokensBefore: event.preparation.tokensBefore,
-					usage: native.usage,
-					details: native.details,
+					usage: remote.usage,
+					details: {
+						kind: NATIVE_COMPACTION_KIND,
+						version: NATIVE_COMPACTION_VERSION,
+						modelKey: modelKey(model),
+						replacementHistory: buildReplacementHistory(input, remote.compactionItem),
+					},
 				},
 			};
 		} catch (error) {

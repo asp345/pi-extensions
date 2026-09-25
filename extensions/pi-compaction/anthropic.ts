@@ -1,35 +1,14 @@
-import { randomUUID } from "node:crypto";
-import {
-	buildBillingPlaceholder,
-	CLAUDE_CODE_LEGACY_IDENTITY,
-	CLAUDE_CODE_USER_AGENT,
-	firstUserText,
-	wrapFetchForCch,
-} from "@asp345/pi-anthropic-oauth";
-import {
-	type Api,
-	calculateCost,
-	type ImageContent,
-	type Message,
-	type Model,
-	type TextContent,
-	type ThinkingContent,
-	type Usage,
-	type UserMessage,
-} from "@earendil-works/pi-ai";
+import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { modelKey } from "./checkpoint.ts";
-import { isJsonObject, type JsonObject } from "./protocol.ts";
+import { isJsonObject } from "./protocol.ts";
 
 export const ANTHROPIC_NATIVE_COMPACTION_KIND = "anthropic-native-compaction";
 export const ANTHROPIC_NATIVE_COMPACTION_VERSION = 1;
 export const COMPACT_ON_DEMAND_BETA = "compact-2026-09-04";
-export const ANTHROPIC_OAUTH_BETA = "claude-code-20250219,oauth-2025-04-20";
 
-const SUMMARY_MAX_TOKENS = 8192;
+export const SUMMARY_MAX_TOKENS = 8192;
 const MODELS_API_TIMEOUT_MS = 15000;
-const SUMMARY_TIMEOUT_MS = 300000;
-const MAX_SUMMARY_ATTEMPTS = 3;
 
 export const COMMAND_INSTRUCTIONS = `In the \`## Critical Context\` section, preserve a \`Build & Run Commands\` subsection. Record the exact setup, install, build, test, run, and lint commands from successful bash tool calls verbatim. Preserve the working directory, required environment variables, prerequisites, and success criteria for each command. If a category has no applicable command, explicitly write \`none\`. If a command or any of its details has not been verified, explicitly write \`unknown\` instead of guessing. Do not invent, normalize, shorten, or replace commands with equivalent commands. Preserve existing command entries across later compactions unless a newer successful command supersedes one. Also write a \`Mistakes\` subsection to record previous mistakes.`;
 
@@ -190,10 +169,6 @@ export function findAnthropicCheckpoint(branch: SessionEntry[]): CheckpointLooku
 
 const compactionSupportByModel = new Map<string, boolean>();
 
-export function clearAnthropicCompactionCaches(): void {
-	compactionSupportByModel.clear();
-}
-
 const FALLBACK_COMPACTION_MODEL_PATTERN = /^claude-(fable|mythos|opus|sonnet)/i;
 
 function resolveAnthropicUrl(baseUrl: string | undefined, path: string): string {
@@ -256,130 +231,6 @@ export async function modelSupportsOnDemandCompaction(
 	return supported;
 }
 
-type WireBlock = { type: string; [key: string]: unknown };
-export type WireMessage = { role: "user" | "assistant" | "system"; content: string | WireBlock[] };
-
-export type ConvertMessagesResult = { ok: true; messages: WireMessage[] } | { ok: false; reason: string };
-
-function normalizeToolCallId(id: string): string {
-	return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
-}
-
-const ANTHROPIC_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-
-function convertImageBlock(block: ImageContent): WireBlock | undefined {
-	if (!ANTHROPIC_IMAGE_MIME_TYPES.has(block.mimeType)) return undefined;
-	return { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } };
-}
-
-function convertUserContent(content: UserMessage["content"]): string | WireBlock[] | null | undefined {
-	if (typeof content === "string") return content.trim().length > 0 ? content : null;
-	const blocks: WireBlock[] = [];
-	for (const block of content) {
-		if (block.type === "text") {
-			if (block.text.trim().length === 0) continue;
-			blocks.push({ type: "text", text: block.text });
-		} else if (block.type === "image") {
-			const converted = convertImageBlock(block);
-			if (!converted) return undefined;
-			blocks.push(converted);
-		} else {
-			return undefined;
-		}
-	}
-	return blocks.length > 0 ? blocks : null;
-}
-
-function convertThinkingBlock(block: ThinkingContent): WireBlock | null | undefined {
-	if (block.redacted) {
-		if (typeof block.thinkingSignature !== "string") return undefined;
-		return { type: "redacted_thinking", data: block.thinkingSignature };
-	}
-	const signature = block.thinkingSignature;
-	const hasSignature = typeof signature === "string" && signature.trim().length > 0;
-	if (block.thinking.trim().length === 0 && !hasSignature) return null;
-	if (!hasSignature) return { type: "text", text: block.thinking };
-	return { type: "thinking", thinking: block.thinking, signature };
-}
-
-function convertToolResultBlocks(message: { content: (TextContent | ImageContent)[] }): WireBlock[] | undefined {
-	const blocks: WireBlock[] = [];
-	for (const block of message.content) {
-		if (block.type === "text") {
-			blocks.push({ type: "text", text: block.text });
-		} else if (block.type === "image") {
-			const converted = convertImageBlock(block);
-			if (!converted) return undefined;
-			blocks.push(converted);
-		} else {
-			return undefined;
-		}
-	}
-	return blocks;
-}
-
-export function convertToAnthropicMessages(messages: Message[]): ConvertMessagesResult {
-	const out: WireMessage[] = [];
-	let pendingToolResults: WireBlock[] = [];
-	const flushToolResults = () => {
-		if (pendingToolResults.length > 0) {
-			out.push({ role: "user", content: pendingToolResults });
-			pendingToolResults = [];
-		}
-	};
-	for (const message of messages) {
-		if (message.role === "toolResult") {
-			const blocks = convertToolResultBlocks(message);
-			if (!blocks) return { ok: false, reason: "unsupported tool result content" };
-			pendingToolResults.push({
-				type: "tool_result",
-				tool_use_id: normalizeToolCallId(message.toolCallId),
-				content: blocks,
-				is_error: message.isError === true,
-			});
-			continue;
-		}
-		flushToolResults();
-		if (message.role === "user") {
-			const content = convertUserContent(message.content);
-			if (content === undefined) return { ok: false, reason: "unsupported user content" };
-			if (content === null) continue;
-			out.push({ role: "user", content });
-		} else if (message.role === "assistant") {
-			const blocks: WireBlock[] = [];
-			for (const block of message.content) {
-				if (block.type === "text") {
-					if (block.text.trim().length === 0) continue;
-					blocks.push({ type: "text", text: block.text });
-				} else if (block.type === "thinking") {
-					const converted = convertThinkingBlock(block);
-					if (converted === undefined) return { ok: false, reason: "unsupported thinking block" };
-					if (converted !== null) blocks.push(converted);
-				} else if (block.type === "toolCall") {
-					blocks.push({
-						type: "tool_use",
-						id: normalizeToolCallId(block.id),
-						name: block.name,
-						input: block.arguments ?? {},
-					});
-				} else {
-					return { ok: false, reason: "unsupported assistant content" };
-				}
-			}
-			if (blocks.length === 0) continue;
-			out.push({ role: "assistant", content: blocks });
-		} else if (message.role === "system") {
-			return { ok: false, reason: "mid-conversation system message" };
-		} else {
-			return { ok: false, reason: "unsupported message role" };
-		}
-	}
-	flushToolResults();
-	return { ok: true, messages: out };
-}
-
-export type WireTool = { name: string; description: string; input_schema: Record<string, unknown> };
-
 export function canonicalSystemText(system: unknown): string {
 	if (typeof system === "string") return system;
 	if (!Array.isArray(system)) return "";
@@ -416,83 +267,10 @@ export function hashStrippedTools(tools: unknown): string {
 	return canonicalJson(list);
 }
 
-function stripCacheControl(blocks: unknown[]): void {
-	for (let index = 0; index < blocks.length; index++) {
-		const block = blocks[index];
-		if (isJsonObject(block) && block.cache_control !== undefined) {
-			const copy = { ...block };
-			delete copy.cache_control;
-			blocks[index] = copy;
-		}
-	}
-}
-
-function markEphemeral(blocks: unknown[], skipDeferredTools = false): void {
-	for (let index = blocks.length - 1; index >= 0; index--) {
-		const block = blocks[index];
-		if (!isJsonObject(block)) continue;
-		if (skipDeferredTools && block.defer_loading === true) continue;
-		blocks[index] = { ...block, cache_control: { type: "ephemeral" } };
-		return;
-	}
-}
-
-class SummaryRequestError extends Error {
-	constructor(
-		message: string,
-		readonly retryable: boolean,
-		readonly status?: number,
-	) {
-		super(message);
-	}
-}
-
-function isRetryableStatus(status: number): boolean {
-	return status === 408 || status === 409 || status === 429 || status === 529 || status >= 500;
-}
-
-async function delay(ms: number, signal?: AbortSignal): Promise<void> {
-	if (ms <= 0) return;
-	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => {
-			cleanup();
-			resolve();
-		}, ms);
-		const onAbort = () => {
-			clearTimeout(timer);
-			cleanup();
-			reject(signal?.reason instanceof Error ? signal.reason : new Error("Compaction aborted"));
-		};
-		const cleanup = () => signal?.removeEventListener("abort", onAbort);
-		signal?.addEventListener("abort", onAbort, { once: true });
-	});
-}
-
-export type SummaryRequest = {
-	model: Model<Api>;
-	apiKey: string;
-	callerHeaders: Record<string, string>;
-	oauth: boolean;
-	systemBlocks: unknown[];
-	tools: unknown[];
-	messages: WireMessage[];
-	instructions: string;
-	signal?: AbortSignal;
-};
-
 export type SummaryResult = {
 	block: AnthropicCompactionBlock;
 	usage?: Usage;
 };
-
-function blockFromResponse(json: unknown): AnthropicCompactionBlock | undefined {
-	if (!isJsonObject(json) || json.stop_reason !== "compaction") return undefined;
-	if (!Array.isArray(json.content) || json.content.length !== 1) return undefined;
-	const block = json.content[0];
-	if (!isJsonObject(block) || block.type !== "compaction") return undefined;
-	if (typeof block.content !== "string" || typeof block.signature !== "string") return undefined;
-	return { type: "compaction", content: block.content, signature: block.signature };
-}
 
 function usageFromIterations(model: Model<Api>, json: unknown): Usage | undefined {
 	if (!isJsonObject(json) || !isJsonObject(json.usage)) return undefined;
@@ -516,144 +294,47 @@ function usageFromIterations(model: Model<Api>, json: unknown): Usage | undefine
 	return usage;
 }
 
-const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
-
-const CC_TOOL_NAMES = [
-	"Read",
-	"Write",
-	"Edit",
-	"Bash",
-	"Grep",
-	"Glob",
-	"AskUserQuestion",
-	"EnterPlanMode",
-	"ExitPlanMode",
-	"KillShell",
-	"NotebookEdit",
-	"Skill",
-	"Task",
-	"TaskOutput",
-	"TodoWrite",
-	"WebFetch",
-	"WebSearch",
-];
-const CC_TOOL_LOOKUP = new Map(CC_TOOL_NAMES.map((name) => [name.toLowerCase(), name]));
-
-const DEFERRED_TOOL_PLACEHOLDER = {
-	name: "__pi_deferred_placeholder__",
-	description: "Reserved placeholder. Never available. Never call this.",
-	input_schema: { type: "object", properties: {}, required: [] },
-	defer_loading: true,
-};
-
-function toClaudeCodeToolName(name: unknown): unknown {
-	if (typeof name !== "string") return name;
-	return CC_TOOL_LOOKUP.get(name.toLowerCase()) ?? name;
+function sseEvents(text: string): unknown[] {
+	const events: unknown[] = [];
+	for (const block of text.replace(/\r\n/g, "\n").split("\n\n")) {
+		const data = block
+			.split("\n")
+			.filter((line) => line.startsWith("data:"))
+			.map((line) => line.slice(5).trimStart())
+			.join("\n")
+			.trim();
+		if (data) events.push(JSON.parse(data));
+	}
+	return events;
 }
 
-function toWireToolsForOAuth(tools: unknown[]): unknown[] {
-	const mapped = tools.map((tool) => {
-		if (!isJsonObject(tool)) return tool;
-		return { ...tool, name: toClaudeCodeToolName(tool.name) };
-	});
-	if (mapped.length > 0 && !mapped.some((tool) => isJsonObject(tool) && tool.name === DEFERRED_TOOL_PLACEHOLDER.name)) {
-		mapped.push({ ...DEFERRED_TOOL_PLACEHOLDER });
-	}
-	return mapped;
-}
-
-export async function requestOnDemandSummary(params: SummaryRequest): Promise<SummaryResult> {
-	const promptId = randomUUID();
-	const billing = params.oauth ? buildBillingPlaceholder(promptId, firstUserText(params.messages)) : undefined;
-	const system = [...(billing ? [{ type: "text", text: billing }] : []), ...params.systemBlocks];
-	if (params.oauth && billing) {
-		const identityIndex = system.findIndex(
-			(block) => isJsonObject(block) && block.type === "text" && block.text === CLAUDE_CODE_IDENTITY,
-		);
-		const legacy = system[1];
-		if (
-			identityIndex < 0 &&
-			isJsonObject(legacy) &&
-			legacy.type === "text" &&
-			legacy.text === CLAUDE_CODE_LEGACY_IDENTITY
-		) {
-			system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
-		} else if (identityIndex < 0) {
-			system.splice(1, 0, { type: "text", text: CLAUDE_CODE_IDENTITY });
+export function readCompactionResponse(model: Model<Api>): (response: Response) => Promise<SummaryResult> {
+	return async (response) => {
+		let block: AnthropicCompactionBlock | undefined;
+		let stopReason = "unknown";
+		let usage: unknown;
+		for (const event of sseEvents(await response.text())) {
+			if (!isJsonObject(event)) continue;
+			if (event.type === "error") {
+				const error = isJsonObject(event.error) ? event.error.message : undefined;
+				throw new Error(`Anthropic compaction failed: ${typeof error === "string" ? error : "stream error"}`);
+			}
+			const content = event.content_block;
+			if (event.type === "content_block_start" && isJsonObject(content) && content.type === "compaction") {
+				if (typeof content.content !== "string" || typeof content.signature !== "string") {
+					throw new Error("Anthropic compaction returned a block without content or signature.");
+				}
+				block = { type: "compaction", content: content.content, signature: content.signature };
+			}
+			if (event.type === "message_delta") {
+				if (isJsonObject(event.delta) && typeof event.delta.stop_reason === "string")
+					stopReason = event.delta.stop_reason;
+				usage = event.usage;
+			}
 		}
-	}
-	const tools = params.oauth ? toWireToolsForOAuth([...params.tools]) : [...params.tools];
-	const messages = params.messages.map((message) =>
-		Array.isArray(message.content)
-			? { ...message, content: message.content.map((block) => ({ ...block })) }
-			: { ...message },
-	);
-	stripCacheControl(system);
-	stripCacheControl(tools);
-	markEphemeral(system);
-	markEphemeral(tools, true);
-	const lastMessage = messages.at(-1);
-	if (lastMessage && Array.isArray(lastMessage.content)) markEphemeral(lastMessage.content);
-	const body: JsonObject = {
-		model: params.model.id,
-		max_tokens: SUMMARY_MAX_TOKENS,
-		stream: false,
-		system,
-		...(tools.length > 0 ? { tools } : {}),
-		messages,
-		compaction: { type: "summarize", instructions: params.instructions },
-	};
-	const headers: Record<string, string> = {
-		accept: "application/json",
-		"content-type": "application/json",
-		"anthropic-version": "2023-06-01",
-		"anthropic-beta": `${ANTHROPIC_OAUTH_BETA},${COMPACT_ON_DEMAND_BETA}`,
-		authorization: `Bearer ${params.apiKey}`,
-		"x-client-request-id": randomUUID(),
-		...params.callerHeaders,
-	};
-	if (params.oauth) {
-		headers["user-agent"] = CLAUDE_CODE_USER_AGENT;
-		headers["x-app"] = "cli";
-	}
-	const url = resolveAnthropicUrl(params.model.baseUrl, "/v1/messages");
-	const doFetch = params.oauth ? wrapFetchForCch(fetch) : fetch;
-	const timeout = AbortSignal.timeout(SUMMARY_TIMEOUT_MS);
-	const signal = params.signal ? AbortSignal.any([params.signal, timeout]) : timeout;
-	let lastError = "Anthropic compaction failed.";
-	for (let attempt = 0; attempt < MAX_SUMMARY_ATTEMPTS; attempt++) {
-		try {
-			const response = await doFetch(url, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-				signal,
-			});
-			if (!response.ok) {
-				const text = await response.text().catch(() => "");
-				throw new SummaryRequestError(
-					`Anthropic compaction failed (${response.status}): ${text || response.statusText}`,
-					isRetryableStatus(response.status),
-					response.status,
-				);
-			}
-			const json = (await response.json()) as unknown;
-			const block = blockFromResponse(json);
-			if (!block) {
-				const reason = isJsonObject(json) && typeof json.stop_reason === "string" ? json.stop_reason : "unknown";
-				throw new SummaryRequestError(`Anthropic compaction returned stop_reason ${reason}.`, false);
-			}
-			return { block, usage: usageFromIterations(params.model, json) };
-		} catch (error) {
-			if (params.signal?.aborted) throw error;
-			if (error instanceof SummaryRequestError) {
-				lastError = error.message;
-				if (!error.retryable || attempt === MAX_SUMMARY_ATTEMPTS - 1) throw error;
-				await delay(1000 * 2 ** attempt, params.signal);
-				continue;
-			}
-			throw error;
+		if (!block || stopReason !== "compaction") {
+			throw new Error(`Anthropic compaction returned stop_reason ${stopReason}.`);
 		}
-	}
-	throw new Error(lastError);
+		return { block, usage: usageFromIterations(model, { usage }) };
+	};
 }

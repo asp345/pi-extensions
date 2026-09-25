@@ -1,54 +1,26 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { buildCompactionRequestBody } from "./remote.ts";
 
-function model(): Model<Api> {
-	return { id: "gpt-6-luna" } as Model<Api>;
-}
-
-test("keeps wire instructions and tools from the cached payload", () => {
-	const body = buildCompactionRequestBody({
-		basePayload: {
+test("keeps the provider payload and appends the compaction trigger", () => {
+	const body = buildCompactionRequestBody(
+		{
+			model: "gpt-5.6-luna",
 			instructions: "composed instructions",
-			tools: [{ name: "Read" }],
-			text: { verbosity: "low" },
+			tools: [{ name: "read" }],
+			text: { verbosity: "medium", format: { type: "text" } },
 			include: ["reasoning.encrypted_content"],
+			prompt_cache_key: "session-1",
+			previous_response_id: "resp-1",
+			input: [{ type: "message", role: "user", content: "old" }],
 		},
-		model: model(),
-		input: [],
-		instructions: "raw base prompt",
-		tools: [{ name: "read" }],
-		sessionId: "session-1",
-	});
+		[{ type: "message", role: "user", content: "hello" }],
+	);
 	assert.equal(body.instructions, "composed instructions");
-	assert.deepEqual(body.tools, [{ name: "Read" }]);
-	assert.deepEqual(body.input, [{ type: "compaction_trigger" }]);
-	assert.equal(body.prompt_cache_key, "session-1");
-});
-
-test("falls back to params without a cached payload", () => {
-	const body = buildCompactionRequestBody({
-		basePayload: undefined,
-		model: model(),
-		input: [],
-		instructions: "raw base prompt",
-		tools: [{ name: "read" }],
-		sessionId: "session-1",
-	});
-	assert.equal(body.instructions, "raw base prompt");
 	assert.deepEqual(body.tools, [{ name: "read" }]);
-});
-
-test("drops tools when neither cached nor provided", () => {
-	const body = buildCompactionRequestBody({
-		basePayload: {},
-		model: model(),
-		input: [],
-		instructions: "raw base prompt",
-		tools: undefined,
-		sessionId: "session-1",
-	});
-	assert.equal(body.instructions, "raw base prompt");
-	assert.ok(!("tools" in body));
+	assert.equal(body.prompt_cache_key, "session-1");
+	assert.deepEqual(body.text, { verbosity: "medium" });
+	assert.deepEqual(body.include, ["reasoning.encrypted_content"]);
+	assert.deepEqual(body.input, [{ type: "message", role: "user", content: "hello" }, { type: "compaction_trigger" }]);
+	assert.ok(!("previous_response_id" in body));
 });

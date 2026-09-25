@@ -1,5 +1,8 @@
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
+	buildSessionContext,
 	compact,
+	convertToLlm,
 	type ExtensionAPI,
 	type SessionEntry,
 	sessionEntryToContextMessages,
@@ -14,14 +17,11 @@ import {
 import type { CompactionConfig } from "./config.ts";
 import { getOpencodeSessionHeaders, withoutDeletedHeaders } from "./headers.ts";
 import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
-import {
-	clearOpenAIWireSnapshots,
-	getOpenAIWireBody,
-	isOpenAICompletionsModel,
-	recordOpenAIWireBody,
-	requestOpenAISummary,
-} from "./openai-summarize.ts";
-import { isJsonObject } from "./protocol.ts";
+import { sessionReasoning } from "./provider-request.ts";
+
+function isOpenAICompletionsModel(model: Model<Api>): boolean {
+	return model.api === "openai-completions";
+}
 
 export type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
 
@@ -47,19 +47,6 @@ function errorMessage(error: unknown): string {
 }
 
 export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
-	pi.on("session_start", () => {
-		clearOpenAIWireSnapshots();
-	});
-	pi.on("session_shutdown", () => {
-		clearOpenAIWireSnapshots();
-	});
-	pi.on("before_provider_request", (_event, ctx) => {
-		try {
-			if (!isOpenAICompletionsModel(ctx.model) || !isJsonObject(_event.payload)) return undefined;
-			recordOpenAIWireBody(ctx.sessionManager.getSessionId(), _event.payload);
-		} catch {}
-		return undefined;
-	});
 	pi.on("session_before_compact", async (event, ctx) => {
 		try {
 			const activeModel = ctx.model;
@@ -91,11 +78,12 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 			const customInstructions = event.customInstructions
 				? `${event.customInstructions}\n\n${COMMAND_INSTRUCTIONS}`
 				: COMMAND_INSTRUCTIONS;
-			if (isOpenAICompletionsModel(requestModel) && getOpenAIWireBody(sessionId)) {
+			if (isOpenAICompletionsModel(model)) {
 				const preparation = event.preparation;
-				const { readFiles, modifiedFiles } = computeNativeFileLists(preparation.fileOps);
-				const boundary = findBoundaryQuote(event.branchEntries as SessionEntry[], preparation.firstKeptEntryId);
+				const branch = event.branchEntries as SessionEntry[];
+				const boundary = findBoundaryQuote(branch, preparation.firstKeptEntryId);
 				if (boundary) {
+					const { readFiles, modifiedFiles } = computeNativeFileLists(preparation.fileOps);
 					const instructions =
 						buildNativeInstructions({
 							customInstructions: event.customInstructions,
@@ -105,27 +93,43 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 							modifiedFiles,
 						}) +
 						`\n\nScope: summarize ONLY the conversation strictly BEFORE the message quoted below (exclusive). Messages from the quote onward are later context kept separately; ignore them for content.\n\n<boundary>\n${boundary}\n</boundary>`;
-					const maxTokens = Math.min(
-						Math.floor(0.8 * preparation.settings.reserveTokens),
-						requestModel.maxTokens > 0 ? requestModel.maxTokens : Number.POSITIVE_INFINITY,
-					);
-					const apiKey = auth.apiKey;
-					if (!apiKey) throw new Error("API key is unavailable.");
-					const summary = await requestOpenAISummary({
-						model: requestModel,
-						apiKey,
-						callerHeaders: withoutDeletedHeaders(auth.headers) ?? {},
-						sessionId,
-						instruction: instructions,
-						maxTokens,
-						signal: event.signal,
-					});
+					const messages = [
+						...convertToLlm(buildSessionContext(branch).messages),
+						{ role: "user" as const, content: [{ type: "text" as const, text: instructions }], timestamp: Date.now() },
+					];
+					const response = await ctx.modelRegistry
+						.streamSimple(
+							model,
+							{ messages },
+							{
+								signal: event.signal,
+								sessionId,
+								maxTokens: Math.min(
+									Math.floor(0.8 * preparation.settings.reserveTokens),
+									model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
+								),
+								reasoning: sessionReasoning(model, ctx.thinkingLevel),
+								headers: getOpencodeSessionHeaders(model, sessionId),
+							},
+						)
+						.result();
+					if (response.stopReason === "error" || response.stopReason === "aborted") {
+						throw new Error(response.errorMessage || `Summary request ${response.stopReason}.`);
+					}
+					if (response.content.some((block) => block.type === "toolCall")) {
+						throw new Error("Text compaction attempted to call a tool");
+					}
+					const summary = response.content
+						.flatMap((block) => (block.type === "text" ? [block.text] : []))
+						.join("")
+						.trim();
+					if (!summary) throw new Error("Text compaction returned an empty summary");
 					return {
 						compaction: {
-							summary: summary.text,
+							summary,
 							firstKeptEntryId: preparation.firstKeptEntryId,
 							tokensBefore: preparation.tokensBefore,
-							usage: summary.usage,
+							usage: response.usage,
 							details: { readFiles, modifiedFiles },
 						},
 					};

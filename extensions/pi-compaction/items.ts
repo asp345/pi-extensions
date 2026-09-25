@@ -1,6 +1,6 @@
 import type { Api, Message, Model, Tool } from "@earendil-works/pi-ai";
 import { createGrammarToolInputProperties } from "@earendil-works/pi-ai/api/constrained-sampling";
-import { convertResponsesMessages, convertResponsesTools } from "@earendil-works/pi-ai/api/openai-responses-shared";
+import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-responses-shared";
 import { getDeclaredTools, normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import {
 	buildSessionContext,
@@ -122,14 +122,4 @@ export function buildReplacementHistory(
 		throw new Error("OpenAI Codex did not return a valid compaction item.");
 	}
 	return [...retainRecentUserMessages(preCompactionInput), cloneItem(compactionItem)];
-}
-
-export function buildToolPayload(
-	model: Model<Api>,
-	allTools: ToolInfo[],
-	activeToolNames: string[],
-): unknown[] | undefined {
-	const active = new Set(activeToolNames);
-	const tools = allTools.filter((tool) => active.has(tool.name));
-	return tools.length > 0 ? convertResponsesTools(tools as unknown as Tool[], responsesToolOptions(model)) : undefined;
 }
