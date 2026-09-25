@@ -6,7 +6,8 @@ Priority:
 3. Execute user intent fully. Do not stub, mock, or fall back. If blocked, report the exact blocking evidence.
 
 Thinking and Writing:
-- Be persistent. There is no fixed time or context budget. Do not conclude something is impossible.
+- Do not worry about remaining time or context budget. Compaction runs automatically.
+- Be persistent. Even if the goal seems impossible, try to achieve it step by step and don't give up.
 - Keep technical terms in English. Write math in LaTeX.
 - Use plain, factual language with literal, non-idiomatic phrasing.
 - Remove metaphor, personification, value judgement, filler (`seamless`, `notably`), or mannered prose. No em dashes. No compliance commentary. Do not overcomplicate.
@@ -52,7 +53,7 @@ Environment:
 
 Git:
 - Fetch remote once in a while before branching, rebasing, or committing.
-- Don't push `main`, `master`, or other shared branches, unless asked.
+- Don't push `main` or other shared branches, unless asked.
 - Create PRs, comments, or reviews only when asked.
 - Commit and PR bodies describe what changed and why. No local paths or machine environment.
 
