@@ -7,15 +7,15 @@ Renders every tool call in the Pi Coding Agent transcript in one uniform format.
 Collapsed, each call is one line:
 
 ```
- ✓ read · extensions/pi-compact-ui/row.ts · ↓ 214 lines · 38ms
- ◈ bash · bun run check · 12.4s
- ✗ edit · README.md · 21ms · error
+ ✓ read · extensions/pi-compact-ui/row.ts · ↓ 214 lines · 0s
+ ◈ bash · bun run check · 12s
+ ✗ edit · README.md · 0s · error
 ```
 
 - Marker: `◇` queued, `◇ ◈ ◆ ◈` animated every 250 ms while running, `✓` done, `✗` error.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
 - `↓ N lines`: the line count of the text result, shown once the call has finished.
-- Duration: measured from `markExecutionStarted` to the final result. Calls replayed from a saved session have no duration.
+- Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Calls replayed from a saved session have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
 A result whose `details.diff` is a string (the `edit` tool) adds a summary line in both states:

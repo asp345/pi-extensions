@@ -1,7 +1,7 @@
 import { isAbsolute, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
 export const WORKING_ICON_FRAMES = ["◇", "◈", "◆", "◈"] as const;
@@ -47,6 +47,11 @@ export function firstString(value: unknown): string | undefined {
 	return undefined;
 }
 
+function fit(text: string, width: number): string {
+	if (visibleWidth(text) <= width) return text;
+	return `${sliceByColumn(text, 0, Math.max(0, width - 1), true)}…`;
+}
+
 function oneLine(value: string): string {
 	return value.replace(/\s+/gu, " ").trim();
 }
@@ -56,8 +61,7 @@ function plain(value: string): string {
 }
 
 export function formatDuration(ms: number): string {
-	if (ms < 1000) return `${Math.round(ms)}ms`;
-	return `${(ms / 1000).toFixed(1)}s`;
+	return `${Math.floor(ms / 1000)}s`;
 }
 
 function outputText(row: ToolRowState): string {
@@ -121,7 +125,7 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	const preview = oneLine(plain(firstString(row.args) ?? ""));
 	const available = width - 1 - visibleWidth(head) - visibleWidth(suffix) - visibleWidth(separator);
 	if (!preview || available < 2) return truncateToWidth(`${head}${suffix}`, width, "");
-	return `${head}${separator}${theme.fg("dim", truncateToWidth(preview, available, "…"))}${suffix}`;
+	return `${head}${separator}${theme.fg("dim", fit(preview, available))}${suffix}`;
 }
 
 function diffSummaryLine(row: ToolRowState, diff: string, theme: Theme, width: number): string {
@@ -129,7 +133,7 @@ function diffSummaryLine(row: ToolRowState, diff: string, theme: Theme, width: n
 	const prefix = theme.fg("dim", DIFF_SUMMARY_PREFIX);
 	const counts = ` ${theme.fg("toolDiffAdded", `+${added}`)} ${theme.fg("toolDiffRemoved", `-${removed}`)}`;
 	const available = Math.max(1, width - visibleWidth(prefix) - visibleWidth(counts));
-	const path = truncateToWidth(displayPath(argPath(row.args), row.cwd), available, "…");
+	const path = fit(displayPath(argPath(row.args), row.cwd), available);
 	return truncateToWidth(`${prefix}${theme.fg("muted", path)}${counts}`, width, "");
 }
 
