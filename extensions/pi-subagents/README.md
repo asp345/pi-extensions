@@ -7,7 +7,7 @@ Runs subagents as in-process `AgentSession`s inside the parent Pi process. There
 Parent session:
 
 - `launch_subagent(name, prompt, context, model?, thinking?)` creates a subagent and returns its handle (`name`, ID, model) at admission. It never returns the answer. `model` (`provider/id`) and `thinking` default to the parent's model and thinking level.
-- `send_message(to, message)` sends a message to a subagent by name or ID. A running subagent receives it as steering; an idle subagent starts a new turn; an inactive subagent is reopened from its session file and starts a new turn in the same context.
+- `send_message(to, message)` sends a message to a subagent by name or ID. A running subagent receives it as steering; an inactive subagent is reopened from its session file and starts a new turn in the same context.
 - `list_subagents()` lists name, ID, status, model, cost, and the last error.
 - `stop_subagent(to)` aborts a running subagent and closes its session, which also stops its background tasks. The session file is kept; `send_message` resumes it.
 
@@ -30,8 +30,7 @@ A subagent is running from `agent_start` until its session has settled and none 
 ## Status
 
 - `running`: an episode is active.
-- `idle`: the session is open and waiting for a message.
-- `inactive`: no open session (stopped, or restored after a parent restart).
+- `inactive`: no open session. The session is closed when an episode ends, when the subagent is stopped, and on parent shutdown; records restored after a parent restart are inactive.
 
 ## Sessions and persistence
 
@@ -45,8 +44,8 @@ Extensions share module-level state between the parent and its subagents because
 
 ## UI
 
-- Below the editor, while any subagent is running or idle: `subagents  ● 1 running  ◐ 1 idle  ○ 2 inactive  · ctrl+shift+s`. Counts of zero are omitted, here and in the dashboard.
-- `/agents` or `ctrl+shift+s` opens the dashboard: counts, then `Running` (`◈`), `Idle` (`•`), and `Inactive` (`•`, dim) sections with `Session`, `Model` (`id:thinking`), `Activity`, `Cost`, and `Age` columns, and the last text or error of the selected subagent. It re-renders every second while any subagent is running. Keys: `↑`/`↓` or `j`/`k` move, `s` stops the selected subagent, `q` or `esc` closes.
+- Below the editor, while any subagent is running: `subagents  ● 1 running  ○ 2 inactive  · ctrl+shift+s`. Counts of zero are omitted, here and in the dashboard.
+- `/agents` or `ctrl+shift+s` opens the dashboard: counts, then `Running` (`◈`) and `Inactive` (`•`) sections with `Session`, `Model` (`id:thinking`), `Activity`, `Cost`, and `Age` columns, and the last text or error of the selected subagent. It re-renders every second while any subagent is running. Keys: `↑`/`↓` or `j`/`k` move, `s` stops the selected subagent, `q` or `esc` closes.
 - `/agents list` prints all subagents; `/agents stop <name|id>` stops one.
 - Messages from subagents render as `◆ Agent message received · child:<name>` and notices as `◆ Subagent finished without reply · child:<name>`, `◆ Subagent failed · …`, or `◆ Subagent stopped · …`; `ctrl+o` expands the body.
 

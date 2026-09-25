@@ -2,7 +2,7 @@ import type { AgentSession } from "@earendil-works/pi-coding-agent";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
-export type AgentStatus = "running" | "idle" | "inactive";
+export type AgentStatus = "running" | "inactive";
 
 export interface StoredAgent {
 	version: 2;
@@ -23,6 +23,7 @@ export interface StoredAgent {
 export interface AgentRecord extends Omit<StoredAgent, "version"> {
 	session?: AgentSession;
 	opening?: Promise<AgentSession>;
+	closing?: Promise<void>;
 	running: boolean;
 	runStartedAt?: number;
 	activity?: string;
@@ -31,8 +32,7 @@ export interface AgentRecord extends Omit<StoredAgent, "version"> {
 }
 
 export function agentStatus(record: AgentRecord): AgentStatus {
-	if (record.running) return "running";
-	return record.session ? "idle" : "inactive";
+	return record.running ? "running" : "inactive";
 }
 
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {

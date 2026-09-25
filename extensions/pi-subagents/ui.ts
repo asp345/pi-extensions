@@ -9,18 +9,17 @@ export const SHORTCUT = "ctrl+shift+s";
 const WIDGET = "pi-subagents";
 const REFRESH_MS = 1000;
 const STATUS_ROW_ICON = "•";
-const SECTIONS: readonly AgentStatus[] = ["running", "idle", "inactive"];
-const SECTION_TITLES: Record<AgentStatus, string> = { running: "Running", idle: "Idle", inactive: "Inactive" };
+const SECTIONS: readonly AgentStatus[] = ["running", "inactive"];
+const SECTION_TITLES: Record<AgentStatus, string> = { running: "Running", inactive: "Inactive" };
 const DETAIL_LINES = 6;
 
 interface Counts {
 	running: number;
-	idle: number;
 	inactive: number;
 }
 
 function countStatuses(records: readonly AgentRecord[]): Counts {
-	const counts: Counts = { running: 0, idle: 0, inactive: 0 };
+	const counts: Counts = { running: 0, inactive: 0 };
 	for (const record of records) counts[agentStatus(record)] += 1;
 	return counts;
 }
@@ -28,7 +27,6 @@ function countStatuses(records: readonly AgentRecord[]): Counts {
 function countsText(counts: Counts, theme: Theme): string {
 	const parts: string[] = [];
 	if (counts.running > 0) parts.push(theme.fg("success", `● ${counts.running} running`));
-	if (counts.idle > 0) parts.push(theme.fg("warning", `◐ ${counts.idle} idle`));
 	if (counts.inactive > 0) parts.push(theme.fg("dim", `○ ${counts.inactive} inactive`));
 	return parts.join("  ");
 }
@@ -73,7 +71,7 @@ function rowIcon(status: AgentStatus, theme: Theme): string {
 	if (status === "running") {
 		return theme.bold("◈");
 	}
-	return theme.bold(theme.fg(status === "idle" ? "warning" : "dim", STATUS_ROW_ICON));
+	return theme.bold(theme.fg("dim", STATUS_ROW_ICON));
 }
 
 function highlight(line: string, width: number, theme: Theme): string {
@@ -149,7 +147,7 @@ export class AgentsUI {
 		const ctx = this.context;
 		if (!ctx?.hasUI) return;
 		const counts = countStatuses(this.manager.list());
-		if (counts.running + counts.idle === 0) {
+		if (counts.running === 0) {
 			if (this.mounted) ctx.ui.setWidget(WIDGET, undefined);
 			this.mounted = false;
 			this.widgetTui = undefined;

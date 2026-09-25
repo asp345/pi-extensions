@@ -92,7 +92,7 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 		name: "send_message",
 		label: "Send Message",
 		description:
-			"Send a message to a subagent by name or ID. A running subagent receives it as steering; an idle or inactive subagent starts a new turn in its existing session and context.",
+			"Send a message to a subagent by name or ID. A running subagent receives it as steering; an inactive subagent is reopened and starts a new turn in its existing session and context.",
 		promptSnippet: "Send a message to a subagent",
 		parameters: Type.Object({
 			to: Type.String({ minLength: 1, maxLength: 64, description: "Subagent name or ID." }),
@@ -120,7 +120,7 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 	pi.registerTool({
 		name: "list_subagents",
 		label: "List Subagents",
-		description: "List subagents with name, ID, status (running, idle, inactive), model, and cost.",
+		description: "List subagents with name, ID, status (running, inactive), model, and cost.",
 		promptSnippet: "List subagents",
 		parameters: Type.Object({}),
 		async execute() {

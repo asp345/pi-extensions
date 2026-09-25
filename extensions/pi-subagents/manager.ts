@@ -145,8 +145,7 @@ export class SubagentManager {
 		const session = record.session;
 		if (!record.running || !session) return false;
 		this.stopRequests.set(record.id, by);
-		record.session = undefined;
-		void closeChildSession(session).finally(() => this.finishEpisode(record, session));
+		void this.close(record, session).then(() => this.finishEpisode(record, session));
 		return true;
 	}
 
@@ -156,11 +155,10 @@ export class SubagentManager {
 		await Promise.allSettled(
 			records.map(async (record) => {
 				const session = record.session ?? (await record.opening?.catch(() => undefined));
-				if (!session) return;
-				await closeChildSession(session);
+				if (!session) return record.closing;
+				await this.close(record, session);
 				record.cost = session.getSessionStats().cost;
 				record.lastText = session.getLastAssistantText() ?? record.lastText;
-				record.session = undefined;
 				record.running = false;
 				record.activity = undefined;
 				record.updatedAt = Date.now();
@@ -169,6 +167,13 @@ export class SubagentManager {
 		);
 		this.records.clear();
 		this.hooks.changed();
+	}
+
+	private close(record: AgentRecord, session: AgentSession): Promise<void> {
+		if (record.session === session) record.session = undefined;
+		const closing = closeChildSession(session).catch(() => undefined);
+		record.closing = closing;
+		return closing;
 	}
 
 	private open(
@@ -190,6 +195,7 @@ export class SubagentManager {
 		model: Model<Api> | undefined,
 		thinking: ThinkingLevel | undefined,
 	): Promise<AgentSession> {
+		await record.closing;
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
 		const session = await createChildSession({
 			cwd: record.cwd,
@@ -287,6 +293,7 @@ export class SubagentManager {
 			}
 		}
 		this.touch(record);
+		if (record.session === session) void Promise.resolve().then(() => this.close(record, session));
 	}
 
 	private touch(record: AgentRecord): void {
