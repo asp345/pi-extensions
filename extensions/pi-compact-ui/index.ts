@@ -5,7 +5,7 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { renderToolRow, rowStatus, type ToolRowState, WORKING_ICON_INTERVAL_MS } from "./row.ts";
+import { RUNNING_REFRESH_MS, renderToolRow, rowStatus, type ToolRowState } from "./row.ts";
 
 const PARENT = Symbol.for("pi-compact-ui:parent");
 const TIMING = Symbol.for("pi-compact-ui:timing");
@@ -123,7 +123,7 @@ function installRenderer(ui: { readonly theme: Theme }): void {
 		if (rowStatus(state) === "running") {
 			running.add(this);
 			if (!ticker) {
-				ticker = setInterval(tick, WORKING_ICON_INTERVAL_MS);
+				ticker = setInterval(tick, RUNNING_REFRESH_MS);
 				ticker.unref?.();
 			}
 		}

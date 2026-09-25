@@ -12,10 +12,10 @@ Collapsed, each call is one line:
  ✗ edit · README.md · 0s · error
 ```
 
-- Marker: `◇` queued, `◇ ◈ ◆ ◈` animated every 250 ms while running, `✓` done, `✗` error.
+- Marker: `◇` queued, `◈` running, `✓` done, `✗` error.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
 - `↓ N lines`: the line count of the text result, shown once the call has finished.
-- Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Calls replayed from a saved session have no duration.
+- Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
 A result whose `details.diff` is a string (the `edit` tool) adds a summary line in both states:

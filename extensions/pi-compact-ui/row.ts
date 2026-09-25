@@ -4,8 +4,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
-export const WORKING_ICON_FRAMES = ["◇", "◈", "◆", "◈"] as const;
-export const WORKING_ICON_INTERVAL_MS = 250;
+export const RUNNING_REFRESH_MS = 1000;
 
 const INPUT_PREFIX = "╰─ ";
 const OUTPUT_PREFIX = " › ";
@@ -92,17 +91,14 @@ function argPath(args: unknown): string {
 	return typeof path === "string" ? path : "";
 }
 
-function marker(status: ToolRowStatus, theme: Theme, now: number): string {
+function marker(status: ToolRowStatus, theme: Theme): string {
 	switch (status) {
 		case "error":
 			return theme.fg("error", "✗");
 		case "done":
 			return theme.fg("success", "✓");
 		case "running":
-			return theme.fg(
-				"bashMode",
-				WORKING_ICON_FRAMES[Math.floor(now / WORKING_ICON_INTERVAL_MS) % WORKING_ICON_FRAMES.length],
-			);
+			return theme.fg("bashMode", "◈");
 		case "queued":
 			return theme.fg("muted", "◇");
 	}
@@ -111,7 +107,7 @@ function marker(status: ToolRowStatus, theme: Theme, now: number): string {
 function headerLine(row: ToolRowState, theme: Theme, width: number, now: number): string {
 	const status = rowStatus(row);
 	const separator = theme.fg("dim", " · ");
-	const head = ` ${marker(status, theme, now)} ${theme.fg("muted", row.name)}`;
+	const head = ` ${marker(status, theme)} ${theme.fg("muted", row.name)}`;
 	const tail: string[] = [];
 	const output = outputText(row);
 	if ((status === "done" || status === "error") && output && !diffOf(row)) {
