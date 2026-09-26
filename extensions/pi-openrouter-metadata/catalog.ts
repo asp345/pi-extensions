@@ -9,10 +9,6 @@ interface RemoteModel {
 	value: Record<string, unknown>;
 }
 
-export function mergeOpenRouterModels(baseline: readonly OpenRouterModel[], payload: unknown): OpenRouterModel[] {
-	return applyMetadataOverrides(baseline, buildMetadataOverrides(baseline, payload));
-}
-
 export function buildMetadataOverrides(
 	baseline: readonly OpenRouterModel[],
 	payload: unknown,
