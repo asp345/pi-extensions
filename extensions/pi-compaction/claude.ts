@@ -204,11 +204,10 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 				},
 			};
 		} catch (error) {
-			if (event.signal.aborted) return undefined;
-			if (ctx.hasUI) {
-				ctx.ui.notify(`Anthropic native compaction failed, using text compaction: ${errorMessage(error)}`, "warning");
+			if (!event.signal.aborted && ctx.hasUI) {
+				ctx.ui.notify(`Anthropic native compaction failed: ${errorMessage(error)}`, "error");
 			}
-			return undefined;
+			return { cancel: true };
 		}
 	});
 }
