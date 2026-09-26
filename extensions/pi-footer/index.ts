@@ -1,34 +1,91 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { FooterConfigStore } from "./config.ts";
+import registerFooterCommand from "./footer-command.ts";
 import { formatUserPath } from "./format.ts";
-import { createTokenStats } from "./token-stats.ts";
-import type { SharedState } from "./types.ts";
+import { type MetricPartOptions, renderMetricParts } from "./metric-parts.ts";
+import { QuotaController } from "./quota-controller.ts";
+import { UsageAccountant } from "./usage-accountant.ts";
 
 export default function piFooterExtension(pi: ExtensionAPI): void {
-	const shared: SharedState = {
-		sessionActive: false,
-		requestRender: null,
-	};
-	const stats = createTokenStats(pi, shared);
+	let sessionActive = false;
+	let renderFooter: (() => void) | null = null;
+	const requestRender = () => renderFooter?.();
+	const accountant = new UsageAccountant();
+	const store = new FooterConfigStore();
+	const quota = new QuotaController({
+		getTtl: () => store.config.ttl,
+		isSessionActive: () => sessionActive,
+		requestRender,
+	});
+	registerFooterCommand(pi, store, quota, requestRender);
 
-	pi.on("session_start", (_event, ctx) => {
-		shared.sessionActive = true;
+	pi.on("turn_start", (_event, ctx) => {
+		accountant.beginTurn(Date.now());
+		quota.handleProviderChange(ctx);
+		requestRender();
+	});
+
+	pi.on("message_update", (event) => {
+		if (event.message.role !== "assistant") return;
+		const streamEvent = event.assistantMessageEvent;
+		if (
+			streamEvent.type !== "text_delta" &&
+			streamEvent.type !== "thinking_delta" &&
+			streamEvent.type !== "toolcall_delta"
+		) {
+			accountant.markStreaming();
+			return;
+		}
+		if (
+			accountant.recordStreamDelta(
+				streamEvent.delta,
+				streamEvent.partial.responseId,
+				streamEvent.partial.usage?.output,
+				Date.now(),
+			)
+		) {
+			requestRender();
+		}
+	});
+
+	pi.on("message_end", (event) => {
+		if (event.message.role !== "assistant") return;
+		accountant.recordAssistantEnd(event.message, Date.now());
+		requestRender();
+	});
+
+	pi.on("agent_end", () => {
+		accountant.endStreaming();
+		requestRender();
+	});
+
+	pi.on("session_shutdown", () => {
+		sessionActive = false;
+		quota.stop();
+		renderFooter = null;
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		sessionActive = true;
 
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const render = () => tui.requestRender();
-			shared.requestRender = render;
+			renderFooter = render;
 			const unsubscribe = footerData.onBranchChange(render);
+			const metricParts = (options?: MetricPartOptions) =>
+				renderMetricParts({ theme, ctx, accountant, displayConfig: store.config.display, quota, options });
 
 			return {
 				dispose() {
 					unsubscribe();
-					if (shared.requestRender === render) shared.requestRender = null;
+					if (renderFooter === render) renderFooter = null;
 				},
 				invalidate() {},
 				render(width: number): string[] {
-					if (!shared.sessionActive) return [];
+					if (!sessionActive) return [];
 					const separator = theme.fg("dim", " | ");
-					let left = stats.getMetricParts(theme, ctx).join(separator);
+					let left = metricParts().join(separator);
 					const modelName = ctx.model?.id ?? "";
 					const provider = ctx.model?.provider ?? "";
 					const thinkingLevel = ctx.thinkingLevel ?? "off";
@@ -36,10 +93,10 @@ export default function piFooterExtension(pi: ExtensionAPI): void {
 					const modelWidth = visibleWidth(model);
 					const fitsWithModel = (value: string) => visibleWidth(value) + modelWidth + 2 <= width;
 					if (!fitsWithModel(left)) {
-						left = stats.getMetricParts(theme, ctx, { speed: false }).join(separator);
+						left = metricParts({ speed: false }).join(separator);
 					}
 					if (!fitsWithModel(left)) {
-						left = stats.getMetricParts(theme, ctx, { speed: false, quota: false }).join(separator);
+						left = metricParts({ speed: false, quota: false }).join(separator);
 					}
 					const leftWidth = visibleWidth(left);
 					const topLine = fitsWithModel(left)
@@ -58,10 +115,9 @@ export default function piFooterExtension(pi: ExtensionAPI): void {
 				},
 			};
 		});
-	});
 
-	pi.on("session_shutdown", () => {
-		shared.sessionActive = false;
-		shared.requestRender = null;
+		accountant.restoreLastSpeed(ctx.sessionManager.getBranch());
+		await store.load();
+		quota.start(ctx);
 	});
 }

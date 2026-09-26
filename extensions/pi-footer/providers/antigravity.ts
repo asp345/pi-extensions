@@ -1,15 +1,8 @@
-import type {
-	ResolvedCredential,
-	UsageAmount,
-	UsageLimit,
-	UsageProvider,
-	UsageReport,
-	UsageStatus,
-	UsageWindow,
-} from "../types.ts";
-import { createProviderQuotaPlan } from "./quota-adapter.ts";
+import type { QuotaPlan } from "../quota.ts";
+import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
+import { formatUsageLimits } from "./quota-adapter.ts";
 
-const DEFAULT_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
+const ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
 const FETCH_AVAILABLE_MODELS_PATH = "/v1internal:fetchAvailableModels";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 const ONE_WEEK_MS = 7 * ONE_DAY_MS;
@@ -27,7 +20,6 @@ interface AntigravityQuotaInfo {
 }
 
 interface AntigravityModelInfo {
-	displayName?: string;
 	quotaInfo?: AntigravityQuotaInfo | AntigravityQuotaInfo[];
 	quotaInfos?: AntigravityQuotaInfo[];
 	dailyQuotaInfo?: AntigravityQuotaInfo | AntigravityQuotaInfo[];
@@ -134,58 +126,18 @@ function withWindowDescriptor(
 
 function clampFraction(value: number | undefined): number | undefined {
 	if (value === undefined || !Number.isFinite(value)) return undefined;
-	if (value < 0) return 0;
-	if (value > 1) return 1;
-	return value;
-}
-
-function getUsageStatus(remainingFraction: number | undefined): UsageStatus | undefined {
-	if (remainingFraction === undefined) return "unknown";
-	if (remainingFraction <= 0) return "exhausted";
-	if (remainingFraction <= 0.1) return "warning";
-	return "ok";
+	return Math.min(1, Math.max(0, value));
 }
 
 function parseWindow(info: AntigravityQuotaInfo, descriptor: WindowDescriptor | undefined): UsageWindow | undefined {
 	const resetAt = parseResetTime(info);
-	const hasResetAt = resetAt !== undefined;
-	if (!descriptor && !hasResetAt) return undefined;
+	if (!descriptor && resetAt === undefined) return undefined;
 	return {
 		id: descriptor?.id ?? info.windowId ?? "default",
 		label: info.windowLabel ?? descriptor?.label ?? "Default",
-		...(descriptor?.durationMs !== undefined ? { durationMs: descriptor.durationMs } : {}),
-		...(hasResetAt ? { resetsAt: resetAt } : {}),
+		durationMs: descriptor?.durationMs,
+		resetsAt: resetAt,
 	};
-}
-
-function buildAmount(info: AntigravityQuotaInfo): UsageAmount {
-	const apiRemainingFraction = clampFraction(info.remainingFraction);
-	const remainingFraction = apiRemainingFraction ?? (info.resetTime ? 0 : undefined);
-	const amount: UsageAmount = { unit: "percent" };
-	if (remainingFraction === undefined) return amount;
-	const usedFraction = 1 - remainingFraction;
-	amount.remainingFraction = remainingFraction;
-	amount.usedFraction = usedFraction;
-	amount.remaining = remainingFraction * 100;
-	amount.used = usedFraction * 100;
-	amount.limit = 100;
-	return amount;
-}
-
-function formatCounterName(info: AntigravityQuotaInfo): string | undefined {
-	switch (info.modelProvider ?? info.apiProvider) {
-		case "MODEL_PROVIDER_ANTHROPIC":
-		case "API_PROVIDER_ANTHROPIC_VERTEX":
-			return "Anthropic";
-		case "MODEL_PROVIDER_GOOGLE":
-		case "API_PROVIDER_GOOGLE_GEMINI":
-			return "Google";
-		case "MODEL_PROVIDER_OPENAI":
-		case "API_PROVIDER_OPENAI_VERTEX":
-			return "OpenAI";
-		default:
-			return undefined;
-	}
 }
 
 function normalizeQuotaInfos(info: AntigravityModelInfo): AntigravityQuotaInfo[] {
@@ -231,118 +183,43 @@ function normalizeQuotaInfos(info: AntigravityModelInfo): AntigravityQuotaInfo[]
 	return results;
 }
 
-const antigravityUsageProvider: UsageProvider = {
-	id: "antigravity",
-	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
-		if (!credential.projectId) return null;
-		const nowMs = Date.now();
+async function fetchAntigravityUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageLimit[]> {
+	if (!credential.projectId) throw new Error("Missing Antigravity project id");
+	const response = await fetch(`${ENDPOINT}${FETCH_AVAILABLE_MODELS_PATH}`, {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${credential.accessToken}`,
+			"Content-Type": "application/json",
+			"User-Agent": userAgent(),
+		},
+		body: JSON.stringify({ project: credential.projectId }),
+		signal,
+	});
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const data = (await response.json()) as AntigravityUsageResponse;
 
-		const endpoints = [DEFAULT_ENDPOINT, "https://daily-cloudcode-pa.sandbox.googleapis.com"];
-		let response: Response | undefined;
-		let successfulEndpoint = DEFAULT_ENDPOINT;
-		for (const endpoint of endpoints) {
-			try {
-				const url = `${endpoint}${FETCH_AVAILABLE_MODELS_PATH}`;
-				response = await fetch(url, {
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${credential.accessToken}`,
-						"Content-Type": "application/json",
-						"User-Agent": userAgent(),
-					},
-					body: JSON.stringify({ project: credential.projectId }),
-					signal,
-				});
-				if (response.ok) {
-					successfulEndpoint = endpoint;
-					break;
-				}
-				if (response.status === 429 || (response.status >= 500 && response.status < 600)) continue;
-				break;
-			} catch (error) {
-				if (endpoint === endpoints[endpoints.length - 1]) throw error;
-			}
-		}
-
-		if (!response?.ok) return null;
-		const data = (await response.json()) as AntigravityUsageResponse;
-
-		const deduped = new Map<
-			string,
-			{
-				amount: UsageAmount;
-				window: UsageWindow | undefined;
-				tier: string | undefined;
-				windowId: string;
-				counterName: string | undefined;
-				counterKey: string;
-			}
-		>();
-
-		for (const modelInfo of Object.values(data.models ?? {})) {
-			const quotaInfos = normalizeQuotaInfos(modelInfo);
-			const inferredDescriptors = inferWindowDescriptors(quotaInfos, nowMs);
-			for (const quotaInfo of quotaInfos) {
-				const amount = buildAmount(quotaInfo);
-				const window = parseWindow(quotaInfo, inferredDescriptors.get(quotaInfo));
-				const tierKey = (quotaInfo.tier ?? "default").toLowerCase();
-				const counterName = formatCounterName(quotaInfo);
-				const counterKey = counterName?.toLowerCase() ?? "default";
-				const windowId = window?.id ?? quotaInfo.windowId ?? "default";
-				const key = `${counterKey}|${tierKey}|${windowId}`;
-				const existing = deduped.get(key);
-				if (!existing) {
-					deduped.set(key, { amount, window, tier: quotaInfo.tier, windowId, counterName, counterKey });
-					continue;
-				}
-				const eFrac = existing.amount.remainingFraction;
-				const cFrac = amount.remainingFraction;
-				let bestAmount = existing.amount;
-				let bestWindow = existing.window?.resetsAt ? existing.window : (window ?? existing.window);
-				let bestTier = existing.tier ?? quotaInfo.tier;
-				if (eFrac === undefined && cFrac !== undefined) {
-					bestAmount = amount;
-					bestTier = quotaInfo.tier ?? existing.tier;
-				} else if (eFrac !== undefined && cFrac !== undefined && cFrac < eFrac) {
-					bestAmount = amount;
-					bestTier = quotaInfo.tier ?? existing.tier;
-				}
-				if (!bestWindow?.resetsAt && window?.resetsAt) bestWindow = window;
-				deduped.set(key, {
-					amount: bestAmount,
-					window: bestWindow,
-					tier: bestTier,
-					windowId: existing.windowId,
-					counterName: existing.counterName,
-					counterKey: existing.counterKey,
-				});
-			}
-		}
-
-		const limits: UsageLimit[] = [];
-		for (const entry of deduped.values()) {
-			const label = entry.counterName ? `Usage (${entry.counterName})` : "Usage";
+	const nowMs = Date.now();
+	const limits: UsageLimit[] = [];
+	for (const modelInfo of Object.values(data.models ?? {})) {
+		const quotaInfos = normalizeQuotaInfos(modelInfo);
+		const inferredDescriptors = inferWindowDescriptors(quotaInfos, nowMs);
+		for (const quotaInfo of quotaInfos) {
+			const window = parseWindow(quotaInfo, inferredDescriptors.get(quotaInfo));
+			const windowId = window?.id ?? quotaInfo.windowId ?? "default";
 			limits.push({
-				id: `antigravity:${entry.counterKey}:${entry.tier ?? "default"}:${entry.windowId}`,
-				label,
-				window: entry.window,
-				amount: entry.amount,
-				status: getUsageStatus(entry.amount.remainingFraction),
+				id: `antigravity:${quotaInfo.tier ?? "default"}:${windowId}`,
+				label: "Usage",
+				window,
+				remainingFraction: clampFraction(quotaInfo.remainingFraction) ?? (quotaInfo.resetTime ? 0 : undefined),
 			});
 		}
+	}
+	return limits;
+}
 
-		limits.sort((a, b) => (a.amount.remainingFraction ?? 1) - (b.amount.remainingFraction ?? 1));
-		if (limits.length === 0) return null;
-		const metadata: Record<string, unknown> = { endpoint: successfulEndpoint, projectId: credential.projectId };
-		return { provider: "antigravity", fetchedAt: nowMs, limits, metadata };
-	},
-};
-
-export const antigravityQuotaPlan = createProviderQuotaPlan({
+export const antigravityQuotaPlan: QuotaPlan = {
 	id: "antigravity",
-	name: "Google Antigravity",
 	matchProviders: ["google-antigravity", "antigravity"],
-	apiKeyEnv: "GOOGLE_ANTIGRAVITY_ACCESS_TOKEN",
-	provider: antigravityUsageProvider,
-	credentialIds: ["google-antigravity", "antigravity"],
-});
+	fetch: fetchAntigravityUsage,
+	format: formatUsageLimits,
+};

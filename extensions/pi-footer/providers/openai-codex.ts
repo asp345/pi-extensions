@@ -1,30 +1,13 @@
 import { Buffer } from "node:buffer";
-import type { ResolvedCredential, UsageAmount, UsageLimit, UsageProvider, UsageReport, UsageWindow } from "../types.ts";
-import { createProviderQuotaPlan } from "./quota-adapter.ts";
+import type { QuotaPlan } from "../quota.ts";
+import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
+import { formatUsageLimits } from "./quota-adapter.ts";
 
-const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
-const CODEX_USAGE_PATH = "wham/usage";
+const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const JWT_AUTH_CLAIM = "https://api.openai.com/auth";
-const JWT_PROFILE_CLAIM = "https://api.openai.com/profile";
-
-interface ParsedUsageWindow {
-	usedPercent?: number;
-	limitWindowSeconds?: number;
-	resetAfterSeconds?: number;
-	resetAt?: number;
-}
-
-interface ParsedUsage {
-	planType?: string;
-	allowed?: boolean;
-	limitReached?: boolean;
-	primary?: ParsedUsageWindow;
-	secondary?: ParsedUsageWindow;
-}
 
 interface JwtPayload {
 	[JWT_AUTH_CLAIM]?: { chatgpt_account_id?: string };
-	[JWT_PROFILE_CLAIM]?: { email?: string };
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -39,79 +22,15 @@ const toNumber = (value: unknown): number | undefined => {
 	return undefined;
 };
 
-const toBoolean = (value: unknown): boolean | undefined => (typeof value === "boolean" ? value : undefined);
-
-function base64UrlDecode(input: string): string {
-	const base64 = input.replace(/-/g, "+").replace(/_/g, "/");
-	const padLen = (4 - (base64.length % 4)) % 4;
-	return Buffer.from(base64 + "=".repeat(padLen), "base64").toString("utf8");
-}
-
-function parseJwt(token: string): JwtPayload | null {
+function extractAccountId(token: string): string | undefined {
 	const parts = token.split(".");
-	if (parts.length !== 3) return null;
-	const payload = parts[1];
-	if (!payload) return null;
+	if (parts.length !== 3 || !parts[1]) return undefined;
 	try {
-		return JSON.parse(base64UrlDecode(payload)) as JwtPayload;
+		const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as JwtPayload;
+		return payload[JWT_AUTH_CLAIM]?.chatgpt_account_id;
 	} catch {
-		return null;
-	}
-}
-
-function normalizeEmail(email: string | undefined): string | undefined {
-	const normalized = email?.trim().toLowerCase();
-	return normalized || undefined;
-}
-
-function extractAccountId(token: string | undefined): string | undefined {
-	if (!token) return undefined;
-	return parseJwt(token)?.[JWT_AUTH_CLAIM]?.chatgpt_account_id ?? undefined;
-}
-
-function extractEmail(token: string | undefined): string | undefined {
-	if (!token) return undefined;
-	return normalizeEmail(parseJwt(token)?.[JWT_PROFILE_CLAIM]?.email);
-}
-
-function parseUsageWindow(payload: unknown): ParsedUsageWindow | undefined {
-	if (!isRecord(payload)) return undefined;
-	const usedPercent = toNumber(payload.used_percent);
-	const limitWindowSeconds = toNumber(payload.limit_window_seconds);
-	const resetAfterSeconds = toNumber(payload.reset_after_seconds);
-	const resetAt = toNumber(payload.reset_at);
-	if (
-		usedPercent === undefined &&
-		limitWindowSeconds === undefined &&
-		resetAfterSeconds === undefined &&
-		resetAt === undefined
-	) {
 		return undefined;
 	}
-	return { usedPercent, limitWindowSeconds, resetAfterSeconds, resetAt };
-}
-
-function parseUsagePayload(payload: unknown): ParsedUsage | null {
-	if (!isRecord(payload)) return null;
-	const planType = typeof payload.plan_type === "string" ? payload.plan_type : undefined;
-	const rateLimit = isRecord(payload.rate_limit) ? payload.rate_limit : undefined;
-	if (!rateLimit) return null;
-	const primary = parseUsageWindow(rateLimit.primary_window);
-	const secondary = parseUsageWindow(rateLimit.secondary_window);
-	const allowed = toBoolean(rateLimit.allowed);
-	const limitReached = toBoolean(rateLimit.limit_reached);
-	if (!primary && !secondary && allowed === undefined && limitReached === undefined) return null;
-	return { planType, allowed, limitReached, primary, secondary };
-}
-
-function resolveResetTime(window: ParsedUsageWindow, nowMs: number): number | undefined {
-	const resetAt = window.resetAt;
-	if (resetAt !== undefined) {
-		const resetAtMs = resetAt > 1_000_000_000_000 ? resetAt : resetAt * 1000;
-		if (Number.isFinite(resetAtMs)) return resetAtMs;
-	}
-	if (window.resetAfterSeconds !== undefined) return nowMs + window.resetAfterSeconds * 1000;
-	return undefined;
 }
 
 function formatWindowLabel(value: number, unit: "hour" | "day"): string {
@@ -130,134 +49,61 @@ function buildWindowLabel(seconds: number): { id: string; label: string } {
 	return { id: `${hours}h`, label: formatWindowLabel(hours, "hour") };
 }
 
-function buildUsageWindow(window: ParsedUsageWindow, key: string, nowMs: number): UsageWindow {
-	const resetsAt = resolveResetTime(window, nowMs);
-	if (window.limitWindowSeconds !== undefined) {
-		const { id, label } = buildWindowLabel(window.limitWindowSeconds);
-		const durationMs = window.limitWindowSeconds * 1000;
-		return { id, label, durationMs, ...(resetsAt !== undefined ? { resetsAt } : {}) };
+function buildUsageLimit(key: "primary" | "secondary", payload: unknown, nowMs: number): UsageLimit | undefined {
+	if (!isRecord(payload)) return undefined;
+	const usedPercent = toNumber(payload.used_percent);
+	const limitWindowSeconds = toNumber(payload.limit_window_seconds);
+	const resetAfterSeconds = toNumber(payload.reset_after_seconds);
+	const resetAt = toNumber(payload.reset_at);
+	if (
+		usedPercent === undefined &&
+		limitWindowSeconds === undefined &&
+		resetAfterSeconds === undefined &&
+		resetAt === undefined
+	) {
+		return undefined;
 	}
-	const fallbackLabel = key === "primary" ? "Primary window" : "Secondary window";
-	return { id: key, label: fallbackLabel, ...(resetsAt !== undefined ? { resetsAt } : {}) };
-}
-
-function buildUsageAmount(window: ParsedUsageWindow): UsageAmount {
-	const usedPercent = window.usedPercent;
-	if (usedPercent === undefined) return { unit: "percent" };
-	const clamped = Math.min(Math.max(usedPercent, 0), 100);
-	const usedFraction = clamped / 100;
+	const resetsAt =
+		resetAt !== undefined
+			? resetAt > 1_000_000_000_000
+				? resetAt
+				: resetAt * 1000
+			: resetAfterSeconds !== undefined
+				? nowMs + resetAfterSeconds * 1000
+				: undefined;
+	const window: UsageWindow =
+		limitWindowSeconds !== undefined
+			? { ...buildWindowLabel(limitWindowSeconds), durationMs: limitWindowSeconds * 1000, resetsAt }
+			: { id: key, label: key === "primary" ? "Primary window" : "Secondary window", resetsAt };
 	return {
-		used: clamped,
-		limit: 100,
-		remaining: Math.max(0, 100 - clamped),
-		usedFraction,
-		remainingFraction: Math.max(0, 1 - usedFraction),
-		unit: "percent",
+		id: `openai-codex:${key}`,
+		label: window.label,
+		window,
+		remainingFraction: usedPercent === undefined ? undefined : 1 - Math.min(Math.max(usedPercent, 0), 100) / 100,
 	};
 }
 
-function buildUsageStatus(usedFraction: number | undefined, limitReached?: boolean): UsageLimit["status"] {
-	if (limitReached) return "exhausted";
-	if (usedFraction === undefined) return "unknown";
-	if (usedFraction >= 1) return "exhausted";
-	if (usedFraction >= 0.9) return "warning";
-	return "ok";
-}
-
-function buildUsageLimit(args: {
-	key: "primary" | "secondary";
-	window: ParsedUsageWindow;
-	accountId?: string;
-	planType?: string;
-	nowMs: number;
-	limitReached?: boolean;
-}): UsageLimit {
-	const usageWindow = buildUsageWindow(args.window, args.key, args.nowMs);
-	const amount = buildUsageAmount(args.window);
-	return {
-		id: `openai-codex:${args.key}`,
-		label: usageWindow.label,
-		window: usageWindow,
-		amount,
-		status: buildUsageStatus(amount.usedFraction, args.limitReached),
+async function fetchCodexUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageLimit[]> {
+	const accountId = credential.accountId ?? extractAccountId(credential.accessToken);
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${credential.accessToken}`,
+		"User-Agent": "OpenCode-Status-Plugin/1.0",
 	};
+	if (accountId) headers["ChatGPT-Account-Id"] = accountId;
+	const response = await fetch(CODEX_USAGE_URL, { headers, signal });
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	const payload: unknown = await response.json();
+	const rateLimit = isRecord(payload) && isRecord(payload.rate_limit) ? payload.rate_limit : {};
+	const nowMs = Date.now();
+	return [
+		buildUsageLimit("primary", rateLimit.primary_window, nowMs),
+		buildUsageLimit("secondary", rateLimit.secondary_window, nowMs),
+	].filter((limit): limit is UsageLimit => limit !== undefined);
 }
 
-function normalizeCodexBaseUrl(baseUrl?: string): string {
-	const trimmed = baseUrl?.trim().replace(/\/+$/, "");
-	if (!trimmed) return CODEX_BASE_URL;
-	let parsed: URL;
-	try {
-		parsed = new URL(trimmed);
-	} catch {
-		return CODEX_BASE_URL;
-	}
-	const host = parsed.host.toLowerCase();
-	if (host !== "chatgpt.com" && host !== "chat.openai.com") return CODEX_BASE_URL;
-	return `${parsed.origin}/backend-api`;
-}
-
-const openaiCodexUsageProvider: UsageProvider = {
+export const openaiCodexQuotaPlan: QuotaPlan = {
 	id: "openai-codex",
-	async fetchUsage(credential: ResolvedCredential, signal?: AbortSignal): Promise<UsageReport | null> {
-		const accessToken = credential.accessToken;
-		if (!accessToken) return null;
-		const nowMs = Date.now();
-
-		const baseUrl = normalizeCodexBaseUrl();
-		const accountId = credential.accountId ?? extractAccountId(accessToken);
-		const email = normalizeEmail(credential.email ?? extractEmail(accessToken));
-
-		const headers: Record<string, string> = {
-			Authorization: `Bearer ${accessToken}`,
-			"User-Agent": "OpenCode-Status-Plugin/1.0",
-		};
-		if (accountId) headers["ChatGPT-Account-Id"] = accountId;
-
-		const normalized = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-		const url = `${normalized}${CODEX_USAGE_PATH}`;
-		let payload: unknown;
-		try {
-			const response = await fetch(url, { headers, signal });
-			if (!response.ok) return null;
-			payload = await response.json();
-		} catch {
-			return null;
-		}
-
-		const parsed = parseUsagePayload(payload);
-		const planType =
-			parsed?.planType ?? (isRecord(payload) && typeof payload.plan_type === "string" ? payload.plan_type : undefined);
-
-		const limits: UsageLimit[] = [];
-		let limitReached: boolean | undefined;
-		if (parsed?.primary) {
-			limitReached = parsed.limitReached;
-			limits.push(
-				buildUsageLimit({ key: "primary", window: parsed.primary, accountId, planType, nowMs, limitReached }),
-			);
-		}
-		if (parsed?.secondary) {
-			limits.push(
-				buildUsageLimit({ key: "secondary", window: parsed.secondary, accountId, planType, nowMs, limitReached }),
-			);
-		}
-
-		if (limits.length === 0) return null;
-		const metadata: Record<string, unknown> = { endpoint: url };
-		if (planType) metadata.planType = planType;
-		if (email) metadata.email = email;
-		if (accountId) metadata.accountId = accountId;
-		metadata.allowed = parsed?.allowed;
-		metadata.limitReached = limitReached ?? parsed?.limitReached;
-		return { provider: "openai-codex", fetchedAt: nowMs, limits, metadata };
-	},
-};
-
-export const openaiCodexQuotaPlan = createProviderQuotaPlan({
-	id: "openai-codex",
-	name: "OpenAI Codex",
 	matchProviders: ["openai-codex"],
-	apiKeyEnv: "OPENAI_API_KEY",
-	provider: openaiCodexUsageProvider,
-});
+	fetch: fetchCodexUsage,
+	format: formatUsageLimits,
+};
