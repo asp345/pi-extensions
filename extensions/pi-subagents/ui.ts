@@ -1,5 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { formatDuration } from "../shared/format.ts";
 import { type Column, fitLine, frame, highlight, listSelection, StatusLineWidget, tableRow } from "../shared/ui.ts";
 import { preview } from "./delegation.ts";
 import type { SubagentManager } from "./manager.ts";
@@ -32,16 +33,6 @@ function countsText(counts: Counts, theme: Theme): string {
 	return parts.join("  ");
 }
 
-function age(since: number, now: number): string {
-	const seconds = Math.max(0, Math.floor((now - since) / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h`;
-	return `${Math.floor(hours / 24)}d`;
-}
-
 function modelLabel(record: AgentRecord): string {
 	if (!record.model) return "-";
 	const bare = record.model.slice(record.model.lastIndexOf("/") + 1) || record.model;
@@ -49,7 +40,7 @@ function modelLabel(record: AgentRecord): string {
 }
 
 function activityLabel(record: AgentRecord, now: number): string {
-	if (record.running) return `${record.activity ?? "Waiting"} · ${age(record.runStartedAt ?? now, now)}`;
+	if (record.running) return `${record.activity ?? "Waiting"} · ${formatDuration(now - (record.runStartedAt ?? now))}`;
 	if (record.lastError) return `error: ${record.lastError}`;
 	return preview(record.lastText) ?? "";
 }
@@ -63,7 +54,7 @@ function rowIcon(status: AgentStatus, theme: Theme): string {
 
 function layout(records: readonly AgentRecord[], width: number, now: number): Column[] {
 	const cost = records.reduce((size, record) => Math.max(size, `$${record.cost.toFixed(2)}`.length), 4);
-	const ageWidth = records.reduce((size, record) => Math.max(size, age(record.createdAt, now).length), 3);
+	const ageWidth = records.reduce((size, record) => Math.max(size, formatDuration(now - record.createdAt).length), 3);
 	const available = Math.max(0, width - cost - ageWidth - 4);
 	const desiredModel = records.reduce((size, record) => Math.max(size, visibleWidth(modelLabel(record))), 5);
 	const model = Math.min(desiredModel, 32, Math.max(0, available - 12));
@@ -158,7 +149,7 @@ export class AgentsUI {
 											theme.fg("muted", modelLabel(record)),
 											theme.fg("dim", activityLabel(record, now)),
 											theme.fg("dim", `$${record.cost.toFixed(2)}`),
-											theme.fg("dim", age(record.createdAt, now)),
+											theme.fg("dim", formatDuration(now - record.createdAt)),
 										],
 										widths,
 									);

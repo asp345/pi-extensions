@@ -2,6 +2,7 @@ import { isAbsolute, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { formatDuration } from "../shared/format.ts";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
 export const RUNNING_REFRESH_MS = 1000;
@@ -57,10 +58,6 @@ function oneLine(value: string): string {
 
 function plain(value: string): string {
 	return stripVTControlCharacters(value).replace(/\r/gu, "").replace(/\t/gu, INDENT);
-}
-
-function formatDuration(ms: number): string {
-	return `${Math.floor(ms / 1000)}s`;
 }
 
 function outputText(row: ToolRowState): string {

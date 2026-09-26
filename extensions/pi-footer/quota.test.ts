@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration, quotaSegments } from "./quota.ts";
+import { formatDuration } from "../shared/format.ts";
+import { quotaSegments } from "./quota.ts";
 
 test("formats reset durations", () => {
 	assert.equal(formatDuration(90 * 60 * 1000), "1h 30m");

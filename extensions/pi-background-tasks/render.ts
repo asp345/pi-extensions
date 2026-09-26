@@ -1,15 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { formatDuration } from "../shared/format.ts";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
 
 export type TaskKind = "running" | "done" | "failed" | "stopped";
-
-export function duration(ms: number): string {
-	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
 
 export function relative(timestamp: number, now = Date.now()): string {
 	const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
@@ -57,8 +50,8 @@ export function elapsed(task: TaskSnapshot, now = Date.now()): number {
 
 export function eventText(event: TaskEvent): string {
 	if (event.type === "running")
-		return `Background task ${event.task.id} is still running (${duration(Date.now() - event.task.startedAt)} elapsed).`;
-	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${duration(event.task.updatedAt - event.task.startedAt)}.`;
+		return `Background task ${event.task.id} is still running (${formatDuration(Date.now() - event.task.startedAt)} elapsed).`;
+	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${formatDuration(event.task.updatedAt - event.task.startedAt)}.`;
 }
 
 export function taskLine(task: TaskSnapshot): string {

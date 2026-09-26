@@ -1,5 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
+import { formatDuration } from "../shared/format.ts";
 import {
 	type Column,
 	fitLine,
@@ -11,7 +12,6 @@ import {
 	tableRow,
 } from "../shared/ui.ts";
 import {
-	duration,
 	elapsed,
 	eventText,
 	lastOutputLine,
@@ -59,7 +59,7 @@ export const renderTaskEvent: MessageRenderer<TaskMessageDetails> = (message, op
 		return {
 			marker: theme.fg(EVENT_COLORS[kind], "◆"),
 			label: EVENT_LABELS[kind],
-			meta: [task.id, oneLine(task.command), duration(elapsed(task))],
+			meta: [task.id, oneLine(task.command), formatDuration(elapsed(task))],
 			body: options.expanded ? output.trim() || "(no output)" : undefined,
 		};
 	});
@@ -84,7 +84,7 @@ function countsText(tasks: readonly TaskSnapshot[], theme: Theme): string {
 
 function layout(tasks: readonly TaskSnapshot[], width: number, now: number): Column[] {
 	const task = tasks.reduce((size, item) => Math.max(size, visibleWidth(item.id) + 2), 6);
-	const time = tasks.reduce((size, item) => Math.max(size, duration(elapsed(item, now)).length), 4);
+	const time = tasks.reduce((size, item) => Math.max(size, formatDuration(elapsed(item, now)).length), 4);
 	const status = Math.min(
 		20,
 		tasks.reduce((size, item) => Math.max(size, taskStatus(item).length), 6),
@@ -265,7 +265,7 @@ export class BackgroundUI {
 										oneLine(task.command),
 										theme.fg("dim", taskStatus(task)),
 										theme.fg("dim", lastOutputLine(this.runtime.output(task.id))),
-										theme.fg("dim", duration(elapsed(task, now))),
+										theme.fg("dim", formatDuration(elapsed(task, now))),
 									],
 									widths,
 								);

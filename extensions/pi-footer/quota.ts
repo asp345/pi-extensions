@@ -1,3 +1,4 @@
+import { formatDuration } from "../shared/format.ts";
 import type { ResolvedCredential } from "./types.ts";
 
 type PercentKey = "fiveHour" | "day" | "week" | "month";
@@ -22,19 +23,6 @@ export interface QuotaPlan {
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 const PERCENT_LABELS: Record<PercentKey, string> = { fiveHour: "5h", day: "D", week: "W", month: "M" };
-
-export function formatDuration(ms: number): string {
-	if (ms <= 0) return "";
-	if (ms >= DAY_MS) {
-		const days = Math.floor(ms / DAY_MS);
-		const hours = Math.floor((ms % DAY_MS) / HOUR_MS);
-		if (days >= 7) return `${Math.floor(days / 7)}w ${days % 7}d`;
-		return `${days}d ${hours}h`;
-	}
-	const hours = Math.floor(ms / HOUR_MS);
-	const minutes = Math.floor((ms % HOUR_MS) / (60 * 1000));
-	return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
-}
 
 export function quotaSegments(
 	remaining: Partial<Record<PercentKey, number | null>>,
