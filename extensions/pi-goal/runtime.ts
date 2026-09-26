@@ -8,7 +8,7 @@ const NUDGE_PROMPT =
 	"You have made no progress across the last 2 automatic goal runs (no tool calls, repeated output). Do the possible work now: use tools to advance the /goal objective instead of repeating the previous message. If it is truly impossible to proceed, call goal_blocked. If the objective is complete, call goal_complete.";
 const MAX_OWNED_PROMPTS = 16;
 const OWNED_PROMPT_TTL_MS = 10 * 60_000;
-const BACKGROUND_CHECK_IN_INTERVAL_MS = 15 * 60_000;
+const WORK_CHECK_IN_INTERVAL_MS = 15 * 60_000;
 const MARKER = /<!-- pi-goal:(start|continue):([^\s>]+) -->/u;
 
 function finalAssistant(messages: readonly unknown[]): { stopReason?: string } | undefined {
@@ -28,6 +28,8 @@ function assistantText(messages: readonly unknown[]) {
 	return text.join("\n").normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").trim();
 }
 
+export type WorkSource = "background-tasks" | "subagents";
+
 export interface GoalContext {
 	isIdle: () => boolean;
 	hasPendingMessages: () => boolean;
@@ -42,12 +44,12 @@ export class GoalRuntime {
 	goal?: GoalState;
 	private pendingContinuation?: string;
 	private pendingStart?: string;
-	private backgroundCheckInDue = false;
-	private backgroundCheckInTimer?: ReturnType<typeof setTimeout>;
+	private workCheckInDue = false;
+	private workCheckInTimer?: ReturnType<typeof setTimeout>;
 	private currentRunAutomatic = false;
 	private currentRunOwnsGoal = false;
 	private currentRunUsedTool = false;
-	private readonly runningBackgroundTaskIds = new Set<string>();
+	private readonly runningWork = new Map<WorkSource, readonly string[]>();
 	private settleFailure?: "aborted" | "error";
 	private readonly ownedPrompts = new Map<string, number>();
 
@@ -58,7 +60,7 @@ export class GoalRuntime {
 	}
 
 	setGoal(goal: GoalState | undefined, ctx: GoalContext) {
-		this.clearBackgroundCheckIn();
+		this.clearWorkCheckIn();
 		this.goal = goal;
 		this.pendingContinuation = undefined;
 		this.pendingStart = undefined;
@@ -107,14 +109,12 @@ export class GoalRuntime {
 		this.currentRunUsedTool = true;
 	}
 
-	async setRunningBackgroundTasks(taskIds: readonly string[], ctx?: GoalContext) {
-		const next = new Set(taskIds);
-		const wasRunning = this.runningBackgroundTaskIds.size > 0;
-		this.runningBackgroundTaskIds.clear();
-		for (const id of next) this.runningBackgroundTaskIds.add(id);
-		if (this.runningBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
-		else this.clearBackgroundCheckIn();
-		if (ctx && wasRunning && this.runningBackgroundTaskIds.size === 0) await this.settled(ctx);
+	async setRunningWork(source: WorkSource, ids: readonly string[], ctx?: GoalContext) {
+		const wasRunning = this.hasRunningWork();
+		this.runningWork.set(source, ids);
+		if (this.hasRunningWork()) this.scheduleWorkCheckIn(ctx);
+		else this.clearWorkCheckIn();
+		if (ctx && wasRunning && !this.hasRunningWork()) await this.settled(ctx);
 	}
 
 	finishAgent(messages: readonly unknown[]) {
@@ -161,14 +161,17 @@ export class GoalRuntime {
 			this.pause(ctx, `no progress across ${MAX_NO_PROGRESS_TURNS} automatic runs`);
 			return;
 		}
-		if (this.runningBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
+		if (this.hasRunningWork()) this.scheduleWorkCheckIn(ctx);
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
-		if (this.backgroundCheckInDue && this.runningBackgroundTaskIds.size > 0) {
-			this.backgroundCheckInDue = false;
-			await this.sendOwnedPrompt("continue", "Check in on the active /goal and its running background work.");
+		if (this.workCheckInDue && this.hasRunningWork()) {
+			this.workCheckInDue = false;
+			await this.sendOwnedPrompt(
+				"continue",
+				"Check in on the active /goal and its running background tasks and subagents.",
+			);
 			return;
 		}
-		if (this.pendingContinuation !== goal.id || this.runningBackgroundTaskIds.size > 0) return;
+		if (this.pendingContinuation !== goal.id || this.hasRunningWork()) return;
 		const start = this.pendingStart === goal.id;
 		if (!start && goal.noProgressTurns >= NUDGE_NO_PROGRESS_TURNS && !goal.nudgeSent) {
 			goal.nudgeSent = true;
@@ -202,7 +205,7 @@ export class GoalRuntime {
 	}
 
 	pause(ctx: GoalContext, reason = "paused by user") {
-		this.clearBackgroundCheckIn();
+		this.clearWorkCheckIn();
 		if (this.goal?.status !== "active") return false;
 		try {
 			ctx.abort();
@@ -251,26 +254,30 @@ export class GoalRuntime {
 	}
 
 	shutdown() {
-		this.clearBackgroundCheckIn();
+		this.clearWorkCheckIn();
 		this.cancelContinuation();
 	}
 
-	private scheduleBackgroundCheckIn(ctx?: GoalContext) {
-		if (this.backgroundCheckInTimer || !ctx || this.goal?.status !== "active") return;
-		this.backgroundCheckInTimer = setTimeout(() => {
-			this.backgroundCheckInTimer = undefined;
-			if (this.goal?.status !== "active" || this.runningBackgroundTaskIds.size === 0) return;
-			this.backgroundCheckInDue = true;
-			this.scheduleBackgroundCheckIn(ctx);
-			void this.settled(ctx);
-		}, BACKGROUND_CHECK_IN_INTERVAL_MS);
-		this.backgroundCheckInTimer.unref?.();
+	private hasRunningWork() {
+		return [...this.runningWork.values()].some((ids) => ids.length > 0);
 	}
 
-	private clearBackgroundCheckIn() {
-		if (this.backgroundCheckInTimer) clearTimeout(this.backgroundCheckInTimer);
-		this.backgroundCheckInTimer = undefined;
-		this.backgroundCheckInDue = false;
+	private scheduleWorkCheckIn(ctx?: GoalContext) {
+		if (this.workCheckInTimer || !ctx || this.goal?.status !== "active") return;
+		this.workCheckInTimer = setTimeout(() => {
+			this.workCheckInTimer = undefined;
+			if (this.goal?.status !== "active" || !this.hasRunningWork()) return;
+			this.workCheckInDue = true;
+			this.scheduleWorkCheckIn(ctx);
+			void this.settled(ctx);
+		}, WORK_CHECK_IN_INTERVAL_MS);
+		this.workCheckInTimer.unref?.();
+	}
+
+	private clearWorkCheckIn() {
+		if (this.workCheckInTimer) clearTimeout(this.workCheckInTimer);
+		this.workCheckInTimer = undefined;
+		this.workCheckInDue = false;
 	}
 
 	private recordOwnedPrompt(marker: string) {

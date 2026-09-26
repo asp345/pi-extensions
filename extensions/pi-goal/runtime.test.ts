@@ -68,23 +68,23 @@ test("goal-owned background task completion re-drives automatic continuation", a
 	const { runtime, ctx, sent } = harness();
 	await runtime.startPrompt(ctx);
 	runtime.beforeAgentStart(sent[0] ?? "");
-	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
+	await runtime.setRunningWork("background-tasks", ["bg-1"], ctx);
 	runtime.finishAgent([assistant("waiting for background work")]);
 	await runtime.settled(ctx);
 	assert.equal(sent.length, 1);
 
-	await runtime.setRunningBackgroundTasks([], ctx);
+	await runtime.setRunningWork("background-tasks", [], ctx);
 	assert.equal(sent.length, 2);
 });
 
 test("any running background task defers automatic continuation", async () => {
 	const { runtime, ctx, sent } = harness();
-	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
+	await runtime.setRunningWork("background-tasks", ["bg-1"], ctx);
 	runtime.finishAgent([assistant("progress")]);
 	await runtime.settled(ctx);
 	assert.equal(sent.length, 0);
 
-	await runtime.setRunningBackgroundTasks([], ctx);
+	await runtime.setRunningWork("background-tasks", [], ctx);
 	assert.equal(sent.length, 1);
 });
 
@@ -94,11 +94,11 @@ test("goal-owned task that starts after agent finishes still defers continuation
 	runtime.beforeAgentStart(sent[0] ?? "");
 	runtime.finishAgent([assistant("waiting for background work")]);
 	// Background task event arrives after finishAgent but before settled (race)
-	await runtime.setRunningBackgroundTasks(["bg-2"], ctx);
+	await runtime.setRunningWork("background-tasks", ["bg-2"], ctx);
 	await runtime.settled(ctx);
 	assert.equal(sent.length, 1);
 
-	await runtime.setRunningBackgroundTasks([], ctx);
+	await runtime.setRunningWork("background-tasks", [], ctx);
 	assert.equal(sent.length, 2);
 });
 
@@ -133,14 +133,14 @@ test("goal-owned background task completion during compaction is re-driven after
 	const { runtime, ctx, sent } = harness();
 	await runtime.startPrompt(ctx);
 	runtime.beforeAgentStart(sent[0] ?? "");
-	await runtime.setRunningBackgroundTasks(["bg-1"], ctx);
+	await runtime.setRunningWork("background-tasks", ["bg-1"], ctx);
 	runtime.finishAgent([assistant("waiting for background work")]);
 	await runtime.settled(ctx);
 	assert.equal(sent.length, 1);
 
 	let idle = false;
 	ctx.isIdle = () => idle;
-	await runtime.setRunningBackgroundTasks([], ctx);
+	await runtime.setRunningWork("background-tasks", [], ctx);
 	assert.equal(sent.length, 1);
 
 	idle = true;

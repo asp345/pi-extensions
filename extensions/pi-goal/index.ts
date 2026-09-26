@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
+import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "../pi-subagents/events.ts";
 import { type GoalContext, GoalRuntime } from "./runtime.ts";
 import { createGoal, type GoalState, loadGoal, MAX_OBJECTIVE, rejection, resumeGoal } from "./state.ts";
 
@@ -132,7 +133,12 @@ export default function goalExtension(pi: ExtensionAPI) {
 	const unsubscribeBackgroundTasks = pi.events.on(BACKGROUND_TASKS_STATE_EVENT, (data) => {
 		const state = parseBackgroundTasksState(data);
 		if (!state) return;
-		void runtime.setRunningBackgroundTasks(state.runningTaskIds, activeContext);
+		void runtime.setRunningWork("background-tasks", state.runningTaskIds, activeContext);
+	});
+	const unsubscribeSubagents = pi.events.on(SUBAGENTS_STATE_EVENT, (data) => {
+		const state = parseSubagentsState(data);
+		if (!state) return;
+		void runtime.setRunningWork("subagents", state.runningAgentIds, activeContext);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -146,6 +152,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		runtime.shutdown();
 		if (activeContext === ctx) activeContext = undefined;
 		unsubscribeBackgroundTasks();
+		unsubscribeSubagents();
 		ctx.ui.setStatus("goal", undefined);
 	});
 	pi.on("input", (event) => {
