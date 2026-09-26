@@ -149,7 +149,7 @@ test("file cache writes atomically and validates its stored schema", async () =>
 		const entry: OpenRouterMetadataCacheEntry = {
 			version: 1,
 			models: [{ id: bundled.id, cost: { input: 3 } }],
-			checkedAt: Date.now(),
+			checkedAt: Date.now() - 1_000,
 		};
 		const newer = { ...entry, models: [{ id: bundled.id, cost: { input: 4 } }], checkedAt: entry.checkedAt + 1 };
 		await Promise.all([cache.write(entry), cache.write(newer)]);
