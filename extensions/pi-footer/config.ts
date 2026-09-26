@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../shared/json.ts";
 
 const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
 const SPEED_STYLES = ["t/s", "tok/s", "T/s", "liveAt"] as const;
@@ -53,10 +54,6 @@ export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 	contextStyle: "pct-window",
 	speedStyle: "t/s",
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function parseDisplay(value: unknown): DisplayConfig {
 	const source = isRecord(value) ? value : {};

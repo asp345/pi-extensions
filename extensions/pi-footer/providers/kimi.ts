@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface KimiLimitDetail {
@@ -9,9 +10,6 @@ interface KimiLimitDetail {
 interface KimiLimit {
 	detail?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const resetMs = (value: unknown): unknown => (typeof value === "string" ? Date.parse(value) : value);
 

@@ -1,8 +1,6 @@
-import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { effortLevelMap, record, stringArray } from "../shared/json.ts";
 import type { CostOverride, MetadataOverride, OpenRouterModel } from "./types.ts";
-import { displayName, EFFORT_LEVELS, price, record, string, stringArray } from "./validate.ts";
-
-const MAX_CATALOG_BYTES = 16_000_000;
+import { displayName, price, string } from "./validate.ts";
 
 interface RemoteModel {
 	id: string;
@@ -41,39 +39,6 @@ export function applyMetadataOverrides(
 	});
 }
 
-export async function readCatalog(response: Response): Promise<unknown> {
-	const declared = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > MAX_CATALOG_BYTES) {
-		await response.body?.cancel();
-		throw new Error("OpenRouter model catalog exceeds the response limit.");
-	}
-	if (!response.body) return JSON.parse(await response.text()) as unknown;
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let bytes = 0;
-	try {
-		for (;;) {
-			const { value, done } = await reader.read();
-			if (done) break;
-			bytes += value.byteLength;
-			if (bytes > MAX_CATALOG_BYTES) {
-				await reader.cancel();
-				throw new Error("OpenRouter model catalog exceeds the response limit.");
-			}
-			chunks.push(value);
-		}
-	} finally {
-		reader.releaseLock();
-	}
-	const body = new Uint8Array(bytes);
-	let offset = 0;
-	for (const chunk of chunks) {
-		body.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return JSON.parse(new TextDecoder().decode(body)) as unknown;
-}
-
 function metadataOverride(value: Record<string, unknown>): MetadataOverride {
 	const reasoning = record(value.reasoning);
 	const pricing = record(value.pricing);
@@ -95,21 +60,10 @@ function metadataOverride(value: Record<string, unknown>): MetadataOverride {
 	return {
 		name: displayName(value.name),
 		reasoning: remoteReasoning ? true : undefined,
-		thinkingLevelMap: thinkingLevelMap(reasoning),
+		thinkingLevelMap: effortLevelMap(reasoning),
 		input: input.length ? input : undefined,
 		cost: Object.keys(cost).length ? cost : undefined,
 	};
-}
-
-function thinkingLevelMap(reasoning: Record<string, unknown> | undefined): ThinkingLevelMap | undefined {
-	if (!reasoning) return undefined;
-	const efforts = stringArray(reasoning.supported_efforts);
-	const supported = new Set(efforts.filter((effort) => EFFORT_LEVELS.some((level) => level === effort)));
-	if (!supported.size) return undefined;
-	const map: ThinkingLevelMap = {};
-	if (reasoning.mandatory === true) map.off = null;
-	for (const level of EFFORT_LEVELS) map[level] = supported.has(level) ? level : null;
-	return map;
 }
 
 function parseCatalog(payload: unknown): RemoteModel[] {

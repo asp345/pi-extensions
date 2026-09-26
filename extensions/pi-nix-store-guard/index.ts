@@ -1,13 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { record, text } from "../shared/json.ts";
 import { storeBlockReason, storePathBlockReason } from "./guard.ts";
-
-function inputRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function text(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
 
 function block(reason: string): { block: true; reason: string } {
 	return { block: true, reason };
@@ -15,7 +8,7 @@ function block(reason: string): { block: true; reason: string } {
 
 export default function nixStoreGuard(pi: ExtensionAPI): void {
 	pi.on("tool_call", (event) => {
-		const input = inputRecord(event.input);
+		const input = record(event.input) ?? {};
 		if (
 			event.toolName === "read" ||
 			event.toolName === "grep" ||

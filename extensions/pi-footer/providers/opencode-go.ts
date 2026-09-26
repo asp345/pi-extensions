@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface OpenCodeUsageWindow {
@@ -5,9 +6,6 @@ interface OpenCodeUsageWindow {
 	percent: number;
 	resetsAt?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const isUsageWindow = (value: unknown): value is OpenCodeUsageWindow =>
 	isRecord(value) && value.status === "ok" && typeof value.percent === "number";

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../shared/json.ts";
 import { errorMessage } from "./protocol.ts";
 
 export interface CompactionConfig {
@@ -12,10 +13,6 @@ const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
 	nativeClaude: true,
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function parseCompactionConfig(value: unknown, source: string): Partial<CompactionConfig> {
 	if (!isRecord(value)) throw new Error(`${source} must contain a JSON object.`);

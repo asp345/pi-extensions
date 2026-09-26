@@ -1,20 +1,11 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { EFFORT_LEVELS, record, stringArray, writeJsonAtomic } from "../shared/json.ts";
 import type { CostOverride, MetadataOverride } from "./types.ts";
-import {
-	cacheId,
-	displayName,
-	EFFORT_LEVELS,
-	finiteTimestamp,
-	headerValidator,
-	perMillionRate,
-	record,
-	stringArray,
-} from "./validate.ts";
+import { cacheId, displayName, finiteTimestamp, headerValidator, perMillionRate } from "./validate.ts";
 
 export const CACHE_VERSION = 1;
 const CACHE_FILE = "openrouter-metadata-store.json";
@@ -51,31 +42,7 @@ export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenR
 			}
 		},
 		write: (entry) => {
-			const write = writeQueue
-				.catch(() => undefined)
-				.then(async () => {
-					const directory = dirname(path);
-					await mkdir(directory, { recursive: true, mode: 0o700 });
-					const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-					let moved = false;
-					const file = await open(temporary, "wx", 0o600);
-					try {
-						await file.writeFile(`${JSON.stringify(entry, null, 2)}\n`);
-						await file.sync();
-						await file.close();
-						await rename(temporary, path);
-						moved = true;
-						const parent = await open(directory, "r");
-						try {
-							await parent.sync();
-						} finally {
-							await parent.close();
-						}
-					} finally {
-						await file.close().catch(() => undefined);
-						if (!moved) await unlink(temporary).catch(() => undefined);
-					}
-				});
+			const write = writeQueue.catch(() => undefined).then(() => writeJsonAtomic(path, entry));
 			writeQueue = write;
 			return write;
 		},

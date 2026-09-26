@@ -1,21 +1,10 @@
+import { isRecord, toNumber } from "../../shared/json.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const BILLING_URL = "https://cli-chat-proxy.grok.com/v1/billing";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
-
-const toNumber = (value: unknown): number | undefined => {
-	if (typeof value === "number" && Number.isFinite(value)) return value;
-	if (typeof value === "string") {
-		const parsed = Number(value.trim());
-		if (Number.isFinite(parsed)) return parsed;
-	}
-	return undefined;
-};
 
 function parseIsoMs(value: unknown): number | undefined {
 	if (typeof value !== "string") return undefined;

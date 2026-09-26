@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface CommandCodeWindow {
@@ -5,9 +6,6 @@ interface CommandCodeWindow {
 	used?: unknown;
 	resetAt?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 const asWindow = (value: unknown): CommandCodeWindow | undefined => (isRecord(value) ? value : undefined);
 

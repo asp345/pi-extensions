@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { isRecord, toNumber } from "../../shared/json.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";
@@ -9,18 +10,6 @@ const JWT_AUTH_CLAIM = "https://api.openai.com/auth";
 interface JwtPayload {
 	[JWT_AUTH_CLAIM]?: { chatgpt_account_id?: string };
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
-
-const toNumber = (value: unknown): number | undefined => {
-	if (typeof value === "number" && Number.isFinite(value)) return value;
-	if (typeof value === "string") {
-		const parsed = Number(value.trim());
-		if (Number.isFinite(parsed)) return parsed;
-	}
-	return undefined;
-};
 
 function extractAccountId(token: string): string | undefined {
 	const parts = token.split(".");

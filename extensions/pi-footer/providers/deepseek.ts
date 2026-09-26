@@ -1,12 +1,10 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan } from "../quota.ts";
 
 interface DeepSeekBalanceInfo {
 	currency?: unknown;
 	total_balance?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 export const deepseekQuotaPlan: QuotaPlan = {
 	id: "deepseek",

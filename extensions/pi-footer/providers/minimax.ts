@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface MiniMaxModelRemain {
@@ -7,9 +8,6 @@ interface MiniMaxModelRemain {
 	end_time?: unknown;
 	weekly_end_time?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 export const minimaxQuotaPlan: QuotaPlan = {
 	id: "minimax",

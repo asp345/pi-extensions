@@ -1,3 +1,4 @@
+import { isRecord } from "../../shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface GlmQuotaEntry {
@@ -6,9 +7,6 @@ interface GlmQuotaEntry {
 	percentage?: unknown;
 	nextResetTime?: unknown;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 export const glmQuotaPlan: QuotaPlan = {
 	id: "glm",

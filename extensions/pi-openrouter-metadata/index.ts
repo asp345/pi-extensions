@@ -1,5 +1,6 @@
 import type { Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { readJsonResponse } from "../shared/json.ts";
 import {
 	CACHE_VERSION,
 	fileMetadataCache,
@@ -7,8 +8,10 @@ import {
 	type OpenRouterMetadataCacheEntry,
 	readInitialMetadataCache,
 } from "./cache.ts";
-import { applyMetadataOverrides, buildMetadataOverrides, readCatalog } from "./catalog.ts";
+import { applyMetadataOverrides, buildMetadataOverrides } from "./catalog.ts";
 import type { MetadataOverride } from "./types.ts";
+
+const MAX_CATALOG_BYTES = 16_000_000;
 
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_TTL_MS = 5 * 60_000;
@@ -106,7 +109,7 @@ function createOpenRouterMetadataProvider(
 				await response.body?.cancel();
 				throw new Error(`OpenRouter model refresh failed with HTTP ${response.status}.`);
 			}
-			const payload = await readCatalog(response);
+			const payload = await readJsonResponse(response, MAX_CATALOG_BYTES);
 			if (context.signal?.aborted) return;
 			const baseline = base.getModels();
 			overrides = buildMetadataOverrides(baseline, payload);

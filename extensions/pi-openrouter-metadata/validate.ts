@@ -1,21 +1,4 @@
-import type { ThinkingLevel } from "@earendil-works/pi-ai";
-
 const MAX_PRICE_PER_TOKEN_USD = 1;
-export const EFFORT_LEVELS = [
-	"minimal",
-	"low",
-	"medium",
-	"high",
-	"xhigh",
-	"max",
-] as const satisfies readonly ThinkingLevel[];
-
-export function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
 export function string(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value : undefined;
 }
@@ -31,10 +14,6 @@ export function displayName(value: unknown): string | undefined {
 		.join("")
 		.trim();
 	return clean ? clean.slice(0, 256) : undefined;
-}
-
-export function stringArray(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 export function perMillionRate(value: unknown): number | undefined {
