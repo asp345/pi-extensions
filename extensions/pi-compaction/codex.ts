@@ -7,30 +7,21 @@ import {
 	type SessionEntry,
 	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import type { CompactionConfig } from "./config.ts";
 import {
-	buildCompactionRequestBody,
-	buildReplacementHistory,
-	effectiveInputForBranch,
 	findNativeCheckpoint,
-	isJsonObject,
 	isOpenAICodexModel,
-	type JsonObject,
-	mergeFeatureHeader,
 	modelKey,
 	NATIVE_COMPACTION_KIND,
 	NATIVE_COMPACTION_VERSION,
-	type ResponseItem,
-	readCodexCompactionResponse,
-} from "./native-compaction.ts";
+} from "./checkpoint.ts";
+import type { CompactionConfig } from "./config.ts";
+import { buildReplacementHistory, effectiveInputForBranch } from "./items.ts";
+import { errorMessage, isJsonObject, type JsonObject, type ResponseItem } from "./protocol.ts";
 import { requestThroughProvider, sessionReasoning } from "./provider-request.ts";
+import { buildCompactionRequestBody, mergeFeatureHeader, readCodexCompactionResponse } from "./remote.ts";
 
 function localMarker(): string {
 	return `OpenAI Codex native compaction checkpoint (${randomUUID()}).`;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function withInput(payload: JsonObject, input: ResponseItem[]): JsonObject {

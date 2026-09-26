@@ -1,7 +1,7 @@
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { modelKey } from "./checkpoint.ts";
-import { isJsonObject } from "./protocol.ts";
+import { type CheckpointLookup, findCheckpoint, modelKey } from "./checkpoint.ts";
+import { isJsonObject, sseData } from "./protocol.ts";
 
 export const ANTHROPIC_NATIVE_COMPACTION_KIND = "anthropic-native-compaction";
 export const ANTHROPIC_NATIVE_COMPACTION_VERSION = 1;
@@ -114,14 +114,6 @@ export interface AnthropicNativeCompactionDetails {
 	toolsHash: string;
 }
 
-type AnthropicCheckpoint = {
-	entryIndex: number;
-	entryId: string;
-	details: AnthropicNativeCompactionDetails;
-};
-
-type CheckpointLookup = { status: "none" } | { status: "valid"; checkpoint: AnthropicCheckpoint };
-
 export function isAnthropicMessagesModel(model: unknown): model is Model<"anthropic-messages"> {
 	if (!isJsonObject(model)) return false;
 	return model.provider === "anthropic" && model.api === "anthropic-messages";
@@ -146,56 +138,12 @@ function parseAnthropicCompactionDetails(value: unknown): AnthropicNativeCompact
 	};
 }
 
-export function findAnthropicCheckpoint(branch: SessionEntry[]): CheckpointLookup {
-	for (let index = branch.length - 1; index >= 0; index--) {
-		const entry = branch[index];
-		if (!entry) continue;
-		if (entry.type === "compaction") {
-			if (!isJsonObject(entry.details) || entry.details.kind !== ANTHROPIC_NATIVE_COMPACTION_KIND) {
-				return { status: "none" };
-			}
-			const details = parseAnthropicCompactionDetails(entry.details);
-			if (!details) return { status: "none" };
-			return { status: "valid", checkpoint: { entryIndex: index, entryId: entry.id, details } };
-		}
-		if (entry.type === "custom" && entry.customType === ANTHROPIC_NATIVE_COMPACTION_KIND) {
-			const details = parseAnthropicCompactionDetails(entry.data);
-			if (!details) return { status: "none" };
-			return { status: "valid", checkpoint: { entryIndex: index, entryId: entry.id, details } };
-		}
-	}
-	return { status: "none" };
+export function findAnthropicCheckpoint(branch: SessionEntry[]): CheckpointLookup<AnthropicNativeCompactionDetails> {
+	const lookup = findCheckpoint(branch, ANTHROPIC_NATIVE_COMPACTION_KIND, parseAnthropicCompactionDetails);
+	return lookup.status === "invalid" ? { status: "none" } : lookup;
 }
 
 const compactionSupportByModel = new Map<string, boolean>();
-
-const FALLBACK_COMPACTION_MODEL_PATTERN = /^claude-(fable|mythos|opus|sonnet)/i;
-
-function resolveAnthropicUrl(baseUrl: string | undefined, path: string): string {
-	const base = (baseUrl?.trim() || "https://api.anthropic.com").replace(/\/+$/, "");
-	return `${base}${path}`;
-}
-
-async function fetchJson(
-	url: string,
-	init: RequestInit,
-	timeoutMs: number,
-	signal?: AbortSignal,
-): Promise<{ status: number; json: unknown }> {
-	const controller = new AbortController();
-	const timeout = setTimeout(() => controller.abort(), timeoutMs);
-	const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-	try {
-		const response = await fetch(url, { ...init, signal: combined });
-		let json: unknown;
-		try {
-			json = await response.json();
-		} catch {}
-		return { status: response.status, json };
-	} finally {
-		clearTimeout(timeout);
-	}
-}
 
 export async function modelSupportsOnDemandCompaction(
 	model: Model<Api>,
@@ -206,27 +154,21 @@ export async function modelSupportsOnDemandCompaction(
 	const key = modelKey(model);
 	const cached = compactionSupportByModel.get(key);
 	if (cached !== undefined) return cached;
-	let supported = FALLBACK_COMPACTION_MODEL_PATTERN.test(model.id);
-	try {
-		const { status, json } = await fetchJson(
-			resolveAnthropicUrl(model.baseUrl, `/v1/models/${encodeURIComponent(model.id)}`),
-			{
-				headers: {
-					accept: "application/json",
-					"anthropic-version": "2023-06-01",
-					"anthropic-beta": COMPACT_ON_DEMAND_BETA,
-					authorization: `Bearer ${apiKey}`,
-					...callerHeaders,
-				},
-			},
-			MODELS_API_TIMEOUT_MS,
-			signal,
-		);
-		if (status === 200 && isJsonObject(json) && isJsonObject(json.capabilities)) {
-			const compaction = json.capabilities.compaction;
-			supported = compaction === true || (isJsonObject(compaction) && compaction.supported === true);
-		}
-	} catch {}
+	const timeout = AbortSignal.timeout(MODELS_API_TIMEOUT_MS);
+	const response = await fetch(`${model.baseUrl.replace(/\/+$/, "")}/v1/models/${encodeURIComponent(model.id)}`, {
+		headers: {
+			accept: "application/json",
+			"anthropic-version": "2023-06-01",
+			"anthropic-beta": COMPACT_ON_DEMAND_BETA,
+			authorization: `Bearer ${apiKey}`,
+			...callerHeaders,
+		},
+		signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+	});
+	if (!response.ok) throw new Error(`Anthropic Models API returned HTTP ${response.status}.`);
+	const json: unknown = await response.json();
+	const compaction = isJsonObject(json) && isJsonObject(json.capabilities) ? json.capabilities.compaction : undefined;
+	const supported = compaction === true || (isJsonObject(compaction) && compaction.supported === true);
 	compactionSupportByModel.set(key, supported);
 	return supported;
 }
@@ -294,26 +236,13 @@ function usageFromIterations(model: Model<Api>, json: unknown): Usage | undefine
 	return usage;
 }
 
-function sseEvents(text: string): unknown[] {
-	const events: unknown[] = [];
-	for (const block of text.replace(/\r\n/g, "\n").split("\n\n")) {
-		const data = block
-			.split("\n")
-			.filter((line) => line.startsWith("data:"))
-			.map((line) => line.slice(5).trimStart())
-			.join("\n")
-			.trim();
-		if (data) events.push(JSON.parse(data));
-	}
-	return events;
-}
-
 export function readCompactionResponse(model: Model<Api>): (response: Response) => Promise<SummaryResult> {
 	return async (response) => {
 		let block: AnthropicCompactionBlock | undefined;
 		let stopReason = "unknown";
 		let usage: unknown;
-		for (const event of sseEvents(await response.text())) {
+		for (const data of sseData(await response.text())) {
+			const event: unknown = JSON.parse(data);
 			if (!isJsonObject(event)) continue;
 			if (event.type === "error") {
 				const error = isJsonObject(event.error) ? event.error.message : undefined;

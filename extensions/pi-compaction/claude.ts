@@ -1,4 +1,5 @@
 import type { Message } from "@earendil-works/pi-ai";
+import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { buildSessionProjection, convertToLlm } from "@earendil-works/pi-coding-agent";
 import {
@@ -18,13 +19,8 @@ import {
 } from "./anthropic.ts";
 import { modelKey } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
-import { withoutDeletedHeaders } from "./headers.ts";
-import { isJsonObject, type JsonObject } from "./protocol.ts";
+import { errorMessage, isJsonObject, type JsonObject } from "./protocol.ts";
 import { requestThroughProvider, sessionReasoning } from "./provider-request.ts";
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
 
 function summaryTextOf(branch: SessionEntry[], entryId: string): string | undefined {
 	const entry = branch.find((candidate) => candidate?.id === entryId);
@@ -157,7 +153,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 			if (!auth.ok || !auth.apiKey) {
 				throw new Error(auth.ok ? "Anthropic authentication is unavailable." : auth.error);
 			}
-			const callerHeaders = withoutDeletedHeaders(auth.headers) ?? {};
+			const callerHeaders = providerHeadersToRecord(auth.headers) ?? {};
 			if (!(await modelSupportsOnDemandCompaction(model, auth.apiKey, callerHeaders, event.signal))) return undefined;
 			const branch = event.branchEntries as SessionEntry[];
 			const messages = messagesBeforeCut(branch, event.preparation.firstKeptEntryId);

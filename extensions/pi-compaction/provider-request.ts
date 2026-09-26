@@ -1,4 +1,5 @@
 import type { Api, Context, FetchFunction, Model, ThinkingLevel, Transport } from "@earendil-works/pi-ai";
+import { sleep } from "@earendil-works/pi-ai/utils/sleep";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isJsonObject, type JsonObject } from "./protocol.ts";
 
@@ -43,20 +44,6 @@ function retryAfterMs(response: Response): number | undefined {
 	return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
 }
 
-async function delay(ms: number, signal: AbortSignal): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const onAbort = () => {
-			clearTimeout(timer);
-			reject(signal.reason instanceof Error ? signal.reason : new Error("Compaction aborted"));
-		};
-		const timer = setTimeout(() => {
-			signal.removeEventListener("abort", onAbort);
-			resolve();
-		}, ms);
-		signal.addEventListener("abort", onAbort, { once: true });
-	});
-}
-
 async function send<T>(
 	input: Parameters<FetchFunction>[0],
 	init: RequestInit,
@@ -76,7 +63,7 @@ async function send<T>(
 			const retryable = error instanceof RetryableResponseError || error instanceof TypeError;
 			if (error instanceof RequestFailure || signal.aborted || !retryable || attempt === MAX_ATTEMPTS) throw error;
 		}
-		await delay(Math.min(wait ?? 1000 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS), signal);
+		await sleep(Math.min(wait ?? 1000 * 2 ** (attempt - 1), MAX_RETRY_DELAY_MS), signal);
 	}
 }
 

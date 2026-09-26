@@ -49,7 +49,7 @@ Requests carrying the block need beta `compact-2026-09-04`; the Anthropic provid
 
 Unlike text compaction, the server-written swap keeps the recent turns valid without replaying their thinking blocks, provided the system prompt and tools are unchanged since the swap. The extension records both at compaction time and retires the checkpoint when either drifts, falling back to text history and excluding the block from the next summarize request. A model change or a disabled `nativeClaude` flag also retires the checkpoint.
 
-Native compaction applies only to models reporting `capabilities.compaction` on the Models API, with a static family fallback. A failed summary request (including a `refusal` stop reason) falls back to Pi prompt-based text compaction instead of cancelling compaction.
+Native compaction applies only to models reporting `capabilities.compaction` on the Models API. The result is cached per model for the process lifetime; a failed Models API request is not cached. A failed Models API request or summary request (including a `refusal` stop reason) falls back to Pi prompt-based text compaction instead of cancelling compaction.
 
 ## Automatic compaction
 

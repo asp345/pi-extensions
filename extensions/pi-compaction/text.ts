@@ -1,4 +1,4 @@
-import type { Api, Model } from "@earendil-works/pi-ai";
+import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import {
 	buildSessionContext,
 	compact,
@@ -14,14 +14,11 @@ import {
 	findAnthropicCheckpoint,
 	isAnthropicMessagesModel,
 } from "./anthropic.ts";
+import { findNativeCheckpoint, isOpenAICodexModel } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
-import { getOpencodeSessionHeaders, withoutDeletedHeaders } from "./headers.ts";
-import { findNativeCheckpoint, isOpenAICodexModel } from "./native-compaction.ts";
+import { getOpencodeSessionHeaders } from "./headers.ts";
+import { errorMessage } from "./protocol.ts";
 import { sessionReasoning } from "./provider-request.ts";
-
-function isOpenAICompletionsModel(model: Model<Api>): boolean {
-	return model.api === "openai-completions";
-}
 
 export type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
 
@@ -40,10 +37,6 @@ function findBoundaryQuote(branch: SessionEntry[], firstKeptEntryId: string): st
 		}
 	}
 	return undefined;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
@@ -73,12 +66,12 @@ export default function registerTextCompaction(pi: ExtensionAPI, getConfig: () =
 			const sessionId = ctx.sessionManager.getSessionId();
 			const headers = {
 				...getOpencodeSessionHeaders(requestModel, sessionId),
-				...withoutDeletedHeaders(auth.headers),
+				...providerHeadersToRecord(auth.headers),
 			};
 			const customInstructions = event.customInstructions
 				? `${event.customInstructions}\n\n${COMMAND_INSTRUCTIONS}`
 				: COMMAND_INSTRUCTIONS;
-			if (isOpenAICompletionsModel(model)) {
+			if (model.api === "openai-completions") {
 				const preparation = event.preparation;
 				const branch = event.branchEntries as SessionEntry[];
 				const boundary = findBoundaryQuote(branch, preparation.firstKeptEntryId);
