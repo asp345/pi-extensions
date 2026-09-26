@@ -1,10 +1,11 @@
-import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-export type ContextStyle = "pct-window" | "used-window" | "pct" | "used" | "bar";
-export type SpeedStyle = "t/s" | "tok/s" | "T/s" | "liveAt";
+const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
+const SPEED_STYLES = ["t/s", "tok/s", "T/s", "liveAt"] as const;
+export type ContextStyle = (typeof CONTEXT_STYLES)[number];
+export type SpeedStyle = (typeof SPEED_STYLES)[number];
 export type DisplayKey =
 	| "input"
 	| "output"
@@ -53,11 +54,6 @@ export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 	speedStyle: "t/s",
 };
 
-export const DEFAULT_CONFIG: PiFooterConfig = {
-	ttl: 300,
-	display: DEFAULT_DISPLAY_CONFIG,
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -69,43 +65,34 @@ function parseDisplay(value: unknown): DisplayConfig {
 	for (const key of Object.keys(items) as DisplayKey[]) {
 		if (typeof savedItems[key] === "boolean") items[key] = savedItems[key];
 	}
-	const contextStyle = ["pct-window", "used-window", "pct", "used", "bar"].includes(String(source.contextStyle))
-		? (source.contextStyle as ContextStyle)
-		: DEFAULT_DISPLAY_CONFIG.contextStyle;
-	const speedStyle = ["t/s", "tok/s", "T/s", "liveAt"].includes(String(source.speedStyle))
-		? (source.speedStyle as SpeedStyle)
-		: DEFAULT_DISPLAY_CONFIG.speedStyle;
+	const contextStyle =
+		CONTEXT_STYLES.find((style) => style === source.contextStyle) ?? DEFAULT_DISPLAY_CONFIG.contextStyle;
+	const speedStyle = SPEED_STYLES.find((style) => style === source.speedStyle) ?? DEFAULT_DISPLAY_CONFIG.speedStyle;
 	return { items, contextStyle, speedStyle };
 }
 
 function parseConfig(value: unknown): PiFooterConfig {
 	const source = isRecord(value) ? value : {};
-	const ttl = typeof source.ttl === "number" && source.ttl >= 10 ? source.ttl : DEFAULT_CONFIG.ttl;
+	const ttl = typeof source.ttl === "number" && source.ttl >= 10 ? source.ttl : 300;
 	return {
 		ttl,
 		display: parseDisplay(source.display),
 	};
 }
 
-async function readJson(file: string): Promise<unknown> {
-	return JSON.parse(await readFile(file, "utf-8")) as unknown;
-}
+export class FooterConfigStore {
+	config = parseConfig({});
 
-export async function loadConfig(): Promise<PiFooterConfig> {
-	try {
-		if (existsSync(CONFIG_FILE)) return parseConfig(await readJson(CONFIG_FILE));
-		return {
-			...DEFAULT_CONFIG,
-			display: { ...DEFAULT_DISPLAY_CONFIG, items: { ...DEFAULT_DISPLAY_CONFIG.items } },
-		};
-	} catch {
-		return {
-			...DEFAULT_CONFIG,
-			display: { ...DEFAULT_DISPLAY_CONFIG, items: { ...DEFAULT_DISPLAY_CONFIG.items } },
-		};
+	async load(): Promise<void> {
+		try {
+			this.config = parseConfig(JSON.parse(await readFile(CONFIG_FILE, "utf-8")));
+		} catch {
+			this.config = parseConfig({});
+		}
 	}
-}
 
-export async function saveConfig(config: PiFooterConfig): Promise<void> {
-	await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+	async save(config: PiFooterConfig): Promise<void> {
+		this.config = config;
+		await writeFile(CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+	}
 }

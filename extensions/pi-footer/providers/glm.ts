@@ -1,6 +1,4 @@
-import type { TokenPlan } from "../quota.ts";
-import { formatQuotaSegments, formatTokenPlanDisplay, type QuotaSegments } from "../quota.ts";
-import { quotaColor } from "./quota-color.ts";
+import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface GlmQuotaEntry {
 	type?: unknown;
@@ -12,29 +10,13 @@ interface GlmQuotaEntry {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const glmQuotaPlan: TokenPlan = {
+export const glmQuotaPlan: QuotaPlan = {
 	id: "glm",
-	name: "GLM (Zhipu)",
 	matchProviders: ["zhipu-cn", "zhipu", "glm", "bigmodel", "zai-coding-cn"],
 	apiKeyEnv: "GLM_API_KEY",
-	baseUrl: "https://open.bigmodel.cn",
-	quotaPath: "/api/monitor/usage/quota/limit",
-	authHeader: (key) => ({ Authorization: key }),
-	fetchQuota: async (plan: TokenPlan, key: string) => {
-		const headers: Record<string, string> = {
-			...plan.authHeader(key),
-			"Content-Type": "application/json",
-		};
-		const url = plan.baseUrl + plan.quotaPath;
-		const r = await fetch(url, {
-			method: "GET",
-			headers,
-			signal: AbortSignal.timeout(5000),
-		});
-		if (!r.ok) throw new Error(`GLM quota query HTTP ${r.status}`);
-		return await r.json();
-	},
-	format: (data: unknown) => {
+	fetch: ({ accessToken }) =>
+		getJson("https://open.bigmodel.cn/api/monitor/usage/quota/limit", { Authorization: accessToken }),
+	format: (data) => {
 		const payload = isRecord(data) ? data : {};
 		const usage = isRecord(payload.data) ? payload.data : {};
 		const limits = Array.isArray(usage.limits)
@@ -46,7 +28,7 @@ export const glmQuotaPlan: TokenPlan = {
 			return value === "tokens_limit" || value === "credit_limit";
 		};
 		const entries = limits.filter((entry) => isQuota(entry.type));
-		if (entries.length === 0) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
+		if (entries.length === 0) return null;
 
 		// Classify windows by unit rather than array order, matching cc-switch's Zhipu tier parser:
 		// unit 3 is the rolling 5h window; unit 6 is the weekly window.
@@ -69,26 +51,16 @@ export const glmQuotaPlan: TokenPlan = {
 		}
 
 		// percentage is the used percentage, so remaining is 100 minus percentage.
-		const intervalRemaining = fiveHour
-			? 100 - (typeof fiveHour.percentage === "number" ? fiveHour.percentage : 0)
-			: null;
-		const weeklyRemaining = weekly ? 100 - (typeof weekly.percentage === "number" ? weekly.percentage : 0) : null;
-		const now = Date.now();
-		const resets = entries
-			.map((entry) => entry.nextResetTime)
-			.filter((time): time is number => typeof time === "number" && time > now);
-		const nearestReset = resets.length > 0 ? Math.min(...resets) : null;
-
-		let formatted: { display: string; segments: QuotaSegments };
-		if (intervalRemaining !== null && weeklyRemaining !== null) {
-			formatted = formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset);
-		} else {
-			const segments: QuotaSegments = {};
-			if (intervalRemaining !== null) segments.fiveHour = `5h: ${Math.round(intervalRemaining)}%`;
-			if (weeklyRemaining !== null) segments.week = `W: ${Math.round(weeklyRemaining)}%`;
-			formatted = { display: formatQuotaSegments(segments) || "No data", segments };
-		}
-		const color = quotaColor(intervalRemaining, weeklyRemaining);
-		return { modelPrefix: "", ...formatted, color };
+		const remaining = (entry: GlmQuotaEntry | null) =>
+			entry ? 100 - (typeof entry.percentage === "number" ? entry.percentage : 0) : null;
+		const intervalRemaining = remaining(fiveHour);
+		const weeklyRemaining = remaining(weekly);
+		return {
+			segments: quotaSegments(
+				{ fiveHour: intervalRemaining, week: weeklyRemaining },
+				entries.map((entry) => entry.nextResetTime),
+			),
+			color: quotaColor(intervalRemaining, weeklyRemaining),
+		};
 	},
 };

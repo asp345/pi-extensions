@@ -1,5 +1,4 @@
-import { formatTokenPlanDisplay, type TokenPlan } from "../quota.ts";
-import { quotaColor } from "./quota-color.ts";
+import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface MiniMaxModelRemain {
 	model_name?: unknown;
@@ -9,41 +8,22 @@ interface MiniMaxModelRemain {
 	weekly_end_time?: unknown;
 }
 
-interface MiniMaxResponse {
-	base_resp?: {
-		status_code?: unknown;
-		status_msg?: unknown;
-	};
-	model_remains?: unknown;
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const minimaxQuotaPlan: TokenPlan = {
+export const minimaxQuotaPlan: QuotaPlan = {
 	id: "minimax",
-	name: "MiniMax",
 	matchProviders: ["minimax_local", "minimax-cn", "minimax"],
 	apiKeyEnv: "MINIMAX_API_KEY",
-	baseUrl: "https://api.minimaxi.com",
-	quotaPath: "/v1/api/openplatform/coding_plan/remains",
-	authHeader: (key) => ({ Authorization: `Bearer ${key}` }),
-	fetchQuota: async (plan: TokenPlan, key: string) => {
-		const url = `https://api.minimaxi.com${plan.quotaPath}`;
-		const r = await fetch(url, {
-			method: "GET",
-			headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-			signal: AbortSignal.timeout(5000),
+	fetch: async ({ accessToken }) => {
+		const data = await getJson("https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains", {
+			Authorization: `Bearer ${accessToken}`,
 		});
-		const data = (await r.json()) as MiniMaxResponse;
-		if (data.base_resp?.status_code === 0) return data;
-		const statusMessage =
-			isRecord(data.base_resp) && typeof data.base_resp.status_msg === "string"
-				? data.base_resp.status_msg
-				: "MiniMax returned an error";
-		throw new Error(statusMessage);
+		const status = isRecord(data) && isRecord(data.base_resp) ? data.base_resp : {};
+		if (status.status_code === 0) return data;
+		throw new Error(typeof status.status_msg === "string" ? status.status_msg : "MiniMax returned an error");
 	},
-	format: (data: unknown) => {
+	format: (data) => {
 		const response = isRecord(data) ? data : {};
 		const models = Array.isArray(response.model_remains)
 			? response.model_remains.filter((model): model is MiniMaxModelRemain => isRecord(model))
@@ -52,20 +32,13 @@ export const minimaxQuotaPlan: TokenPlan = {
 			models.find((model) => model.model_name === "general") ||
 			models.find((model) => typeof model.model_name === "string" && model.model_name.includes("M2")) ||
 			models[0];
-		if (!m) return { modelPrefix: "", display: "No data", segments: {}, color: "err" as const };
+		if (!m) return null;
 		const intervalRemaining =
 			typeof m.current_interval_remaining_percent === "number" ? m.current_interval_remaining_percent : 0;
 		const weeklyRemaining =
 			typeof m.current_weekly_remaining_percent === "number" ? m.current_weekly_remaining_percent : 0;
-		const now = Date.now();
-		const resets = [m.end_time, m.weekly_end_time].filter(
-			(time): time is number => typeof time === "number" && time > now,
-		);
-		const nearestReset = resets.length > 0 ? Math.min(...resets) : null;
-		const formatted = formatTokenPlanDisplay(intervalRemaining, weeklyRemaining, nearestReset);
 		return {
-			modelPrefix: "",
-			...formatted,
+			segments: quotaSegments({ fiveHour: intervalRemaining, week: weeklyRemaining }, [m.end_time, m.weekly_end_time]),
 			color: quotaColor(intervalRemaining, weeklyRemaining),
 		};
 	},

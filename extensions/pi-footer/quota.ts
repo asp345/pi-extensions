@@ -1,62 +1,68 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ResolvedCredential } from "./types.ts";
 
-type QuotaSegmentKey = "fiveHour" | "day" | "week" | "month" | "balance" | "reset";
+type PercentKey = "fiveHour" | "day" | "week" | "month";
 
-export type QuotaSegments = Partial<Record<QuotaSegmentKey, string>>;
+export type QuotaSegments = Partial<Record<PercentKey | "balance" | "reset", string>>;
 
-const QUOTA_SEGMENT_ORDER: readonly QuotaSegmentKey[] = ["fiveHour", "day", "week", "month", "balance", "reset"];
+export type QuotaColor = "ok" | "warn" | "err";
 
-interface QuotaDisplay {
-	modelPrefix: string;
-	display: string;
+export interface QuotaDisplay {
 	segments: QuotaSegments;
-	color: "ok" | "warn" | "err";
+	color: QuotaColor;
 }
 
-export interface TokenPlan {
+export interface QuotaPlan {
 	id: string;
-	name: string;
 	matchProviders: string[];
-	apiKeyEnv: string;
-	baseUrl: string;
-	quotaPath: string;
-	authHeader: (key: string) => Record<string, string>;
-	fetchQuota: (plan: TokenPlan, key: string) => Promise<unknown>;
-	fetchQuotaWithContext?: (ctx: ExtensionContext) => Promise<unknown>;
-	format: (data: unknown) => QuotaDisplay;
+	apiKeyEnv?: string;
+	fetch(credential: ResolvedCredential, signal?: AbortSignal): Promise<unknown>;
+	format(data: unknown): QuotaDisplay | null;
 }
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const PERCENT_LABELS: Record<PercentKey, string> = { fiveHour: "5h", day: "D", week: "W", month: "M" };
 
 export function formatDuration(ms: number): string {
 	if (ms <= 0) return "";
-	if (ms >= 24 * 60 * 60 * 1000) {
-		const days = Math.floor(ms / (24 * 60 * 60 * 1000));
-		const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+	if (ms >= DAY_MS) {
+		const days = Math.floor(ms / DAY_MS);
+		const hours = Math.floor((ms % DAY_MS) / HOUR_MS);
 		if (days >= 7) return `${Math.floor(days / 7)}w ${days % 7}d`;
 		return `${days}d ${hours}h`;
 	}
-	const hours = Math.floor(ms / (60 * 60 * 1000));
-	const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000));
+	const hours = Math.floor(ms / HOUR_MS);
+	const minutes = Math.floor((ms % HOUR_MS) / (60 * 1000));
 	return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
 }
 
-export function formatQuotaSegments(segments: QuotaSegments): string {
-	return QUOTA_SEGMENT_ORDER.map((key) => segments[key])
-		.filter((value): value is string => Boolean(value))
-		.join(" ");
+export function quotaSegments(
+	remaining: Partial<Record<PercentKey, number | null>>,
+	resets: readonly unknown[] = [],
+): QuotaSegments {
+	const segments: QuotaSegments = {};
+	for (const key of Object.keys(PERCENT_LABELS) as PercentKey[]) {
+		const value = remaining[key];
+		if (typeof value === "number") segments[key] = `${PERCENT_LABELS[key]}: ${Math.round(value)}%`;
+	}
+	const now = Date.now();
+	const nearest = Math.min(...resets.filter((time): time is number => typeof time === "number" && time > now));
+	if (nearest - now < 30 * DAY_MS) segments.reset = formatDuration(nearest - now);
+	return segments;
 }
 
-export function formatTokenPlanDisplay(
-	fiveHourRemaining: number,
-	weeklyRemaining: number,
-	nearestResetMs?: number | null,
-): Pick<QuotaDisplay, "display" | "segments"> {
-	const segments: QuotaSegments = {
-		fiveHour: `5h: ${Math.round(fiveHourRemaining)}%`,
-		week: `W: ${Math.round(weeklyRemaining)}%`,
-	};
-	if (nearestResetMs) {
-		const remaining = nearestResetMs - Date.now();
-		if (remaining > 0 && remaining < 30 * 24 * 60 * 60 * 1000) segments.reset = formatDuration(remaining);
-	}
-	return { display: formatQuotaSegments(segments), segments };
+export function quotaColor(...remainings: Array<number | null | undefined>): QuotaColor {
+	const minimum = Math.min(...remainings.filter((value): value is number => typeof value === "number"));
+	if (minimum < 10) return "err";
+	if (minimum < 20) return "warn";
+	return "ok";
+}
+
+export async function getJson(url: string, headers: Record<string, string>): Promise<unknown> {
+	const response = await fetch(url, {
+		headers: { ...headers, "Content-Type": "application/json" },
+		signal: AbortSignal.timeout(5000),
+	});
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	return response.json();
 }
