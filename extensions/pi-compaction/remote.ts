@@ -1,6 +1,5 @@
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import { cloneItem, isJsonObject, isResponseItem, type JsonObject, type ResponseItem, sseData } from "./protocol.ts";
-import { RetryableResponseError } from "./provider-request.ts";
 
 const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
 
@@ -55,7 +54,7 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 		if (!isJsonObject(event)) continue;
 		if (event.type === "error") {
 			if (typeof event.message !== "string" || !event.message.trim()) {
-				throw new RetryableResponseError("OpenAI Codex compaction failed.");
+				throw new Error("OpenAI Codex compaction failed.");
 			}
 			throw new Error(event.message);
 		}
@@ -63,7 +62,7 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 			throw new Error("OpenAI Codex compaction ended with response.failed.");
 		}
 		if (event.type === "response.incomplete") {
-			throw new RetryableResponseError("OpenAI Codex compaction ended with response.incomplete.");
+			throw new Error("OpenAI Codex compaction ended with response.incomplete.");
 		}
 		if (event.type === "response.output_item.done" && isResponseItem(event.item) && event.item.type === "compaction") {
 			compactionItems.push(event.item);
@@ -74,7 +73,7 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 		}
 	}
 	if (!completed) {
-		throw new RetryableResponseError("OpenAI Codex compaction stream closed before response.completed.");
+		throw new Error("OpenAI Codex compaction stream closed before response.completed.");
 	}
 	if (compactionItems.length !== 1) {
 		throw new Error(`OpenAI Codex returned ${compactionItems.length} compaction items; expected exactly one.`);

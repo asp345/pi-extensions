@@ -3,7 +3,8 @@
  * runtime so new releases appear without code changes. The service lists
  * tiers as separate ids (gemini-3.7-flash-low/-medium/-high) each with its
  * own thinkingBudget; this module collapses them into base models with a
- * tiers list. Falls back to a static snapshot when the network is down.
+ * tiers list. A static snapshot is the baseline catalog before the first
+ * successful refresh.
  */
 
 import { ANTIGRAVITY_ENDPOINT } from "./constants.ts";
@@ -114,8 +115,7 @@ export function getLiveModelCatalog(): AgyModelDefinition[] | undefined {
 }
 
 /**
- * Refresh the model catalog from the network. Throws on failure; the caller
- * keeps the previous catalog in that case.
+ * Refresh the model catalog from the network. Throws on failure.
  */
 export async function refreshModelCatalog(accessToken: string, signal?: AbortSignal): Promise<AgyModelDefinition[]> {
 	const response = await fetchWithAgyCliTransport(

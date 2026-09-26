@@ -47,34 +47,29 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 				contextWindow: model.contextWindow,
 				maxTokens: model.maxTokens,
 			}));
-			const fallback = storedModels?.length ? storedModels : staticModels;
+			const current = storedModels?.length ? storedModels : staticModels;
 			const checkedAt = context.stored?.checkedAt ?? 0;
 			if (
 				!context.allowNetwork ||
 				(!context.force && Date.now() - checkedAt < MODEL_CATALOG_TTL_MS) ||
 				context.credential?.type !== "oauth"
 			) {
-				return fallback;
+				return current;
 			}
 
-			try {
-				const refreshed = toProviderModels(await refreshModelCatalog(context.credential.access, context.signal));
-				const refreshedAt = Date.now();
-				await context.publish({
-					persist: {
-						checkedAt: refreshedAt,
-						models: refreshed.map((model) => ({
-							...model,
-							api: "google-generative-ai",
-							provider: PROVIDER_ID,
-							baseUrl: "https://cloudcode-pa.googleapis.com",
-						})),
-					},
-				});
-				return refreshed;
-			} catch {
-				return fallback;
-			}
+			const refreshed = toProviderModels(await refreshModelCatalog(context.credential.access, context.signal));
+			await context.publish({
+				persist: {
+					checkedAt: Date.now(),
+					models: refreshed.map((model) => ({
+						...model,
+						api: "google-generative-ai",
+						provider: PROVIDER_ID,
+						baseUrl: "https://cloudcode-pa.googleapis.com",
+					})),
+				},
+			});
+			return refreshed;
 		},
 		oauth: {
 			name: "Google Antigravity",
