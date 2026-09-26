@@ -1,6 +1,6 @@
 {
-	"name": "pi-compact-ui",
-	"version": "0.1.1",
+	"name": "@asp345/pi-compact-ui",
+	"version": "0.0.0",
 	"description": "Uniform one-line tool call rendering for the Pi Coding Agent",
 	"license": "UNLICENSED",
 	"type": "module",
@@ -12,7 +12,6 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {
