@@ -34,7 +34,7 @@ const OUTPUT_ROWS = 10;
 const REFRESH_MS = 1000;
 
 interface TaskMessageDetails {
-	events: TaskEvent[];
+	event: TaskEvent;
 }
 
 const EVENT_LABELS: Record<TaskKind, string> = {
@@ -52,18 +52,17 @@ const EVENT_COLORS: Record<TaskKind, "accent" | "success" | "error" | "warning">
 };
 
 export const renderTaskEvent: MessageRenderer<TaskMessageDetails> = (message, options, theme) => {
-	const events = message.details?.events;
-	if (!Array.isArray(events) || events.length === 0) return undefined;
-	const entries = events.map(({ task, output }) => {
-		const kind = taskKind(task);
-		return {
-			marker: theme.fg(EVENT_COLORS[kind], "◆"),
-			label: EVENT_LABELS[kind],
-			meta: [task.id, oneLine(task.command), formatDuration(elapsed(task))],
-			body: options.expanded ? output.trim() || "(no output)" : undefined,
-		};
-	});
-	return new MessageLines(entries, "toolOutput", theme);
+	const event = message.details?.event;
+	if (!event) return undefined;
+	const { task, output } = event;
+	const kind = taskKind(task);
+	const entry = {
+		marker: theme.fg(EVENT_COLORS[kind], "◆"),
+		label: EVENT_LABELS[kind],
+		meta: [task.id, oneLine(task.command), formatDuration(elapsed(task))],
+		body: options.expanded ? output.trim() || "(no output)" : undefined,
+	};
+	return new MessageLines([entry], "toolOutput", theme);
 };
 
 function countKinds(tasks: readonly TaskSnapshot[]): Record<TaskKind, number> {
@@ -107,7 +106,6 @@ export class BackgroundUI {
 		(theme) =>
 			`${theme.fg("accent", "bg tasks")}  ${countsText(visibleTasks(this.runtime), theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`,
 	);
-	private readonly pendingEvents = new Map<string, TaskEvent>();
 
 	constructor(
 		private readonly pi: ExtensionAPI,
@@ -120,36 +118,12 @@ export class BackgroundUI {
 	}
 
 	handleEvent(event: TaskEvent): void {
-		if (event.type === "running") {
-			this.active?.ui.notify(eventText(event), "info");
-			try {
-				this.pi.sendMessage<TaskMessageDetails>(
-					{ customType: MESSAGE, content: eventText(event), details: { events: [event] }, display: false },
-					{ deliverAs: "followUp", triggerTurn: true },
-				);
-			} catch {}
-			return;
-		}
-		this.pendingEvents.set(event.task.id, event);
-		void this.flushEvents();
-	}
-
-	async flushEvents(): Promise<void> {
-		const events = [...this.pendingEvents.values()].filter((event) => this.runtime.get(event.task.id));
-		this.pendingEvents.clear();
-		if (!events.length) return;
-		const content = events.map(eventText).join("\n");
-		// Follow-up enters after the run finishes its pending work. A steer would be
-		// picked up by the catch-up poll right after compaction and continue the
-		// session mid-run; when idle it triggers a run.
-		try {
-			await this.pi.sendMessage<TaskMessageDetails>(
-				{ customType: MESSAGE, content, details: { events }, display: true },
-				{ deliverAs: "followUp", triggerTurn: true },
-			);
-		} catch {
-			for (const event of events) if (this.runtime.get(event.task.id)) this.pendingEvents.set(event.task.id, event);
-		}
+		const running = event.type === "running";
+		if (running) this.active?.ui.notify(eventText(event), "info");
+		this.pi.sendMessage<TaskMessageDetails>(
+			{ customType: MESSAGE, content: eventText(event), details: { event }, display: !running },
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
 	}
 
 	refresh(): void {
@@ -163,7 +137,6 @@ export class BackgroundUI {
 	clearWidget(): void {
 		if (this.active) this.widget.clear(this.active);
 		this.active = null;
-		this.pendingEvents.clear();
 	}
 
 	listText(): string {

@@ -41,7 +41,6 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		publishState(runtime.runningNotifiedTaskIds());
 	};
 	pi.on("session_start", attach);
-	pi.on("agent_settled", async () => ui.flushEvents());
 	pi.registerMessageRenderer(MESSAGE, renderTaskEvent);
 	pi.on("session_shutdown", () => {
 		runtime.shutdown();
