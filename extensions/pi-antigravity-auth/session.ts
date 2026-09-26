@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { AgyRequestSessionStore } from "./agy/index.ts";
 
-export const requestSessions = new AgyRequestSessionStore("");
+export const requestSessions = new AgyRequestSessionStore();
 export const refreshByAccessToken = new Map<string, string>();
 
 export function requestSessionKey(conversation: string, credential: string): string {

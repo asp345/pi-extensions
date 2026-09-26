@@ -21,7 +21,7 @@ const PROVIDER_ID = "antigravity";
 export default function antigravityAuth(pi: ExtensionAPI): void {
 	const toProviderModels = (definitions: AgyModelDefinition[]) =>
 		definitions.map((model) => ({
-			id: model.id.replace(/^antigravity-/, ""),
+			id: model.id,
 			name: model.name,
 			reasoning: model.reasoning,
 			thinkingLevelMap: modelThinkingLevelMap(model),

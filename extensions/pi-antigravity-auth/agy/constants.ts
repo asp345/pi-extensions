@@ -15,10 +15,6 @@ export const ANTIGRAVITY_SCOPES = [
 ];
 
 export const ANTIGRAVITY_ENDPOINT = "https://daily-cloudcode-pa.googleapis.com";
-export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
-	"https://daily-cloudcode-pa.googleapis.com",
-	"https://cloudcode-pa.googleapis.com",
-] as const;
 
 /** Project id sent when the account returns none (workspace/business accounts). */
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID = "rising-fact-p41fc";
