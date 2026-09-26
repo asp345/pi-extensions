@@ -17,15 +17,14 @@ function string(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function number(value: unknown): number | undefined {
-	const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
-}
-
 /** Prices may legitimately be zero; negatives are provider sentinels for variable pricing. */
 function rate(value: unknown): number | undefined {
 	const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function number(value: unknown): number | undefined {
+	return rate(value) || undefined;
 }
 
 function withTimeout(signal: AbortSignal | undefined): AbortSignal {
@@ -161,8 +160,6 @@ export function parseModelMetadata(value: unknown, multiplier: PriceMultiplier =
 		cost: pricing(raw, multiplier),
 		contextWindow,
 		maxTokens,
-		contextDetected: contextWindow !== undefined,
-		maxTokensDetected: maxTokens !== undefined,
 	};
 }
 
