@@ -1,13 +1,19 @@
 import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import {
-	cell,
-	cellEnd,
+	type Column,
+	fitLine,
+	frame,
+	highlight,
+	listSelection,
+	MessageLines,
+	StatusLineWidget,
+	tableRow,
+} from "../shared/ui.ts";
+import {
 	duration,
 	elapsed,
 	eventText,
-	fitLine,
-	frame,
 	lastOutputLine,
 	oneLine,
 	type TaskKind,
@@ -45,46 +51,19 @@ const EVENT_COLORS: Record<TaskKind, "accent" | "success" | "error" | "warning">
 	stopped: "warning",
 };
 
-class TaskEventLines implements Component {
-	constructor(
-		private readonly events: TaskEvent[],
-		private readonly expanded: boolean,
-		private readonly theme: Theme,
-	) {}
-
-	render(width: number): string[] {
-		const theme = this.theme;
-		const separator = theme.fg("dim", " · ");
-		const lines: string[] = [];
-		for (const { task, output } of this.events) {
-			const kind = taskKind(task);
-			const head = `${theme.fg(EVENT_COLORS[kind], "◆")} ${theme.fg("muted", EVENT_LABELS[kind])}`;
-			const meta = [task.id, oneLine(task.command), duration(elapsed(task))].map((part) => theme.fg("dim", part));
-			lines.push(fitLine(` ${[head, ...meta].join(separator)}`, width, theme));
-			if (!this.expanded) continue;
-			const body = output.trim() || "(no output)";
-			const textWidth = Math.max(1, width - 4);
-			body
-				.split("\n")
-				.flatMap((line) => {
-					const wrapped = wrapTextWithAnsi(line, textWidth);
-					return wrapped.length > 0 ? wrapped : [""];
-				})
-				.forEach((line, index) => {
-					const prefix = index === 0 ? theme.fg("dim", "╰─ ") : "   ";
-					lines.push(truncateToWidth(` ${prefix}${theme.fg("toolOutput", line)}`, width, ""));
-				});
-		}
-		return lines;
-	}
-
-	invalidate(): void {}
-}
-
 export const renderTaskEvent: MessageRenderer<TaskMessageDetails> = (message, options, theme) => {
 	const events = message.details?.events;
 	if (!Array.isArray(events) || events.length === 0) return undefined;
-	return new TaskEventLines(events, options.expanded, theme);
+	const entries = events.map(({ task, output }) => {
+		const kind = taskKind(task);
+		return {
+			marker: theme.fg(EVENT_COLORS[kind], "◆"),
+			label: EVENT_LABELS[kind],
+			meta: [task.id, oneLine(task.command), duration(elapsed(task))],
+			body: options.expanded ? output.trim() || "(no output)" : undefined,
+		};
+	});
+	return new MessageLines(entries, "toolOutput", theme);
 };
 
 function countKinds(tasks: readonly TaskSnapshot[]): Record<TaskKind, number> {
@@ -103,22 +82,7 @@ function countsText(tasks: readonly TaskSnapshot[], theme: Theme): string {
 	return parts.join("  ");
 }
 
-function highlight(line: string, width: number, theme: Theme): string {
-	return cell(line, width)
-		.split("\x1b[0m")
-		.map((segment) => theme.bg("selectedBg", segment))
-		.join("\x1b[0m");
-}
-
-interface Layout {
-	task: number;
-	command: number;
-	status: number;
-	output: number;
-	time: number;
-}
-
-function layout(tasks: readonly TaskSnapshot[], width: number, now: number): Layout {
+function layout(tasks: readonly TaskSnapshot[], width: number, now: number): Column[] {
 	const task = tasks.reduce((size, item) => Math.max(size, visibleWidth(item.id) + 2), 6);
 	const time = tasks.reduce((size, item) => Math.max(size, duration(elapsed(item, now)).length), 4);
 	const status = Math.min(
@@ -127,24 +91,22 @@ function layout(tasks: readonly TaskSnapshot[], width: number, now: number): Lay
 	);
 	const rest = Math.max(0, width - task - time - status - 8);
 	const command = Math.max(0, Math.ceil(rest / 2));
-	return { task, command, status, output: Math.max(0, rest - command), time };
-}
-
-function tableRow(columns: string[], widths: Layout): string {
-	const [task = "", command = "", status = "", output = "", time = ""] = columns;
 	return [
-		cell(task, widths.task),
-		cell(command, widths.command),
-		cell(status, widths.status),
-		cell(output, widths.output),
-		cellEnd(time, widths.time),
-	].join("  ");
+		{ width: task },
+		{ width: command },
+		{ width: status },
+		{ width: Math.max(0, rest - command) },
+		{ width: time, alignEnd: true },
+	];
 }
 
 export class BackgroundUI {
 	private active: ExtensionContext | null = null;
-	private requestRender: (() => void) | null = null;
-	private widgetMounted = false;
+	private readonly widget = new StatusLineWidget(
+		WIDGET,
+		(theme) =>
+			`${theme.fg("accent", "bg tasks")}  ${countsText(visibleTasks(this.runtime), theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`,
+	);
 	private readonly pendingEvents = new Map<string, TaskEvent>();
 
 	constructor(
@@ -191,44 +153,16 @@ export class BackgroundUI {
 	}
 
 	refresh(): void {
-		const ctx = this.active;
-		if (!ctx) return;
-		if (!visibleTasks(this.runtime).some((task) => task.status === "running")) {
-			if (this.widgetMounted) ctx.ui.setWidget(WIDGET, undefined);
-			this.widgetMounted = false;
-			this.requestRender = null;
-			return;
-		}
-		if (this.widgetMounted) {
-			this.requestRender?.();
-			return;
-		}
-		this.widgetMounted = true;
-		ctx.ui.setWidget(
-			WIDGET,
-			(tui, theme) => {
-				this.requestRender = () => tui.requestRender();
-				return {
-					dispose: () => {
-						this.requestRender = null;
-						this.widgetMounted = false;
-					},
-					invalidate() {},
-					render: (width: number) => {
-						const line = `${theme.fg("accent", "bg tasks")}  ${countsText(visibleTasks(this.runtime), theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`;
-						return [fitLine(line, width, theme)];
-					},
-				};
-			},
-			{ placement: "belowEditor" },
+		if (!this.active) return;
+		this.widget.update(
+			this.active,
+			visibleTasks(this.runtime).some((task) => task.status === "running"),
 		);
 	}
 
 	clearWidget(): void {
-		this.active?.ui.setWidget(WIDGET, undefined);
+		if (this.active) this.widget.clear(this.active);
 		this.active = null;
-		this.requestRender = null;
-		this.widgetMounted = false;
 		this.pendingEvents.clear();
 	}
 
@@ -244,7 +178,6 @@ export class BackgroundUI {
 		}
 		await ctx.ui.custom<undefined>(
 			(tui, theme, _keys, done) => {
-				let selectedId = initialId;
 				let outputScroll = 0;
 				let follow = true;
 				const ticker = setInterval(() => {
@@ -259,12 +192,8 @@ export class BackgroundUI {
 						...tasks.filter((task) => task.status !== "running"),
 					];
 				};
-				const selected = (): TaskSnapshot | undefined => {
-					const tasks = ordered();
-					const task = tasks.find((item) => item.id === selectedId) ?? tasks[0];
-					selectedId = task?.id;
-					return task;
-				};
+				const selection = listSelection(ordered, initialId);
+				const selected = selection.selected;
 				const outputLines = (task: TaskSnapshot): string[] => {
 					const lines = (this.runtime.output(task.id) ?? "").trim().split(/\r?\n/);
 					return lines.some(Boolean) ? lines : ["(no output yet)"];
@@ -272,9 +201,7 @@ export class BackgroundUI {
 				const maxScroll = (task: TaskSnapshot | undefined): number =>
 					task ? Math.max(0, outputLines(task).length - OUTPUT_ROWS) : 0;
 				const move = (delta: number): void => {
-					const tasks = ordered();
-					const index = tasks.findIndex((item) => item.id === selected()?.id);
-					selectedId = tasks[Math.max(0, Math.min(tasks.length - 1, index + delta))]?.id;
+					selection.move(delta);
 					follow = true;
 					tui.requestRender();
 				};

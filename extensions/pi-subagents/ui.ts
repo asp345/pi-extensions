@@ -1,5 +1,6 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { type Column, fitLine, frame, highlight, listSelection, StatusLineWidget, tableRow } from "../shared/ui.ts";
 import { preview } from "./delegation.ts";
 import type { SubagentManager } from "./manager.ts";
 import { type AgentRecord, type AgentStatus, agentStatus } from "./types.ts";
@@ -31,20 +32,6 @@ function countsText(counts: Counts, theme: Theme): string {
 	return parts.join("  ");
 }
 
-export function fitLine(line: string, width: number, theme: Theme): string {
-	if (visibleWidth(line) <= width) return line;
-	return `${truncateToWidth(line, Math.max(0, width - 1), "")}${theme.fg("dim", "…")}`;
-}
-
-function cell(value: string, width: number): string {
-	const truncated = truncateToWidth(value, width, "");
-	return truncated + " ".repeat(Math.max(0, width - visibleWidth(truncated)));
-}
-
-function cellEnd(value: string, width: number): string {
-	return " ".repeat(Math.max(0, width - visibleWidth(value))) + value;
-}
-
 function age(since: number, now: number): string {
 	const seconds = Math.max(0, Math.floor((now - since) / 1000));
 	if (seconds < 60) return `${seconds}s`;
@@ -74,34 +61,7 @@ function rowIcon(status: AgentStatus, theme: Theme): string {
 	return theme.bold(theme.fg("dim", STATUS_ROW_ICON));
 }
 
-function highlight(line: string, width: number, theme: Theme): string {
-	const padded = cell(line, width);
-	return padded
-		.split("\x1b[0m")
-		.map((segment) => theme.bg("selectedBg", segment))
-		.join("\x1b[0m");
-}
-
-function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
-	const inner = Math.max(1, width - 2);
-	const label = theme.fg("accent", theme.bold(` ${title} `));
-	const fill = "─".repeat(Math.max(0, inner - 1 - visibleWidth(label)));
-	return [
-		truncateToWidth(`${theme.fg("border", "╭─")}${label}${theme.fg("border", `${fill}╮`)}`, width, ""),
-		...lines.map((line) => `${theme.fg("border", "│")}${cell(` ${line}`, inner)}${theme.fg("border", "│")}`),
-		theme.fg("border", `╰${"─".repeat(inner)}╯`),
-	];
-}
-
-interface Layout {
-	name: number;
-	model: number;
-	activity: number;
-	cost: number;
-	age: number;
-}
-
-function layout(records: readonly AgentRecord[], width: number, now: number): Layout {
+function layout(records: readonly AgentRecord[], width: number, now: number): Column[] {
 	const cost = records.reduce((size, record) => Math.max(size, `$${record.cost.toFixed(2)}`.length), 4);
 	const ageWidth = records.reduce((size, record) => Math.max(size, age(record.createdAt, now).length), 3);
 	const available = Math.max(0, width - cost - ageWidth - 4);
@@ -109,25 +69,22 @@ function layout(records: readonly AgentRecord[], width: number, now: number): La
 	const model = Math.min(desiredModel, 32, Math.max(0, available - 12));
 	const name = Math.min(28, Math.max(0, available - model - 2));
 	const activity = Math.max(0, available - model - name - 4);
-	return { name, model, activity, cost, age: ageWidth };
-}
-
-function tableRow(columns: string[], widths: Layout): string {
-	const [name = "", model = "", activity = "", cost = "", ageText = ""] = columns;
-	const cells = [cell(name, widths.name), cell(model, widths.model)];
-	if (widths.activity > 0) cells.push(cell(activity, widths.activity));
-	cells.push(`${cellEnd(cost, widths.cost)}  ${cellEnd(ageText, widths.age)}`);
-	return cells.join("  ");
-}
-
-interface WidgetTui {
-	requestRender(force?: boolean): void;
+	return [
+		{ width: name },
+		{ width: model },
+		{ width: activity },
+		{ width: cost, alignEnd: true },
+		{ width: ageWidth, alignEnd: true },
+	];
 }
 
 export class AgentsUI {
 	private context?: ExtensionContext;
-	private widgetTui?: WidgetTui;
-	private mounted = false;
+	private readonly widget = new StatusLineWidget(
+		WIDGET,
+		(theme) =>
+			`${theme.fg("accent", "subagents")}  ${countsText(countStatuses(this.manager.list()), theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`,
+	);
 
 	constructor(private readonly manager: SubagentManager) {}
 
@@ -137,51 +94,19 @@ export class AgentsUI {
 	}
 
 	detach(): void {
-		this.context?.ui.setWidget(WIDGET, undefined);
+		if (this.context) this.widget.clear(this.context);
 		this.context = undefined;
-		this.widgetTui = undefined;
-		this.mounted = false;
 	}
 
 	update(): void {
 		const ctx = this.context;
 		if (!ctx?.hasUI) return;
-		const counts = countStatuses(this.manager.list());
-		if (counts.running === 0) {
-			if (this.mounted) ctx.ui.setWidget(WIDGET, undefined);
-			this.mounted = false;
-			this.widgetTui = undefined;
-			return;
-		}
-		if (this.mounted) {
-			this.widgetTui?.requestRender();
-			return;
-		}
-		this.mounted = true;
-		ctx.ui.setWidget(
-			WIDGET,
-			(tui, theme) => {
-				this.widgetTui = tui;
-				return {
-					render: (width: number) => {
-						const current = countStatuses(this.manager.list());
-						const line = `${theme.fg("accent", "subagents")}  ${countsText(current, theme)}  ${theme.fg("dim", `· ${SHORTCUT}`)}`;
-						return [fitLine(line, width, theme)];
-					},
-					invalidate() {},
-					dispose: () => {
-						this.widgetTui = undefined;
-					},
-				};
-			},
-			{ placement: "belowEditor" },
-		);
+		this.widget.update(ctx, countStatuses(this.manager.list()).running > 0);
 	}
 
 	async open(ctx: ExtensionContext): Promise<void> {
 		await ctx.ui.custom<undefined>(
 			(tui, theme, _keys, done) => {
-				let selectedId: string | undefined;
 				const ticker = setInterval(() => {
 					if (this.manager.list().some((record) => record.running)) tui.requestRender();
 				}, REFRESH_MS);
@@ -191,16 +116,9 @@ export class AgentsUI {
 					const records = this.manager.list();
 					return SECTIONS.flatMap((status) => records.filter((record) => agentStatus(record) === status));
 				};
-				const selected = (): AgentRecord | undefined => {
-					const records = ordered();
-					const record = records.find((item) => item.id === selectedId) ?? records[0];
-					selectedId = record?.id;
-					return record;
-				};
+				const { selected, move: moveSelection } = listSelection(ordered);
 				const move = (delta: number): void => {
-					const records = ordered();
-					const index = records.findIndex((item) => item.id === selected()?.id);
-					selectedId = records[Math.max(0, Math.min(records.length - 1, index + delta))]?.id;
+					moveSelection(delta);
 					tui.requestRender();
 				};
 

@@ -1,12 +1,12 @@
-import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
-import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { MessageLines } from "../shared/ui.ts";
 import { childMessageContent, type NoticeKind, noticeContent } from "./delegation.ts";
 import { SUBAGENTS_STATE_EVENT } from "./events.ts";
 import { SubagentManager } from "./manager.ts";
 import { parseStoredRecord, restoreRecord, STATE_KIND, storeRecord } from "./state.ts";
 import { formatRecord, registerSubagentTools } from "./tools.ts";
 import type { StoredAgent } from "./types.ts";
-import { AgentsUI, COMMAND, fitLine, SHORTCUT } from "./ui.ts";
+import { AgentsUI, COMMAND, SHORTCUT } from "./ui.ts";
 
 const MESSAGE_KIND = "subagent-message";
 const NOTICE_KIND = "subagent-notice";
@@ -29,37 +29,6 @@ const NOTICE_LABELS: Record<NoticeKind, string> = {
 	failed: "Subagent failed",
 	cancelled: "Subagent stopped",
 };
-
-class AgentMessageLine implements Component {
-	constructor(
-		private readonly marker: string,
-		private readonly label: string,
-		private readonly participant: string,
-		private readonly body: string | undefined,
-		private readonly theme: Theme,
-	) {}
-
-	render(width: number): string[] {
-		const theme = this.theme;
-		const header = [`${this.marker} ${theme.fg("muted", this.label)}`, theme.fg("dim", this.participant)].join(
-			theme.fg("dim", " · "),
-		);
-		const lines = [fitLine(` ${header}`, width, theme)];
-		if (!this.body) return lines;
-		const textWidth = Math.max(1, width - 4);
-		const wrapped = this.body.split("\n").flatMap((line) => {
-			const parts = wrapTextWithAnsi(line, textWidth);
-			return parts.length > 0 ? parts : [""];
-		});
-		wrapped.forEach((line, index) => {
-			const prefix = index === 0 ? theme.fg("dim", "╰─ ") : "   ";
-			lines.push(truncateToWidth(` ${prefix}${theme.fg("customMessageText", line)}`, width, ""));
-		});
-		return lines;
-	}
-
-	invalidate(): void {}
-}
 
 export default function subagents(pi: ExtensionAPI): void {
 	const manager: SubagentManager = new SubagentManager({
@@ -100,11 +69,16 @@ export default function subagents(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<MessageDetails>(MESSAGE_KIND, (message, options, theme) => {
 		const details = message.details;
 		if (!details) return undefined;
-		return new AgentMessageLine(
-			theme.fg("accent", "◆"),
-			"Agent message received",
-			`child:${details.name}`,
-			options.expanded ? details.message : undefined,
+		return new MessageLines(
+			[
+				{
+					marker: theme.fg("accent", "◆"),
+					label: "Agent message received",
+					meta: [`child:${details.name}`],
+					body: options.expanded ? details.message : undefined,
+				},
+			],
+			"customMessageText",
 			theme,
 		);
 	});
@@ -112,11 +86,16 @@ export default function subagents(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<NoticeDetails>(NOTICE_KIND, (message, options, theme) => {
 		const details = message.details;
 		if (!details) return undefined;
-		return new AgentMessageLine(
-			theme.fg(details.kind === "failed" ? "error" : "warning", "◆"),
-			NOTICE_LABELS[details.kind],
-			`child:${details.name}`,
-			options.expanded ? details.body : undefined,
+		return new MessageLines(
+			[
+				{
+					marker: theme.fg(details.kind === "failed" ? "error" : "warning", "◆"),
+					label: NOTICE_LABELS[details.kind],
+					meta: [`child:${details.name}`],
+					body: options.expanded ? details.body : undefined,
+				},
+			],
+			"customMessageText",
 			theme,
 		);
 	});

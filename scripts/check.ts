@@ -38,7 +38,7 @@ const extensionDirs = (await readdir(resolve(root, "extensions"), { withFileType
 	.map((entry) => entry.name);
 
 for (const name of extensionDirs) {
-	const extManifest = await readJson<Manifest>(`extensions/${name}/package.json`);
+	const extManifest = name === "shared" ? {} : await readJson<Manifest>(`extensions/${name}/package.json`);
 	const allowed = new Set([
 		...Object.keys(extManifest.dependencies ?? {}),
 		...Object.keys(extManifest.devDependencies ?? {}),

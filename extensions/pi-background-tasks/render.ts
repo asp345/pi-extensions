@@ -1,5 +1,4 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
 
 export type TaskKind = "running" | "done" | "failed" | "stopped";
@@ -78,31 +77,6 @@ export function lastOutputLine(output: string | undefined): string {
 			.filter((line) => line.trim())
 			.pop() ?? ""
 	);
-}
-
-export function fitLine(line: string, width: number, theme: Theme): string {
-	if (visibleWidth(line) <= width) return line;
-	return `${truncateToWidth(line, Math.max(0, width - 1), "")}${theme.fg("dim", "…")}`;
-}
-
-export function cell(text: string, width: number): string {
-	const value = truncateToWidth(text, width, "");
-	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
-}
-
-export function cellEnd(text: string, width: number): string {
-	return " ".repeat(Math.max(0, width - visibleWidth(text))) + text;
-}
-
-export function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
-	const inner = Math.max(1, width - 2);
-	const label = theme.fg("accent", theme.bold(` ${title} `));
-	const fill = "─".repeat(Math.max(0, inner - 1 - visibleWidth(label)));
-	return [
-		truncateToWidth(`${theme.fg("border", "╭─")}${label}${theme.fg("border", `${fill}╮`)}`, width, ""),
-		...lines.map((line) => `${theme.fg("border", "│")}${cell(` ${line}`, inner)}${theme.fg("border", "│")}`),
-		theme.fg("border", `╰${"─".repeat(inner)}╯`),
-	];
 }
 
 export function visibleTasks(runtime: BackgroundRuntime): TaskSnapshot[] {
