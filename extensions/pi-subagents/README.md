@@ -32,6 +32,8 @@ A subagent is running from `agent_start` until its session has settled and none 
 - `running`: an episode is active.
 - `inactive`: no open session. The session is closed when an episode ends, when the subagent is stopped, and on parent shutdown; records restored after a parent restart are inactive.
 
+Every change emits `pi-subagents:state` on `pi.events` with `{ runningAgentIds: string[] }`. `pi-goal` holds its continuation prompt while this list is not empty.
+
 ## Sessions and persistence
 
 - The subagent session is created with `createAgentSessionServices` and `createAgentSessionFromServices` for the parent's cwd and project trust. It loads the same extensions, skills, and context files as the parent, so compaction (including `pi-compaction`) runs in the subagent as in the parent. Prompt templates and themes are not loaded.

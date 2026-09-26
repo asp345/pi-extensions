@@ -5,7 +5,7 @@ Background shell tasks for Pi without blocking the turn. Completion is delivered
 ## Tools
 
 * `background_task` with `action: start|list|read|stop|clear`, optional `command`, `id`, `heartbeat` (minutes, default 30), `timeout` (total runtime in seconds)
-* `bash` hybrid - commands remain in the foreground for up to 1 minute, `alt+h` hands off the most recent foreground command immediately, and `timeout` covers total foreground and background runtime; `guard.ts` blocks `sleep >=10s` or unknown durations.
+* `bash` hybrid - commands remain in the foreground for up to 1 minute, `alt+h` hands off the most recent foreground command immediately, and `timeout` covers total foreground and background runtime; `guard.ts` blocks `sleep` totals of 30s or more and unknown durations.
 
 Tool calls have no renderers of their own; `pi-compact-ui` renders them.
 
