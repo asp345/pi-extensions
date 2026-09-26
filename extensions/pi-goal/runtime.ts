@@ -29,10 +29,9 @@ function assistantText(messages: readonly unknown[]) {
 }
 
 export interface GoalContext {
-	cwd: string;
-	isIdle?: () => boolean;
-	hasPendingMessages?: () => boolean;
-	abort?: () => void;
+	isIdle: () => boolean;
+	hasPendingMessages: () => boolean;
+	abort: () => void;
 	ui: {
 		notify: (message: string, level?: "info" | "warning" | "error") => void;
 		setStatus: (key: string, value: string | undefined) => void;
@@ -163,7 +162,7 @@ export class GoalRuntime {
 			return;
 		}
 		if (this.runningBackgroundTaskIds.size > 0) this.scheduleBackgroundCheckIn(ctx);
-		if (ctx.isIdle?.() !== true || ctx.hasPendingMessages?.()) return;
+		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 		if (this.backgroundCheckInDue && this.runningBackgroundTaskIds.size > 0) {
 			this.backgroundCheckInDue = false;
 			await this.sendOwnedPrompt("continue", "Check in on the active /goal and its running background work.");
@@ -197,29 +196,34 @@ export class GoalRuntime {
 		this.setGoal(undefined, ctx);
 		if (abortOwnedRun) {
 			try {
-				ctx.abort?.();
+				ctx.abort();
 			} catch {}
 		}
 	}
 
 	pause(ctx: GoalContext, reason = "paused by user") {
-		const goal = this.goal;
 		this.clearBackgroundCheckIn();
-		if (goal?.status !== "active") return false;
-		this.cancelContinuation();
+		if (this.goal?.status !== "active") return false;
 		try {
-			ctx.abort?.();
+			ctx.abort();
 		} catch {}
-		goal.status = "paused";
-		goal.reason = reason;
-		goal.updatedAt = Date.now();
-		this.persist();
-		this.updateStatus(ctx);
+		this.halt(ctx, "paused", reason);
 		ctx.ui.notify(`Goal paused: ${reason}. Run /goal resume to continue.`, "warning");
 		return true;
 	}
 
-	recordAutomaticTurn(_ctx: GoalContext, message: unknown) {
+	halt(ctx: GoalContext, status: "paused" | "blocked", reason: string) {
+		const goal = this.goal;
+		if (!goal) return;
+		this.cancelContinuation();
+		goal.status = status;
+		goal.reason = reason;
+		goal.updatedAt = Date.now();
+		this.persist();
+		this.updateStatus(ctx);
+	}
+
+	recordAutomaticTurn(message: unknown) {
 		const goal = this.goal;
 		if (goal?.status !== "active" || !this.currentRunAutomatic) return;
 		if (isRecord(message) && message.role === "assistant" && message.stopReason !== "aborted") {

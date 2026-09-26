@@ -30,11 +30,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 			if (rejected) return rejectedResult("Goal completion rejected", rejected, requestedId);
 
 			const objective = runtime.goal?.objective ?? "";
-			if (runtime.goal) {
-				runtime.goal.status = "complete";
-				runtime.goal.updatedAt = Date.now();
-				runtime.persist();
-			}
 			runtime.setGoal(undefined, ctx);
 			ctx.ui.notify(`Goal complete: ${safeText(objective, 160)}`, "info");
 			return {
@@ -65,14 +60,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				(!reason ? "reason is empty" : !evidence ? "evidence is empty" : undefined);
 			if (rejected) return rejectedResult("goal_blocked rejected", rejected, requestedId);
 
-			runtime.cancelContinuation();
-			if (runtime.goal) {
-				runtime.goal.status = "blocked";
-				runtime.goal.reason = reason;
-				runtime.goal.updatedAt = Date.now();
-				runtime.persist();
-				runtime.updateStatus(ctx);
-			}
+			runtime.halt(ctx, "blocked", reason);
 			ctx.ui.notify(`Goal blocked: ${safeText(reason, 160)}`, "warning");
 			return {
 				content: [{ type: "text" as const, text: `Goal blocked: ${reason}` }],
@@ -167,7 +155,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		runtime.beforeAgentStart(event.prompt);
 	});
 	pi.on("tool_call", () => runtime.markToolCall());
-	pi.on("message_end", (event, ctx) => runtime.recordAutomaticTurn(ctx, event.message));
+	pi.on("message_end", (event) => runtime.recordAutomaticTurn(event.message));
 	pi.on("agent_end", (event) => runtime.finishAgent(event.messages));
 	pi.on("agent_settled", async (_event, ctx) => runtime.settled(ctx));
 	pi.on("session_before_compact", (_event) => {
