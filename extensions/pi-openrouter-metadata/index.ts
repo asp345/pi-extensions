@@ -10,17 +10,11 @@ import {
 import { applyMetadataOverrides, buildMetadataOverrides, readCatalog } from "./catalog.ts";
 import type { MetadataOverride } from "./types.ts";
 
-export type { OpenRouterMetadataCache, OpenRouterMetadataCacheEntry } from "./cache.ts";
-export { fileMetadataCache, readPiOpenRouterModels } from "./cache.ts";
-export { mergeOpenRouterModels } from "./catalog.ts";
-export type { MetadataOverride } from "./types.ts";
-
 const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const CACHE_TTL_MS = 5 * 60_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const BASE_PROVIDER = "__piConfigOpenRouterMetadataBase" as const;
 
-type Fetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type WrappedProvider = Provider<"openai-completions"> & { [BASE_PROVIDER]?: Provider<"openai-completions"> };
 
 export function reportOpenRouterRefreshFailure(error: unknown, notify: (message: string) => void): void {
@@ -35,16 +29,14 @@ export function reportOpenRouterRefreshFailure(error: unknown, notify: (message:
 	} catch {}
 }
 
-export function createOpenRouterMetadataProvider(
+function createOpenRouterMetadataProvider(
 	provider: Provider<"openai-completions">,
-	fetcher: Fetcher = globalThis.fetch,
-	cache: OpenRouterMetadataCache = fileMetadataCache(),
-	initialCache?: OpenRouterMetadataCacheEntry,
+	cache: OpenRouterMetadataCache,
+	initialCache: OpenRouterMetadataCacheEntry | undefined,
 	options: {
-		backgroundRefresh?: boolean;
-		onModelsChanged?: () => void;
-		onRefreshError?: (error: unknown) => void;
-	} = {},
+		onModelsChanged: () => void;
+		onRefreshError: (error: unknown) => void;
+	},
 ): Provider<"openai-completions"> {
 	const base = (provider as WrappedProvider)[BASE_PROVIDER] ?? provider;
 	let overrides = initialCache
@@ -88,13 +80,13 @@ export function createOpenRouterMetadataProvider(
 		if (baseFailure) throw baseFailure.error;
 		if (!context.allowNetwork || context.signal?.aborted) return;
 		if (!context.force && Date.now() - checkedAt < CACHE_TTL_MS) return;
-		if (!context.force && networkRefresh) return options.backgroundRefresh ? undefined : networkRefresh;
+		if (!context.force && networkRefresh) return;
 
 		const execute = async () => {
 			if (context.signal?.aborted) return;
 			const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
 			const signal = context.signal ? AbortSignal.any([context.signal, timeout]) : timeout;
-			const response = await fetcher(CATALOG_URL, {
+			const response = await fetch(CATALOG_URL, {
 				headers: {
 					accept: "application/json",
 					...(etag ? { "if-none-match": etag } : {}),
@@ -127,10 +119,10 @@ export function createOpenRouterMetadataProvider(
 		const predecessor = networkRefresh;
 		const pending = (predecessor ? predecessor.catch(() => undefined) : Promise.resolve()).then(execute);
 		networkRefresh = pending;
-		if (!context.force && options.backgroundRefresh) {
+		if (!context.force) {
 			void pending
-				.then(() => options.onModelsChanged?.())
-				.catch((error: unknown) => options.onRefreshError?.(error))
+				.then(() => options.onModelsChanged())
+				.catch((error: unknown) => options.onRefreshError(error))
 				.finally(() => {
 					if (networkRefresh === pending) networkRefresh = undefined;
 				});
@@ -165,8 +157,7 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 		const current = ctx.modelRegistry.getProvider("openrouter") as WrappedProvider | undefined;
 		const base = current?.[BASE_PROVIDER] ?? current;
 		if (!base) return;
-		const provider = createOpenRouterMetadataProvider(base, globalThis.fetch, cache, readInitialMetadataCache(), {
-			backgroundRefresh: true,
+		const provider = createOpenRouterMetadataProvider(base, cache, readInitialMetadataCache(), {
 			onModelsChanged: () => {
 				if (!active || generation !== activeGeneration) return;
 				try {

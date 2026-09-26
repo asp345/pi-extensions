@@ -4,7 +4,7 @@ import { Type } from "typebox";
 import { delegationPrompt } from "./delegation.ts";
 import type { SubagentManager } from "./manager.ts";
 import { resolveModel } from "./models.ts";
-import { type AgentRecord, agentStatus, THINKING_LEVELS, type ThinkingLevel } from "./types.ts";
+import { type AgentRecord, agentStatus, THINKING_LEVELS } from "./types.ts";
 
 function result(text: string, details: Record<string, unknown>): AgentToolResult<Record<string, unknown>> {
 	return { content: [{ type: "text", text }], details };
@@ -79,7 +79,7 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 				name,
 				prompt: delegationPrompt(params.prompt, params.context, ctx.cwd),
 				model: resolveModel(params.model, ctx),
-				thinking: (params.thinking as ThinkingLevel | undefined) ?? (ctx.thinkingLevel as ThinkingLevel | undefined),
+				thinking: params.thinking ?? ctx.thinkingLevel,
 			});
 			return result(
 				`Started subagent ${record.name} (${record.id}) with ${record.model ?? "the parent model"}. Its replies arrive as messages from child:${record.name}; do not poll or wait.`,

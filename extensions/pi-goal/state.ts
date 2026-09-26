@@ -4,7 +4,7 @@ import type { CustomEntry, ExtensionContext } from "@earendil-works/pi-coding-ag
 export const GOAL_STATE_ENTRY = "goal-state";
 export const MAX_OBJECTIVE = 4_000;
 
-type GoalStatus = "active" | "paused" | "blocked" | "complete";
+type GoalStatus = "active" | "paused" | "blocked";
 
 export interface GoalState {
 	id: string;
@@ -62,8 +62,8 @@ function parseState(value: unknown): GoalState | undefined {
 		return undefined;
 	}
 
-	const status = normalizeStatus(raw.status);
-	if (status === "complete") return undefined;
+	const status = raw.status;
+	if (status !== "active" && status !== "paused" && status !== "blocked") return undefined;
 	const now = Date.now();
 	return {
 		id: raw.id,
@@ -77,13 +77,6 @@ function parseState(value: unknown): GoalState | undefined {
 		nudgeSent: raw.nudgeSent === true,
 		reason: typeof raw.reason === "string" ? raw.reason : undefined,
 	};
-}
-
-function normalizeStatus(value: unknown): GoalStatus {
-	if (value === "active" || value === "paused" || value === "blocked" || value === "complete") {
-		return value;
-	}
-	return "paused";
 }
 
 function finiteNumber(value: unknown, fallback: number) {

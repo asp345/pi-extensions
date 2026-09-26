@@ -1,6 +1,7 @@
 import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { childMessageContent, type NoticeKind, noticeContent } from "./delegation.ts";
+import { SUBAGENTS_STATE_EVENT } from "./events.ts";
 import { SubagentManager } from "./manager.ts";
 import { parseStoredRecord, restoreRecord, STATE_KIND, storeRecord } from "./state.ts";
 import { formatRecord, registerSubagentTools } from "./tools.ts";
@@ -62,7 +63,14 @@ class AgentMessageLine implements Component {
 
 export default function subagents(pi: ExtensionAPI): void {
 	const manager: SubagentManager = new SubagentManager({
-		changed: () => ui.update(),
+		changed: () => {
+			ui.update();
+			const runningAgentIds = manager
+				.list()
+				.filter((record) => record.running)
+				.map((record) => record.id);
+			pi.events.emit(SUBAGENTS_STATE_EVENT, { runningAgentIds });
+		},
 		persist: (record) => pi.appendEntry(STATE_KIND, storeRecord(record)),
 		message: (record, message) =>
 			pi.sendMessage<MessageDetails>(

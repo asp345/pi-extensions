@@ -14,12 +14,12 @@ import type { ThinkingLevel } from "./types.ts";
 
 const PARENT_ONLY_TOOLS = ["question", "goal_complete", "goal_blocked"];
 
-export const CHILD_GUIDELINES = [
+const CHILD_GUIDELINES = [
 	"You are a subagent launched by a parent agent. The parent does not see your text output; it receives only what you send with send_message.",
 	"When the task calls for an answer, send the complete answer with send_message before you finish. Send each finding once; do not repeat earlier messages. You may continue cleanup after sending.",
 ];
 
-export interface ChildSessionOptions {
+interface ChildSessionOptions {
 	cwd: string;
 	trusted: boolean;
 	sessionFile?: string;

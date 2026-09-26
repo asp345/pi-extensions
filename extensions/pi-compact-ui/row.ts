@@ -27,7 +27,7 @@ export interface ToolRowState {
 	endedAt?: number;
 }
 
-export type ToolRowStatus = "queued" | "running" | "done" | "error";
+type ToolRowStatus = "queued" | "running" | "done" | "error";
 
 export function rowStatus(row: ToolRowState): ToolRowStatus {
 	if (row.result?.isError) return "error";
@@ -36,7 +36,7 @@ export function rowStatus(row: ToolRowState): ToolRowStatus {
 	return "queued";
 }
 
-export function firstString(value: unknown): string | undefined {
+function firstString(value: unknown): string | undefined {
 	if (typeof value === "string") return value.trim() ? value : undefined;
 	const items = Array.isArray(value) ? value : typeof value === "object" && value !== null ? Object.values(value) : [];
 	for (const item of items) {
@@ -59,7 +59,7 @@ function plain(value: string): string {
 	return stripVTControlCharacters(value).replace(/\r/gu, "").replace(/\t/gu, INDENT);
 }
 
-export function formatDuration(ms: number): string {
+function formatDuration(ms: number): string {
 	return `${Math.floor(ms / 1000)}s`;
 }
 

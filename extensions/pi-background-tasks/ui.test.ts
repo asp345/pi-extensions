@@ -11,7 +11,6 @@ function exitEvent(): TaskEvent {
 		task: {
 			id: "bg-1",
 			command: "printf done",
-			title: "printf done",
 			notify: true,
 			heartbeatMs: 1_800_000,
 			cwd: process.cwd(),
@@ -22,7 +21,6 @@ function exitEvent(): TaskEvent {
 			lastOutputAt: 2,
 			status: "completed",
 			exitCode: 0,
-			outputBytes: 5,
 			timedOut: false,
 			stopReason: null,
 		},

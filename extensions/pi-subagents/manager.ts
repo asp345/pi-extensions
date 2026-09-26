@@ -6,21 +6,21 @@ import { closeChildSession, createChildSession } from "./child.ts";
 import { type NoticeKind, parentMessagePrompt, preview } from "./delegation.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";
 
-export interface ManagerHooks {
+interface ManagerHooks {
 	changed(): void;
 	persist(record: AgentRecord): void;
 	message(record: AgentRecord, message: string): void;
 	notice(record: AgentRecord, kind: NoticeKind, body: string | undefined): void;
 }
 
-export interface LaunchInput {
+interface LaunchInput {
 	name: string;
 	prompt: string;
 	model?: Model<Api>;
 	thinking?: ThinkingLevel;
 }
 
-export type SendOutcome = "steered" | "started" | "resumed";
+type SendOutcome = "steered" | "started" | "resumed";
 
 function childSessionDir(parentSessionFile: string): string {
 	return join(dirname(parentSessionFile), `${basename(parentSessionFile, ".jsonl")}.subagents`);

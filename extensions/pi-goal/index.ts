@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
+import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "../pi-subagents/events.ts";
 import { type GoalContext, GoalRuntime } from "./runtime.ts";
 import { createGoal, type GoalState, loadGoal, MAX_OBJECTIVE, rejection, resumeGoal } from "./state.ts";
 
@@ -30,11 +31,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 			if (rejected) return rejectedResult("Goal completion rejected", rejected, requestedId);
 
 			const objective = runtime.goal?.objective ?? "";
-			if (runtime.goal) {
-				runtime.goal.status = "complete";
-				runtime.goal.updatedAt = Date.now();
-				runtime.persist();
-			}
 			runtime.setGoal(undefined, ctx);
 			ctx.ui.notify(`Goal complete: ${safeText(objective, 160)}`, "info");
 			return {
@@ -65,14 +61,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 				(!reason ? "reason is empty" : !evidence ? "evidence is empty" : undefined);
 			if (rejected) return rejectedResult("goal_blocked rejected", rejected, requestedId);
 
-			runtime.cancelContinuation();
-			if (runtime.goal) {
-				runtime.goal.status = "blocked";
-				runtime.goal.reason = reason;
-				runtime.goal.updatedAt = Date.now();
-				runtime.persist();
-				runtime.updateStatus(ctx);
-			}
+			runtime.halt(ctx, "blocked", reason);
 			ctx.ui.notify(`Goal blocked: ${safeText(reason, 160)}`, "warning");
 			return {
 				content: [{ type: "text" as const, text: `Goal blocked: ${reason}` }],
@@ -144,7 +133,12 @@ export default function goalExtension(pi: ExtensionAPI) {
 	const unsubscribeBackgroundTasks = pi.events.on(BACKGROUND_TASKS_STATE_EVENT, (data) => {
 		const state = parseBackgroundTasksState(data);
 		if (!state) return;
-		void runtime.setRunningBackgroundTasks(state.runningTaskIds, activeContext);
+		void runtime.setRunningWork("background-tasks", state.runningTaskIds, activeContext);
+	});
+	const unsubscribeSubagents = pi.events.on(SUBAGENTS_STATE_EVENT, (data) => {
+		const state = parseSubagentsState(data);
+		if (!state) return;
+		void runtime.setRunningWork("subagents", state.runningAgentIds, activeContext);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -158,6 +152,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		runtime.shutdown();
 		if (activeContext === ctx) activeContext = undefined;
 		unsubscribeBackgroundTasks();
+		unsubscribeSubagents();
 		ctx.ui.setStatus("goal", undefined);
 	});
 	pi.on("input", (event) => {
@@ -167,7 +162,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		runtime.beforeAgentStart(event.prompt);
 	});
 	pi.on("tool_call", () => runtime.markToolCall());
-	pi.on("message_end", (event, ctx) => runtime.recordAutomaticTurn(ctx, event.message));
+	pi.on("message_end", (event) => runtime.recordAutomaticTurn(event.message));
 	pi.on("agent_end", (event) => runtime.finishAgent(event.messages));
 	pi.on("agent_settled", async (_event, ctx) => runtime.settled(ctx));
 	pi.on("session_before_compact", (_event) => {

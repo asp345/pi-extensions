@@ -3,7 +3,7 @@ import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { removeModelsStoreProviders } from "./config.ts";
 import { discoverProviderModels } from "./discovery.ts";
-import type { CustomModelConfig, CustomProviderConfig, CustomProvidersFile, ModelMetadata } from "./types.ts";
+import type { CustomProviderConfig, CustomProvidersFile, ModelMetadata } from "./types.ts";
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from "./types.ts";
 
 const BUILTIN_PROVIDERS = new Set<string>(getBuiltinProviders());
@@ -25,34 +25,19 @@ function assigned<T extends object>(value: T | undefined): Partial<T> {
 }
 
 export function toProviderModel(
-	model: CustomModelConfig,
+	metadata: ModelMetadata,
 	providerCompat?: CustomProviderConfig["compat"],
 ): ProviderModelConfig {
-	const compat = { ...CUSTOM_PROVIDER_COMPAT, ...assigned(providerCompat), ...assigned(model.compat) };
-	return {
-		id: model.id,
-		name: model.name ?? model.id,
-		reasoning: model.reasoning ?? true,
-		thinkingLevelMap: model.thinkingLevelMap ? { ...model.thinkingLevelMap } : undefined,
-		input: model.input?.includes("image") ? ["text", "image"] : ["text"],
-		cost: model.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
-		maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
-		headers: model.headers ? { ...model.headers } : undefined,
-		compat: compat as ProviderModelConfig["compat"],
-	};
-}
-function metadataModel(metadata: ModelMetadata): CustomModelConfig {
 	return {
 		id: metadata.id,
 		name: metadata.name ?? metadata.id,
 		reasoning: metadata.reasoning ?? true,
 		thinkingLevelMap: metadata.thinkingLevelMap ? { ...metadata.thinkingLevelMap } : undefined,
-		input: metadata.input ?? ["text"],
-		cost: metadata.cost,
+		input: metadata.input?.includes("image") ? ["text", "image"] : ["text"],
+		cost: metadata.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: metadata.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 		maxTokens: metadata.maxTokens ?? DEFAULT_MAX_TOKENS,
-		limitSource: metadata.contextWindow || metadata.maxTokens ? "detected" : "default",
+		compat: { ...CUSTOM_PROVIDER_COMPAT, ...assigned(providerCompat) } as ProviderModelConfig["compat"],
 	};
 }
 
@@ -89,10 +74,8 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 		};
 
 		if (!context.allowNetwork || context.signal.aborted) return offline();
-		if (!context.force && Date.now() - checkedAt < REFRESH_TTL_MS) return offline();
-		if (!context.force && persisted?.checkedAt !== undefined && Date.now() - persisted.checkedAt < REFRESH_TTL_MS) {
-			return offline();
-		}
+		const lastChecked = Math.max(checkedAt, persisted?.checkedAt ?? Number.NEGATIVE_INFINITY);
+		if (!context.force && Date.now() - lastChecked < REFRESH_TTL_MS) return offline();
 
 		const auth =
 			context.credential?.type === "api_key"
@@ -101,7 +84,7 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 		try {
 			const discovered = await discoverProviderModels(config, auth, context.signal);
 			if (context.signal.aborted) return offline();
-			cached = [...discovered.values()].map((metadata) => toProviderModel(metadataModel(metadata), config.compat));
+			cached = [...discovered.values()].map((metadata) => toProviderModel(metadata, config.compat));
 			checkedAt = Date.now();
 			if (config.baseUrl && config.api) {
 				const models = cached.map((model) => ({

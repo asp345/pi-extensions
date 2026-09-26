@@ -1,4 +1,4 @@
-export const PREVIEW_CHARS = 500;
+const PREVIEW_CHARS = 500;
 
 export function delegationPrompt(task: string, context: string, cwd: string): string {
 	return [

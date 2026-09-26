@@ -14,7 +14,6 @@ type StopReason = "user" | "agent" | "shutdown";
 export interface TaskSnapshot {
 	id: string;
 	command: string;
-	title: string;
 	notify: boolean;
 	heartbeatMs: number;
 	cwd: string;
@@ -25,7 +24,6 @@ export interface TaskSnapshot {
 	lastOutputAt: number | null;
 	status: TaskStatus;
 	exitCode: number | null;
-	outputBytes: number;
 	timedOut: boolean;
 	stopReason: StopReason | null;
 }
@@ -141,7 +139,6 @@ export class BackgroundRuntime {
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const log = new TaskOutput(logFile, options.onOutputRaw ?? null, (at) => {
-			task.info.outputBytes = log.outputBytes;
 			task.info.updatedAt = at;
 			task.info.lastOutputAt = at;
 			if (!this.shuttingDown) this.update();
@@ -150,7 +147,6 @@ export class BackgroundRuntime {
 			info: {
 				id,
 				command,
-				title: command,
 				notify: options.notify ?? true,
 				heartbeatMs: options.heartbeatMs ?? HEARTBEAT_MS,
 				cwd,
@@ -161,7 +157,6 @@ export class BackgroundRuntime {
 				lastOutputAt: null,
 				status: "running",
 				exitCode: null,
-				outputBytes: 0,
 				timedOut: false,
 				stopReason: null,
 			},
@@ -198,10 +193,7 @@ export class BackgroundRuntime {
 		task.info.stopReason = reason;
 		task.info.updatedAt = Date.now();
 		task.timers.clearTimeout();
-		this.kill(task, "SIGTERM");
-		task.timers.armForce(() => {
-			if (!task.closed) this.kill(task, "SIGKILL");
-		});
+		this.terminate(task);
 		this.update();
 		return true;
 	}
@@ -257,14 +249,15 @@ export class BackgroundRuntime {
 		try {
 			process.kill(process.platform === "win32" ? task.info.pid : -task.info.pid, signal);
 		} catch {
-			try {
-				if (!task.child.kill(signal)) {
-					this.finish(task, null);
-				}
-			} catch {
-				this.finish(task, null);
-			}
+			this.finish(task, null);
 		}
+	}
+
+	private terminate(task: ManagedTask): void {
+		this.kill(task, "SIGTERM");
+		task.timers.armForce(() => {
+			if (!task.closed) this.kill(task, "SIGKILL");
+		});
 	}
 
 	private armTimeout(task: ManagedTask): void {
@@ -274,10 +267,7 @@ export class BackgroundRuntime {
 			if (task.closed) return;
 			task.info.timedOut = true;
 			task.log.append(`\n[timed out after ${timeoutMs / 1000}s]\n`);
-			this.kill(task, "SIGTERM");
-			task.timers.armForce(() => {
-				if (!task.closed) this.kill(task, "SIGKILL");
-			});
+			this.terminate(task);
 		});
 	}
 
@@ -326,10 +316,7 @@ export class BackgroundRuntime {
 		if (!task.closed) {
 			task.stopRequested = true;
 			task.timers.clearTimeout();
-			this.kill(task, "SIGTERM");
-			task.timers.armForce(() => {
-				if (!task.closed) this.kill(task, "SIGKILL");
-			});
+			this.terminate(task);
 		}
 		this.tasks.delete(task.info.id);
 		this.removeLog(task);

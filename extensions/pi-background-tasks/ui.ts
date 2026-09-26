@@ -1,10 +1,4 @@
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-	MessageRenderer,
-	Theme,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
 	cell,
@@ -24,7 +18,6 @@ import {
 	visibleTasks,
 } from "./render.ts";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
-import { tail } from "./runtime.ts";
 
 export const COMMAND = "bg";
 export const SHORTCUT = "ctrl+shift+b";
@@ -34,7 +27,7 @@ const TASK_ROWS = 10;
 const OUTPUT_ROWS = 10;
 const REFRESH_MS = 1000;
 
-export interface TaskMessageDetails {
+interface TaskMessageDetails {
 	events: TaskEvent[];
 }
 
@@ -244,7 +237,7 @@ export class BackgroundUI {
 		return tasks.length ? tasks.map(taskLine).join("\n\n") : "No background tasks.";
 	}
 
-	async open(ctx: ExtensionCommandContext | ExtensionContext, initialId?: string): Promise<void> {
+	async open(ctx: ExtensionContext, initialId?: string): Promise<void> {
 		if (!ctx.hasUI) {
 			ctx.ui.notify(this.listText(), "info");
 			return;
@@ -273,9 +266,7 @@ export class BackgroundUI {
 					return task;
 				};
 				const outputLines = (task: TaskSnapshot): string[] => {
-					const lines = tail(this.runtime.output(task.id) ?? "", 120_000)
-						.trim()
-						.split(/\r?\n/);
+					const lines = (this.runtime.output(task.id) ?? "").trim().split(/\r?\n/);
 					return lines.some(Boolean) ? lines : ["(no output yet)"];
 				};
 				const maxScroll = (task: TaskSnapshot | undefined): number =>

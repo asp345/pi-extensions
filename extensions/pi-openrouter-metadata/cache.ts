@@ -4,7 +4,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { CostOverride, MetadataOverride, OpenRouterModel } from "./types.ts";
+import type { CostOverride, MetadataOverride } from "./types.ts";
 import {
 	cacheId,
 	displayName,
@@ -12,17 +12,12 @@ import {
 	finiteTimestamp,
 	headerValidator,
 	perMillionRate,
-	positiveInteger,
 	record,
-	storedRate,
-	string,
 	stringArray,
-	stringRecord,
 } from "./validate.ts";
 
 export const CACHE_VERSION = 1;
 const CACHE_FILE = "openrouter-metadata-store.json";
-const PI_MODELS_STORE_FILE = "models-store.json";
 
 export interface OpenRouterMetadataCacheEntry {
 	version: typeof CACHE_VERSION;
@@ -43,72 +38,6 @@ export function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undef
 	} catch {
 		return undefined;
 	}
-}
-
-export function readPiOpenRouterModels(): OpenRouterModel[] {
-	try {
-		const root = record(JSON.parse(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")) as unknown);
-		const openrouter = record(root?.openrouter);
-		if (!Array.isArray(openrouter?.models)) return [];
-		return openrouter.models.flatMap((value) => {
-			const model = storedOpenRouterModel(value);
-			return model ? [model] : [];
-		});
-	} catch {
-		return [];
-	}
-}
-
-function storedOpenRouterModel(value: unknown): OpenRouterModel | undefined {
-	const source = record(value);
-	const id = cacheId(source?.id);
-	const name = displayName(source?.name);
-	const baseUrl = string(source?.baseUrl);
-	const input = stringArray(source?.input).filter(
-		(item): item is "text" | "image" => item === "text" || item === "image",
-	);
-	const rawCost = record(source?.cost);
-	const inputCost = storedRate(rawCost?.input);
-	const outputCost = storedRate(rawCost?.output);
-	const cacheRead = storedRate(rawCost?.cacheRead);
-	const cacheWrite = storedRate(rawCost?.cacheWrite);
-	const contextWindow = positiveInteger(source?.contextWindow);
-	const maxTokens = positiveInteger(source?.maxTokens);
-	if (
-		!source ||
-		!id ||
-		!name ||
-		!baseUrl ||
-		source.api !== "openai-completions" ||
-		source.provider !== "openrouter" ||
-		typeof source.reasoning !== "boolean" ||
-		!input.length ||
-		inputCost === undefined ||
-		outputCost === undefined ||
-		cacheRead === undefined ||
-		cacheWrite === undefined ||
-		contextWindow === undefined ||
-		maxTokens === undefined
-	) {
-		return undefined;
-	}
-	const compat = record(source.compat);
-	const headers = stringRecord(source.headers);
-	return {
-		id,
-		name,
-		api: "openai-completions",
-		provider: "openrouter",
-		baseUrl,
-		reasoning: source.reasoning,
-		thinkingLevelMap: cachedThinkingLevelMap(source.thinkingLevelMap),
-		input,
-		cost: { input: inputCost, output: outputCost, cacheRead, cacheWrite },
-		contextWindow,
-		maxTokens,
-		compat: compat ? (structuredClone(compat) as OpenRouterModel["compat"]) : undefined,
-		headers,
-	};
 }
 
 export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenRouterMetadataCache {
