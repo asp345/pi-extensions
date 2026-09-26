@@ -63,7 +63,7 @@ export function eventText(event: TaskEvent): string {
 }
 
 export function taskLine(task: TaskSnapshot): string {
-	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${oneLine(task.title)} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
+	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${oneLine(task.command)} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
 }
 
 export function oneLine(text: string): string {

@@ -2,7 +2,7 @@ import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
-import { taskLine } from "./render.ts";
+import { taskLine, visibleTasks } from "./render.ts";
 import { BackgroundRuntime, resolveTimeoutMs, type TaskSnapshot, tail } from "./runtime.ts";
 import { BackgroundUI, COMMAND, MESSAGE, renderTaskEvent, SHORTCUT } from "./ui.ts";
 
@@ -100,10 +100,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				);
 			}
 			if (params.action === "list") {
-				const tasks = runtime
-					.list()
-					.filter((task) => task.notify)
-					.slice(0, 50);
+				const tasks = visibleTasks(runtime).slice(0, 50);
 				return result(tasks.length ? tasks.map(taskLine).join("\n") : "No background tasks.");
 			}
 			if (params.action === "clear") return result(clearedText());
@@ -120,7 +117,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	pi.registerCommand(COMMAND, {
 		description: "Open or manage the background-task dashboard",
 		handler: async (args, ctx) => {
-			ui.attach(ctx as ExtensionContext);
+			ui.attach(ctx);
 			const value = args.trim();
 			if (!value || value === "dashboard") return ui.open(ctx);
 			if (value === "list" || value === "status") return ctx.ui.notify(ui.listText(), "info");
@@ -151,8 +148,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	pi.registerShortcut(SHORTCUT, {
 		description: "Open the background-task dashboard",
 		handler: async (ctx) => {
-			ui.attach(ctx as ExtensionContext);
-			await ui.open(ctx as ExtensionContext);
+			ui.attach(ctx);
+			await ui.open(ctx);
 		},
 	});
 }
