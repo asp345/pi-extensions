@@ -143,6 +143,9 @@
     "extensions/pi-sensitive-guard": {
       "name": "@asp345/pi-sensitive-guard",
       "version": "0.0.0",
+      "dependencies": {
+        "unbash": "^4.0.10",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
       },

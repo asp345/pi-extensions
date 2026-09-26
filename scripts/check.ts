@@ -14,12 +14,14 @@ const fail = (message: string): never => {
 	throw new Error(message);
 };
 
-const manifest = await readJson<Manifest>("package.json");
-const rootDeps = new Set([
+const declared = (manifest: Manifest): string[] => [
 	...Object.keys(manifest.dependencies ?? {}),
 	...Object.keys(manifest.devDependencies ?? {}),
 	...Object.keys(manifest.peerDependencies ?? {}),
-]);
+];
+
+const manifest = await readJson<Manifest>("package.json");
+const rootDeps = new Set(declared(manifest));
 
 const packageName = (specifier: string): string =>
 	specifier.startsWith("@") ? specifier.split("/").slice(0, 2).join("/") : specifier.split("/", 1)[0];
@@ -37,12 +39,15 @@ const extensionDirs = (await readdir(resolve(root, "extensions"), { withFileType
 	.filter((entry) => entry.isDirectory())
 	.map((entry) => entry.name);
 
+const manifests = new Map<string, Manifest>();
 for (const name of extensionDirs) {
-	const extManifest = name === "shared" ? {} : await readJson<Manifest>(`extensions/${name}/package.json`);
+	if (name !== "shared") manifests.set(name, await readJson<Manifest>(`extensions/${name}/package.json`));
+}
+
+for (const name of extensionDirs) {
+	const extManifest = manifests.get(name);
 	const allowed = new Set([
-		...Object.keys(extManifest.dependencies ?? {}),
-		...Object.keys(extManifest.devDependencies ?? {}),
-		...Object.keys(extManifest.peerDependencies ?? {}),
+		...(extManifest ? declared(extManifest) : [...manifests.values()].flatMap(declared)),
 		...rootDeps,
 	]);
 	const sourceFiles = (await readdir(resolve(root, "extensions", name), { recursive: true })).filter((path) =>

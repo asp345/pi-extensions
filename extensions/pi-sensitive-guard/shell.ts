@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
+import { walkCommands } from "../shared/shell.ts";
 import type { GuardConfig } from "./config.ts";
 import { isProtectedPath } from "./config.ts";
 
@@ -30,13 +31,13 @@ const MUTATE_COMMANDS = new Set([
 	"trash-put",
 ]);
 const SHELL_COMMANDS = new Set(["sh", "bash", "zsh", "dash", "ksh"]);
+const COMMAND_WRAPPERS = new Set(["sudo", "env", "command", "exec"]);
 const INLINE_INTERPRETER = /^(?:python(?:\d+(?:\.\d+)?)?|node|ruby|php|lua|perl|[gm]?awk)$/iu;
 const INLINE_SCRIPT_FLAG = /^(?:-[A-Za-z]*[ce]|--eval|--execute|--command)$/iu;
 const FILE_ACCESS =
 	/\b(?:open|file|readFile|readFileSync|writeFile|writeFileSync|appendFile|appendFileSync|unlink|unlinkSync|remove|rename|truncate)\s*\(/u;
 const DYNAMIC_PATH = /(?:\+|`|\bjoin\s*\(|\bconcat\s*\(|process\.env|os\.environ|\$\{|\$[A-Za-z_])/u;
 const KNOWN_COMMANDS = new Set(["git", ...SHELL_COMMANDS, ...READ_COMMANDS, ...COPY_COMMANDS, ...MUTATE_COMMANDS]);
-const TOKEN = /"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s]+/g;
 const REDIRECT = /(?<![<>])(?:\d*(>>?|<)|(&>>?))\s*(["']?)([^\s;&|"']+)\3/g;
 const SECRET_ENV =
 	/\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY)[A-Za-z0-9_]*(?:\})?/i;
@@ -51,22 +52,17 @@ function commandName(word: string): string {
 }
 
 function shellParts(command: string): ShellPart[] {
-	const substitutions: string[] = [];
-	const expanded = command.replace(/\$\(([^()]*)\)|`([^`]*)`/g, (_match, dollar, backtick) => {
-		substitutions.push(String(dollar ?? backtick ?? ""));
-		return "$(\u0000)";
+	const parts: ShellPart[] = [];
+	walkCommands(command, (node) => {
+		const words = [node.name, ...node.suffix].flatMap((word) => (word ? [word.value] : []));
+		const index = Math.max(
+			0,
+			words.findIndex((word) => !word.includes("=") && !COMMAND_WRAPPERS.has(commandName(word))),
+		);
+		const name = commandName(words[index] ?? "");
+		if (name) parts.push({ command: name, words: words.slice(index + 1) });
 	});
-	return [expanded, ...substitutions]
-		.flatMap((script) => script.split(/&&|\|\||[;|\n]/))
-		.map((part) => {
-			const words = part.match(TOKEN)?.map(unquote).filter(Boolean) ?? [];
-			let index = words.findIndex(
-				(word) => !word.includes("=") && !["sudo", "env", "command", "exec"].includes(commandName(word)),
-			);
-			if (index < 0) index = 0;
-			return { command: commandName(words[index] ?? ""), words: words.slice(index + 1) };
-		})
-		.filter((part) => part.command.length > 0);
+	return parts;
 }
 
 export function expandShellWord(word: string): string | null {
