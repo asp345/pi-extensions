@@ -73,35 +73,20 @@ async function callbackServer(expectedState: string, signal?: AbortSignal) {
 export async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
 	const url = authorizeAntigravity();
 	const expectedState = new URL(url).searchParams.get("state") ?? "";
-	let callback: Awaited<ReturnType<typeof callbackServer>> | undefined;
+	const callback = await callbackServer(expectedState, callbacks.signal);
+	callbacks.onAuth({ url, instructions: "Complete login in your browser, or paste the final callback URL." });
 	let result: Authorization | undefined;
 	try {
-		callback = await callbackServer(expectedState, callbacks.signal);
-	} catch {}
-
-	callbacks.onAuth({
-		url,
-		instructions: callback
-			? "Complete login in your browser, or paste the final callback URL."
-			: "Paste the final callback URL after completing login.",
-	});
-	if (callback) {
-		try {
-			result = callbacks.onManualCodeInput
-				? await Promise.race([
-						callback.result,
-						callbacks.onManualCodeInput().then((input) => parseAuthorization(input, expectedState)),
-					])
-				: await callback.result;
-		} finally {
-			callback.close();
-		}
+		result = callbacks.onManualCodeInput
+			? await Promise.race([
+					callback.result,
+					callbacks.onManualCodeInput().then((input) => parseAuthorization(input, expectedState)),
+				])
+			: await callback.result;
+	} finally {
+		callback.close();
 	}
 	if (callbacks.signal?.aborted) throw new Error("Antigravity OAuth login aborted.");
-	result ??= parseAuthorization(
-		await callbacks.onPrompt({ message: "Paste the Antigravity OAuth callback URL or code:" }),
-		expectedState,
-	);
 	if (!result) throw new Error("Missing Antigravity authorization code.");
 	if (result.state !== expectedState) throw new Error("Antigravity OAuth state mismatch.");
 
