@@ -1,34 +1,15 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { setTimeout as sleep } from "node:timers/promises";
 import {
 	type Api,
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
-	createAssistantMessageEventStream,
 	type Model,
-	type OAuthCredentials,
-	type OAuthLoginCallbacks,
 	type SimpleStreamOptions,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
-const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
-const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
-const REMOTE_REDIRECT = "https://platform.claude.com/oauth/code/callback";
-const LOCAL_REDIRECT = "http://localhost:53692/callback";
-const SCOPES = [
-	"org:create_api_key",
-	"user:profile",
-	"user:inference",
-	"user:sessions:claude_code",
-	"user:mcp_servers",
-	"user:file_upload",
-].join(" ");
 
 const CLAUDE_CODE_VERSION = "2.1.280";
 const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
@@ -38,238 +19,18 @@ const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
 const CLAUDE_CODE_LEGACY_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
 
-type Authorization = { code: string; state: string };
+const SESSION_ID = crypto.randomUUID();
 
-class OAuthRequestError extends Error {
-	constructor(
-		readonly status: number,
-		message: string,
-	) {
-		super(message);
-	}
-}
-
-function base64Url(bytes: Uint8Array): string {
-	return Buffer.from(bytes).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-async function createPkce() {
-	const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
-	return { verifier, challenge: base64Url(new Uint8Array(digest)) };
-}
-
-function authorizationUrl(challenge: string, state: string, redirect: string) {
-	return `${AUTHORIZE_URL}?${new URLSearchParams({
-		code: "true",
-		client_id: CLIENT_ID,
-		response_type: "code",
-		redirect_uri: redirect,
-		scope: SCOPES,
-		code_challenge: challenge,
-		code_challenge_method: "S256",
-		state,
-	})}`;
-}
-
-function parseAuthorization(input: string): Partial<Authorization> {
-	const value = input.trim();
-	try {
-		const url = new URL(value);
-		return {
-			code: url.searchParams.get("code") ?? undefined,
-			state: url.searchParams.get("state") ?? undefined,
-		};
-	} catch {}
-	if (value.includes("#")) {
-		const [code, state] = value.split("#", 2);
-		return { code, state };
-	}
-	if (value.includes("code=")) {
-		const params = new URLSearchParams(value);
-		return {
-			code: params.get("code") ?? undefined,
-			state: params.get("state") ?? undefined,
-		};
-	}
-	return { code: value || undefined };
-}
-
-async function callbackServer(expectedState: string) {
-	const server = createServer();
-	let settle!: (value?: Authorization) => void;
-	const result = new Promise<Authorization | undefined>((resolve) => {
-		settle = resolve;
+function claudeCodeUserId(): string | undefined {
+	const path = `${homedir()}/.claude.json`;
+	if (!existsSync(path)) return undefined;
+	const data = JSON.parse(readFileSync(path, "utf8")) as { userID?: unknown; oauthAccount?: { accountUuid?: unknown } };
+	if (typeof data.userID !== "string" || typeof data.oauthAccount?.accountUuid !== "string") return undefined;
+	return JSON.stringify({
+		device_id: data.userID,
+		account_uuid: data.oauthAccount.accountUuid,
+		session_id: SESSION_ID,
 	});
-	const timeout = setTimeout(() => settle(), 5 * 60_000);
-	server.on("request", (request, response) => {
-		const url = new URL(request.url ?? "/", LOCAL_REDIRECT);
-		const code = url.searchParams.get("code");
-		const state = url.searchParams.get("state");
-		if (url.pathname !== "/callback" || !code || state !== expectedState) {
-			response.writeHead(400).end("Invalid authorization callback");
-			return;
-		}
-		response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-		response.end(
-			"<!doctype html><title>Authorization complete</title><h1>Authorization complete</h1><p>You can return to Pi.</p>",
-		);
-		settle({ code, state });
-	});
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(53692, "127.0.0.1", resolve);
-	});
-	return {
-		result,
-		close: () => {
-			clearTimeout(timeout);
-			settle();
-			server.closeAllConnections();
-			server.close();
-		},
-	};
-}
-
-async function tokenRequest(body: Record<string, string>, signal?: AbortSignal) {
-	let status = 0;
-	let error = "";
-	for (let attempt = 0; attempt < 3; attempt++) {
-		const response = await fetch(TOKEN_URL, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(body),
-			signal,
-		});
-		if (response.ok) return response;
-		status = response.status;
-		error = `${response.status} ${await response.text()}`;
-		if (
-			response.headers.get("x-should-retry") === "false" ||
-			(response.status !== 429 && response.status < 500) ||
-			attempt === 2
-		)
-			break;
-		const retryAfter = Number(response.headers.get("retry-after"));
-		const delay = retryAfter > 0 ? Math.min(retryAfter * 1_000, 30_000) : 5_000 * 2 ** attempt;
-		await sleep(delay, undefined, { signal });
-	}
-	throw new OAuthRequestError(status, `Anthropic OAuth request failed: ${error}`);
-}
-
-async function requestCredentials(
-	body: Record<string, string>,
-	fallbackRefresh: string,
-	signal?: AbortSignal,
-): Promise<OAuthCredentials> {
-	const token = (await (await tokenRequest(body, signal)).json()) as {
-		access_token: string;
-		refresh_token?: string;
-		expires_in: number;
-	};
-	const hardExpires = Date.now() + token.expires_in * 1_000;
-	return {
-		access: token.access_token,
-		refresh: token.refresh_token || fallbackRefresh,
-		expires: hardExpires - 5 * 60_000,
-		hardExpires,
-	};
-}
-
-async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
-	const { verifier, challenge } = await createPkce();
-	const state = crypto.randomUUID().replace(/-/g, "");
-	let redirect = REMOTE_REDIRECT;
-	let authorization: Partial<Authorization> | undefined;
-	let server: Awaited<ReturnType<typeof callbackServer>> | undefined;
-	try {
-		server = await callbackServer(state);
-	} catch {}
-	if (server) {
-		try {
-			redirect = LOCAL_REDIRECT;
-			callbacks.onAuth({
-				url: authorizationUrl(challenge, state, redirect),
-				instructions: "Complete login in your browser, or paste the final redirect URL.",
-			});
-			authorization = callbacks.onManualCodeInput
-				? await Promise.race([server.result, callbacks.onManualCodeInput().then(parseAuthorization)])
-				: await server.result;
-		} finally {
-			server.close();
-		}
-	}
-
-	if (!authorization?.code) {
-		redirect = REMOTE_REDIRECT;
-		callbacks.onAuth({
-			url: authorizationUrl(challenge, state, redirect),
-			instructions: "Sign in, then paste the callback URL or code#state value.",
-		});
-		authorization = parseAuthorization(await callbacks.onPrompt({ message: "Paste the callback URL or code#state:" }));
-	}
-	if (!authorization.code) throw new Error("Missing authorization code.");
-	if (authorization.state && authorization.state !== state) {
-		throw new Error("OAuth state mismatch.");
-	}
-
-	return requestCredentials(
-		{
-			grant_type: "authorization_code",
-			client_id: CLIENT_ID,
-			code: authorization.code,
-			state: authorization.state ?? state,
-			redirect_uri: redirect,
-			code_verifier: verifier,
-		},
-		"",
-		callbacks.signal,
-	);
-}
-
-async function refresh(credentials: OAuthCredentials): Promise<OAuthCredentials> {
-	try {
-		return await requestCredentials(
-			{
-				grant_type: "refresh_token",
-				client_id: CLIENT_ID,
-				refresh_token: credentials.refresh,
-			},
-			credentials.refresh,
-		);
-	} catch (error) {
-		const transient = error instanceof OAuthRequestError && (error.status === 429 || error.status >= 500);
-		const hardExpires = typeof credentials.hardExpires === "number" ? credentials.hardExpires : credentials.expires;
-		if (transient && hardExpires > Date.now()) {
-			return { ...credentials, expires: Math.min(Date.now() + 30_000, hardExpires) };
-		}
-		throw error;
-	}
-}
-
-type ClaudeCodeIdentity = { deviceId: string; accountUuid: string };
-
-let cachedIdentity: ClaudeCodeIdentity | undefined;
-let identityLoaded = false;
-
-async function loadClaudeCodeIdentity(): Promise<ClaudeCodeIdentity | undefined> {
-	if (identityLoaded) return cachedIdentity;
-	identityLoaded = true;
-	try {
-		const raw = await readFile(`${homedir()}/.claude.json`, "utf8");
-		const data = JSON.parse(raw) as { userID?: unknown; oauthAccount?: { accountUuid?: unknown } };
-		if (typeof data.userID === "string" && typeof data.oauthAccount?.accountUuid === "string") {
-			cachedIdentity = { deviceId: data.userID, accountUuid: data.oauthAccount.accountUuid };
-		}
-	} catch {}
-	return cachedIdentity;
-}
-
-let cachedSessionId: string | undefined;
-
-function claudeCodeSessionId(): string {
-	cachedSessionId ??= crypto.randomUUID();
-	return cachedSessionId;
 }
 
 function billingVersionSuffix(text: string): string {
@@ -546,13 +307,7 @@ function normalizeCchInput(body: Uint8Array): Uint8Array {
 		last = edit.end;
 	}
 	parts.push(body.subarray(last));
-	const normalized = new Uint8Array(body.length - (body.length - parts.reduce((n, p) => n + p.length, 0)));
-	let offset = 0;
-	for (const part of parts) {
-		normalized.set(part, offset);
-		offset += part.length;
-	}
-	return normalized.subarray(0, offset);
+	return Buffer.concat(parts);
 }
 
 function indexOfBytes(haystack: Uint8Array, needle: Uint8Array, from = 0, to = haystack.length): number {
@@ -569,7 +324,7 @@ function indexOfBytes(haystack: Uint8Array, needle: Uint8Array, from = 0, to = h
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-function patchCch(body: Uint8Array): Uint8Array<ArrayBuffer> | undefined {
+function patchCch(body: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | undefined {
 	const marker = textEncoder.encode(BILLING_SYSTEM_MARKER);
 	const markerIdx = indexOfBytes(body, marker);
 	if (markerIdx === -1) return undefined;
@@ -577,13 +332,10 @@ function patchCch(body: Uint8Array): Uint8Array<ArrayBuffer> | undefined {
 	const placeholder = textEncoder.encode(`${CCH_PLACEHOLDER};`);
 	const idx = indexOfBytes(body, placeholder, searchFrom, searchFrom + CCH_SEARCH_WINDOW);
 	if (idx === -1) return undefined;
-	const unsigned = new Uint8Array(body.length);
-	unsigned.set(body);
-	const normalized = normalizeCchInput(unsigned);
-	const digest = xxHash64(normalized, CCH_SEED) & 0xfffffn;
+	const digest = xxHash64(normalizeCchInput(body), CCH_SEED) & 0xfffffn;
 	const hex = digest.toString(16).padStart(5, "0");
-	for (let i = 0; i < 5; i++) unsigned[idx + 4 + i] = hex.charCodeAt(i);
-	return unsigned;
+	for (let i = 0; i < 5; i++) body[idx + 4 + i] = hex.charCodeAt(i);
+	return body;
 }
 
 function buildBillingPlaceholder(promptId: string, firstUserText: string): string {
@@ -596,14 +348,12 @@ function buildBillingPlaceholder(promptId: string, firstUserText: string): strin
 
 function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch {
 	return ((input: Parameters<typeof globalThis.fetch>[0], init?: Parameters<typeof globalThis.fetch>[1]) => {
-		try {
-			const url = typeof input === "string" ? input : input instanceof URL ? input.href : undefined;
-			const text = init?.body;
-			if (url?.includes("/v1/messages") && typeof text === "string" && text.includes(BILLING_SYSTEM_MARKER)) {
-				const patched = patchCch(textEncoder.encode(text));
-				if (patched) return base(input, { ...init, body: patched });
-			}
-		} catch {}
+		const url = typeof input === "string" ? input : input instanceof URL ? input.href : undefined;
+		const text = init?.body;
+		if (url?.includes("/v1/messages") && typeof text === "string" && text.includes(BILLING_SYSTEM_MARKER)) {
+			const patched = patchCch(textEncoder.encode(text));
+			if (patched) return base(input, { ...init, body: patched });
+		}
 		return base(input, init);
 	}) as typeof globalThis.fetch;
 }
@@ -611,101 +361,52 @@ function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch
 function stream(
 	model: Model<Api>,
 	context: TranscriptContext,
-	options?: SimpleStreamOptions,
+	options: SimpleStreamOptions | undefined,
+	userId: string | undefined,
 ): AssistantMessageEventStream {
-	const outer = createAssistantMessageEventStream();
-	void (async () => {
-		try {
-			const apiKey = options?.apiKey;
-			if (apiKey && !apiKey.includes("sk-ant-oat")) {
-				const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
-				for await (const event of inner) outer.push(event);
-				return;
+	const apiKey = options?.apiKey;
+	if (apiKey && !apiKey.includes("sk-ant-oat")) {
+		return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
+	}
+	const promptId = crypto.randomUUID();
+	const previousOnPayload = options?.onPayload;
+	return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, {
+		...options,
+		headers: {
+			...options?.headers,
+			"User-Agent": CLAUDE_CODE_USER_AGENT,
+			"user-agent": CLAUDE_CODE_USER_AGENT,
+			"anthropic-beta": CLAUDE_CODE_BETA,
+			"X-Claude-Code-Session-Id": SESSION_ID,
+			"x-claude-code-request-class": "main",
+			"x-client-request-id": crypto.randomUUID(),
+		},
+		fetch: wrapFetchForCch(options?.fetch ?? globalThis.fetch),
+		...(userId ? { metadata: { ...options?.metadata, user_id: userId } } : {}),
+		onPayload: async (payload: unknown, innerModel: Model<Api>) => {
+			const next = (await previousOnPayload?.(payload, innerModel)) ?? payload;
+			const params = next as Record<string, unknown>;
+			const billing = buildBillingPlaceholder(promptId, firstUserText(params.messages));
+			const system = Array.isArray(params.system) ? [...(params.system as unknown[])] : [];
+			system.unshift({ type: "text", text: billing });
+			const legacy = system[1] as { type?: unknown; text?: unknown } | undefined;
+			if (legacy?.type === "text" && legacy.text === CLAUDE_CODE_LEGACY_IDENTITY) {
+				system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
 			}
-			const sessionId = claudeCodeSessionId();
-			const requestId = crypto.randomUUID();
-			const promptId = crypto.randomUUID();
-			const identity = await loadClaudeCodeIdentity();
-			if (options?.signal?.aborted) throw new Error("Request was aborted");
-			const userId = identity
-				? JSON.stringify({ device_id: identity.deviceId, account_uuid: identity.accountUuid, session_id: sessionId })
-				: undefined;
-			const previousOnPayload = options?.onPayload;
-			const innerOptions: SimpleStreamOptions = {
-				...options,
-				headers: {
-					...options?.headers,
-					"User-Agent": CLAUDE_CODE_USER_AGENT,
-					"user-agent": CLAUDE_CODE_USER_AGENT,
-					"anthropic-beta": CLAUDE_CODE_BETA,
-					"X-Claude-Code-Session-Id": sessionId,
-					"x-claude-code-request-class": "main",
-					"x-client-request-id": requestId,
-				},
-				fetch: wrapFetchForCch(options?.fetch ?? globalThis.fetch),
-				...(userId ? { metadata: { ...options?.metadata, user_id: userId } } : {}),
-				onPayload: async (payload: unknown, innerModel: Model<Api>) => {
-					const next = (await previousOnPayload?.(payload, innerModel)) ?? payload;
-					const params = next as Record<string, unknown>;
-					const billing = buildBillingPlaceholder(promptId, firstUserText(params.messages));
-					const system = Array.isArray(params.system) ? [...(params.system as unknown[])] : [];
-					system.unshift({ type: "text", text: billing });
-					const legacy = system[1] as { type?: unknown; text?: unknown } | undefined;
-					if (legacy?.type === "text" && legacy.text === CLAUDE_CODE_LEGACY_IDENTITY) {
-						system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
-					}
-					params.system = system;
-					if (params.compaction === undefined) {
-						params.context_management = { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
-					}
-					params.diagnostics = { previous_message_id: null };
-					return params;
-				},
-			};
-			const inner = anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, innerOptions);
-			for await (const event of inner) outer.push(event);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			outer.push({
-				type: "error",
-				reason: "error",
-				error: {
-					role: "assistant",
-					content: [],
-					api: model.api,
-					provider: model.provider,
-					model: model.id,
-					usage: {
-						input: 0,
-						output: 0,
-						cacheRead: 0,
-						cacheWrite: 0,
-						totalTokens: 0,
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-					},
-					stopReason: "error",
-					errorMessage: message,
-					timestamp: Date.now(),
-				},
-			});
-		} finally {
-			outer.end();
-		}
-	})();
-	return outer;
+			params.system = system;
+			if (params.compaction === undefined) {
+				params.context_management = { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
+			}
+			params.diagnostics = { previous_message_id: null };
+			return params;
+		},
+	});
 }
 
 export default function anthropicOAuth(pi: ExtensionAPI): void {
+	const userId = claudeCodeUserId();
 	pi.registerProvider("anthropic", {
-		baseUrl: "https://api.anthropic.com",
 		api: "anthropic-messages",
-		oauth: {
-			name: "Claude Pro/Max",
-			usesCallbackServer: true,
-			login,
-			refreshToken: refresh,
-			getApiKey: (credentials: OAuthCredentials) => credentials.access,
-		},
-		streamSimple: stream,
+		streamSimple: (model, context, options) => stream(model, context, options, userId),
 	});
 }

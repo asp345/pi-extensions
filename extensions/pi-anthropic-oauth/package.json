@@ -1,7 +1,7 @@
 {
 	"name": "@asp345/pi-anthropic-oauth",
 	"version": "0.0.0",
-	"description": "Anthropic OAuth provider for pi",
+	"description": "Claude Code request fingerprint for the pi anthropic provider",
 	"license": "MIT",
 	"type": "module",
 	"main": "./index.ts",
