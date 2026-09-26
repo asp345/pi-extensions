@@ -106,16 +106,7 @@ export function loadConfig(): GuardConfig {
 
 export function saveConfig(config: GuardConfig): void {
 	mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-	let raw: Record<string, unknown> = {};
-	try {
-		if (existsSync(CONFIG_PATH)) raw = record(JSON.parse(readFileSync(CONFIG_PATH, "utf8")));
-	} catch {
-		// Replace an unreadable configuration with a valid minimal file.
-	}
-	delete raw.debug;
-	delete raw.blockedEvents;
-	delete raw.protectedFileEdits;
-	writeFileSync(CONFIG_PATH, `${JSON.stringify({ ...raw, ...config }, null, 2)}\n`, "utf8");
+	writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 const DEFAULT_PROTECTED = [
@@ -147,12 +138,8 @@ function matchesConfigured(path: string, patterns: string[], cwd: string): boole
 	const absolute = normalize(resolve(cwd, path));
 	const local = normalize(relative(cwd, absolute));
 	return patterns.some((pattern) => {
-		try {
-			const re = globPattern(pattern);
-			return re.test(absolute) || re.test(local);
-		} catch {
-			return false;
-		}
+		const re = globPattern(pattern);
+		return re.test(absolute) || re.test(local);
 	});
 }
 

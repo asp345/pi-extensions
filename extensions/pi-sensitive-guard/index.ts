@@ -2,8 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { isProtectedPath, loadConfig } from "./config.ts";
 import { inspectGit } from "./git.ts";
 import { redactOutput, scanSecrets } from "./scanner.ts";
-import { expandShellWord, inspectShell } from "./shell.ts";
-
+import { inspectShell } from "./shell.ts";
 import { registerSensitiveGuardUI } from "./ui.ts";
 
 function replacementText(input: Record<string, unknown>): string {
@@ -119,5 +118,3 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 		return { content };
 	});
 }
-
-export { expandShellWord, inspectShell };

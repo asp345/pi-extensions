@@ -2,8 +2,7 @@ import assert from "node:assert/strict";
 import { homedir } from "node:os";
 import { test } from "node:test";
 import type { GuardConfig } from "./config.ts";
-
-const { expandShellWord, inspectShell } = await import("./index.ts");
+import { expandShellWord, inspectShell } from "./shell.ts";
 
 const config: GuardConfig = {
 	enabled: true,
