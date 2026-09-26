@@ -11,16 +11,10 @@ export interface NativeCompactionDetails {
 	replacementHistory: ResponseItem[];
 }
 
-type NativeCheckpoint = {
-	entryIndex: number;
-	entryId: string;
-	details: NativeCompactionDetails;
-};
-
-type CheckpointLookup =
+export type CheckpointLookup<T> =
 	| { status: "none" }
 	| { status: "invalid"; entryIndex: number; entryId: string }
-	| { status: "valid"; checkpoint: NativeCheckpoint };
+	| { status: "valid"; checkpoint: { entryIndex: number; entryId: string; details: T } };
 
 export function isOpenAICodexModel(model: unknown): model is Model<"openai-codex-responses"> {
 	if (!isJsonObject(model)) return false;
@@ -56,24 +50,28 @@ function parseNativeCompactionDetails(value: unknown): NativeCompactionDetails |
 	};
 }
 
-export function findNativeCheckpoint(branch: SessionEntry[]): CheckpointLookup {
+export function findCheckpoint<T>(
+	branch: SessionEntry[],
+	kind: string,
+	parse: (value: unknown) => T | undefined,
+): CheckpointLookup<T> {
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index];
 		if (!entry) continue;
 
 		let rawDetails: unknown;
 		if (entry.type === "compaction") {
-			if (!isJsonObject(entry.details) || entry.details.kind !== NATIVE_COMPACTION_KIND) {
+			if (!isJsonObject(entry.details) || entry.details.kind !== kind) {
 				return { status: "none" };
 			}
 			rawDetails = entry.details;
-		} else if (entry.type === "custom" && entry.customType === NATIVE_COMPACTION_KIND) {
+		} else if (entry.type === "custom" && entry.customType === kind) {
 			rawDetails = entry.data;
 		} else {
 			continue;
 		}
 
-		const details = parseNativeCompactionDetails(rawDetails);
+		const details = parse(rawDetails);
 		if (!details) return { status: "invalid", entryIndex: index, entryId: entry.id };
 		return {
 			status: "valid",
@@ -81,4 +79,8 @@ export function findNativeCheckpoint(branch: SessionEntry[]): CheckpointLookup {
 		};
 	}
 	return { status: "none" };
+}
+
+export function findNativeCheckpoint(branch: SessionEntry[]): CheckpointLookup<NativeCompactionDetails> {
+	return findCheckpoint(branch, NATIVE_COMPACTION_KIND, parseNativeCompactionDetails);
 }

@@ -71,8 +71,8 @@ async function callbackServer(expectedState: string, signal?: AbortSignal) {
 }
 
 export async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
-	const authorization = await authorizeAntigravity();
-	const expectedState = new URL(authorization.url).searchParams.get("state") ?? "";
+	const url = authorizeAntigravity();
+	const expectedState = new URL(url).searchParams.get("state") ?? "";
 	let callback: Awaited<ReturnType<typeof callbackServer>> | undefined;
 	let result: Authorization | undefined;
 	try {
@@ -80,7 +80,7 @@ export async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCreden
 	} catch {}
 
 	callbacks.onAuth({
-		url: authorization.url,
+		url,
 		instructions: callback
 			? "Complete login in your browser, or paste the final callback URL."
 			: "Paste the final callback URL after completing login.",
@@ -105,24 +105,14 @@ export async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCreden
 	if (!result) throw new Error("Missing Antigravity authorization code.");
 	if (result.state !== expectedState) throw new Error("Antigravity OAuth state mismatch.");
 
-	const exchanged = await exchangeAntigravity(result.code, result.state);
-	if (exchanged.type !== "success") {
-		throw new Error(`Antigravity OAuth exchange failed: ${exchanged.error}`);
-	}
-	return {
-		refresh: exchanged.refresh,
-		access: exchanged.access,
-		expires: exchanged.expires,
-	};
+	return exchangeAntigravity(result.code, result.state);
 }
 
 export async function refreshOAuth(credentials: OAuthCredentials): Promise<OAuthCredentials> {
-	const separator = credentials.refresh.indexOf("|");
-	const refreshToken = separator === -1 ? credentials.refresh : credentials.refresh.slice(0, separator);
-	const project = separator === -1 ? "" : credentials.refresh.slice(separator);
+	const [refreshToken, project = ""] = credentials.refresh.split("|");
 	const result = await refreshAntigravityToken(refreshToken);
 	return {
-		refresh: `${result.refresh}${project}`,
+		refresh: `${result.refresh}|${project}`,
 		access: result.access,
 		expires: result.expires,
 	};

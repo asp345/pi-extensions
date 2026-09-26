@@ -4,7 +4,7 @@ Google Antigravity (Gemini) authentication and transport for Pi. Registers `anti
 
 ## Components
 
-* `agy/oauth.ts` - OAuth for `https://oauth2.googleapis.com/token`, project context enforcement
+* `agy/oauth.ts` - OAuth for `https://oauth2.googleapis.com/token`; resolves the project via `loadCodeAssist` at login and stores it in the refresh credential
 * `agy/transport.ts` - Bun-native `fetchWithAgyCliTransport` with chunked requests and response timeouts
 * `agy/models.ts` - catalog refresh, `STATIC_MODEL_CATALOG`
 * `agy/model-resolver.ts` - `resolveModel` maps `low|medium|high` suffix only

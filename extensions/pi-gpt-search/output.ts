@@ -1,6 +1,7 @@
 import type { WebRunCommand } from "./commands.ts";
 import type { SearchResponse, SearchResult } from "./normalize.ts";
-import type { RefIndex } from "./provider.ts";
+
+export type RefIndex = Map<string, { url: string; title?: string }>;
 
 interface FormattedToolOutput {
 	content: Array<{ type: "text"; text: string }>;
@@ -31,6 +32,16 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 		}
 	});
 
+	const refLabel = (ref: string): string => {
+		const entry = refToEntryMap.get(ref);
+		if (entry) {
+			const label = `[${entry.num}]`;
+			return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
+		}
+		const indexUrl = refIndex?.get(ref)?.url;
+		return indexUrl ? formatTerminalHyperlink(indexUrl, `[${ref}]`) : `[${ref}]`;
+	};
+
 	// 1. Rewrites Codex private Unicode citation markers (\uE200cite\uE202<ref>\uE201)
 	// and bare cite<ref> payloads. The bare form only counts when the payload is a
 	// reference id (optionally with a † label), so ordinary words such as "cited" or
@@ -41,26 +52,7 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 			const label = parts.slice(1).join("†").trim();
 			return label ? `[${label}]` : "";
 		}
-
-		if (refToEntryMap.has(cleanInner)) {
-			const entry = refToEntryMap.get(cleanInner);
-			if (!entry) return `[${cleanInner}]`;
-			const label = `[${entry.num}]`;
-			return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
-		}
-
-		const matchedResult = results.find((r) => r.ref_id === cleanInner);
-		if (matchedResult?.url) {
-			const title = matchedResult.title ? matchedResult.title : matchedResult.url;
-			return formatTerminalHyperlink(matchedResult.url, `[${cleanInner}: ${title}]`);
-		}
-
-		const indexUrl = refIndex?.get(cleanInner)?.url;
-		if (indexUrl) {
-			return formatTerminalHyperlink(indexUrl, `[${cleanInner}]`);
-		}
-
-		return `[${cleanInner}]`;
+		return refLabel(cleanInner);
 	};
 
 	let cleaned = text.replace(CITATION_PUA_RE, (_match, inner: string) => resolveCitation(inner.trim()));
@@ -68,21 +60,10 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 
 	// 2. Converts raw turn references like [turn0search0, turn2view0] into clickable OSC 8 hyperlink brackets [1] [2]
 	cleaned = cleaned.replace(BRACKETED_REFS_RE, (_match, inner: string) => {
-		const refs = inner.split(",").map((s: string) => s.trim());
-		const formattedRefs = refs.map((ref) => {
-			if (refToEntryMap.has(ref)) {
-				const entry = refToEntryMap.get(ref);
-				if (!entry) return `[${ref}]`;
-				const label = `[${entry.num}]`;
-				return entry.item.url ? formatTerminalHyperlink(entry.item.url, label) : label;
-			}
-			const indexUrl = refIndex?.get(ref)?.url;
-			if (indexUrl) {
-				return formatTerminalHyperlink(indexUrl, `[${ref}]`);
-			}
-			return `[${ref}]`;
-		});
-		return formattedRefs.join(" ");
+		return inner
+			.split(",")
+			.map((ref) => refLabel(ref.trim()))
+			.join(" ");
 	});
 
 	return cleaned;

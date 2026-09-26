@@ -49,7 +49,7 @@ Requests carrying the block need beta `compact-2026-09-04`; the Anthropic provid
 
 Unlike text compaction, the server-written swap keeps the recent turns valid without replaying their thinking blocks, provided the system prompt and tools are unchanged since the swap. The extension records both at compaction time and retires the checkpoint when either drifts, falling back to text history and excluding the block from the next summarize request. A model change or a disabled `nativeClaude` flag also retires the checkpoint.
 
-Native compaction applies only to models reporting `capabilities.compaction` on the Models API, with a static family fallback. A failed summary request (including a `refusal` stop reason) falls back to Pi prompt-based text compaction instead of cancelling compaction.
+Native compaction applies only to models reporting `capabilities.compaction` on the Models API. The result is cached per model for the process lifetime; a failed Models API request is not cached. A failed Models API request or summary request (including a `refusal` stop reason) falls back to Pi prompt-based text compaction instead of cancelling compaction.
 
 ## Automatic compaction
 
@@ -70,7 +70,7 @@ For `openai-completions` models, when the first kept entry contains text of at l
 Native compaction requests go through `ctx.modelRegistry.streamSimple`, the same registered provider stream (including extension providers such as `pi-anthropic-oauth`) that session requests use, with the session ID and the session thinking level:
 
 - `onPayload` adds the compaction fields to the provider-built payload.
-- A `fetch` override sends the final request itself, because the provider does not parse compaction responses. It retries up to 3 attempts on HTTP 408, 409, 429, and 5xx and on network errors, honoring `retry-after`, with a 300-second timeout. The provider receives a non-retryable HTTP 400 in place of the response.
+- A `fetch` override sends the final request itself, because the provider does not parse compaction responses. It sends the request once, with a 300-second timeout. The provider receives a non-retryable HTTP 400 in place of the response.
 
 No wire request is recorded between requests; the request is rebuilt from the session transcript, which carries the system prompt and tool declarations (see `pi-system-prompt`).
 

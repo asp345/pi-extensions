@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "./protocol.ts";
 
 export interface CompactionConfig {
 	nativeCodex: boolean;
@@ -39,8 +40,7 @@ function readConfig(path: string): Partial<CompactionConfig> {
 	try {
 		value = JSON.parse(readFileSync(path, "utf8"));
 	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(`Failed to read ${path}: ${message}`);
+		throw new Error(`Failed to read ${path}: ${errorMessage(error)}`);
 	}
 	return parseCompactionConfig(value, path);
 }

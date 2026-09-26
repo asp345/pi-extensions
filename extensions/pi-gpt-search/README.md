@@ -159,7 +159,7 @@ PI_WEB_SEARCH_DEBUG=1
 
 ## 📖 Documentation
 
-- [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) - Transport layer, error hierarchy, citation engine, and command schema details.
+- [HOW-IT-WORKS.md](./HOW-IT-WORKS.md) - Transport layer, citation engine, and command schema details.
 
 ---
 

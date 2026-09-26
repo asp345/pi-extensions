@@ -63,11 +63,13 @@ function fnv1a64Signed(input: string): string {
 	return BigInt.asIntN(64, hash).toString();
 }
 
-function createSessionContext(workspaceUri: string): AgySessionContext {
+const NUMERIC_SESSION_ID = fnv1a64Signed("");
+
+function createSessionContext(): AgySessionContext {
 	return {
 		conversationId: randomUUID(),
 		trajectoryId: randomUUID(),
-		numericSessionId: fnv1a64Signed(workspaceUri),
+		numericSessionId: NUMERIC_SESSION_ID,
 	};
 }
 
@@ -79,25 +81,14 @@ interface SessionEntry {
 
 export class AgyRequestSessionStore {
 	private readonly entries = new Map<string, SessionEntry>();
-	private readonly workspaceUri: string;
-	private readonly ttlMs: number;
-	private readonly maxEntries: number;
-	private readonly now: () => number;
-
-	constructor(workspaceUri: string, options: { ttlMs?: number; maxEntries?: number; now?: () => number } = {}) {
-		this.workspaceUri = workspaceUri;
-		this.ttlMs = options.ttlMs ?? SESSION_STATE_TTL_MS;
-		this.maxEntries = options.maxEntries ?? MAX_SESSION_STATES;
-		this.now = options.now ?? Date.now;
-	}
 
 	beginRequest(key: string): AgyRequestScope {
-		const timestamp = this.now();
+		const timestamp = Date.now();
 		this.prune(timestamp, key);
 		let entry = this.entries.get(key);
 		if (!entry) {
 			entry = {
-				context: createSessionContext(this.workspaceUri),
+				context: createSessionContext(),
 				lastAccessedAt: timestamp,
 				lastRequestTimestamp: 0,
 			};
@@ -114,11 +105,11 @@ export class AgyRequestSessionStore {
 	}
 
 	private prune(timestamp: number, preservedKey: string): void {
-		const expiry = timestamp - this.ttlMs;
+		const expiry = timestamp - SESSION_STATE_TTL_MS;
 		for (const [key, value] of this.entries) {
 			if (key !== preservedKey && value.lastAccessedAt < expiry) this.entries.delete(key);
 		}
-		while (this.entries.size >= this.maxEntries && !this.entries.has(preservedKey)) {
+		while (this.entries.size >= MAX_SESSION_STATES && !this.entries.has(preservedKey)) {
 			let oldestKey: string | null = null;
 			let oldestAccess = Number.POSITIVE_INFINITY;
 			for (const [key, value] of this.entries) {
@@ -131,10 +122,6 @@ export class AgyRequestSessionStore {
 			this.entries.delete(oldestKey);
 		}
 	}
-}
-
-function getAgyModelEnum(model: string): string | undefined {
-	return AGY_MODEL_ENUM_BY_WIRE_MODEL[model.toLowerCase()];
 }
 
 export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>): void {
@@ -151,43 +138,32 @@ export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>):
 	Object.assign(payload, ordered);
 }
 
-function countAgyRequestSteps(payload: { contents?: unknown }, mode: "parts" | "contents" | "cli" = "parts"): number {
-	const contents = payload.contents;
+function countAgyRequestSteps(contents: unknown): number {
 	if (!Array.isArray(contents)) return 1;
-	if (mode === "contents") return Math.max(1, contents.length);
-	let partCount = 0;
 	let functionResponseCount = 0;
 	for (const content of contents) {
-		if (!content || typeof content !== "object" || Array.isArray(content)) continue;
-		const parts = (content as { parts?: unknown }).parts;
+		const parts = (content as { parts?: unknown } | null)?.parts;
 		if (!Array.isArray(parts)) continue;
-		partCount += parts.length;
-		if (mode === "cli") {
-			functionResponseCount += parts.filter((part) => {
-				if (!part || typeof part !== "object" || Array.isArray(part)) return false;
-				return "functionResponse" in part;
-			}).length;
-		}
+		functionResponseCount += parts.filter(
+			(part) => part && typeof part === "object" && "functionResponse" in part,
+		).length;
 	}
-	if (mode === "cli") return Math.max(1, contents.length + functionResponseCount);
-	return Math.max(1, partCount);
+	return Math.max(1, contents.length + functionResponseCount);
 }
 
 export function buildAgyAgentRequestMetadata(
 	session: AgySessionContext,
 	payload: { contents?: unknown },
 	model: string,
-	timestamp: number = Date.now(),
-	options: { stepCountMode?: "parts" | "contents" | "cli" } = {},
-): { requestId: string; sessionId: string; labels: Record<string, string>; lastStepIndex: number } {
-	const lastStepIndex =
-		countAgyRequestSteps(payload, options.stepCountMode ?? "parts") + (session.lastExecutionId ? 1 : 0);
+	timestamp: number,
+): { requestId: string; sessionId: string; labels: Record<string, string> } {
+	const lastStepIndex = countAgyRequestSteps(payload.contents) + (session.lastExecutionId ? 1 : 0);
 	const lowerModel = model.toLowerCase();
 	const isClaude = lowerModel.startsWith("claude-");
 	const isNonGemini = isClaude || lowerModel.startsWith("gpt-");
 	session.usedClaude = session.usedClaude === true || isClaude;
 	session.usedNonGeminiModel = session.usedNonGeminiModel === true || isNonGemini;
-	const modelEnum = getAgyModelEnum(model);
+	const modelEnum = AGY_MODEL_ENUM_BY_WIRE_MODEL[lowerModel];
 	const labels: Record<string, string> = {
 		...(session.lastExecutionId ? { last_execution_id: session.lastExecutionId } : {}),
 		last_step_index: String(lastStepIndex),
@@ -202,6 +178,5 @@ export function buildAgyAgentRequestMetadata(
 		requestId: `agent/${session.conversationId}/${timestamp}/${session.trajectoryId}/${lastStepIndex + 1}`,
 		sessionId: session.numericSessionId,
 		labels,
-		lastStepIndex,
 	};
 }

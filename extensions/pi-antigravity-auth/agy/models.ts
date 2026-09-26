@@ -3,11 +3,12 @@
  * runtime so new releases appear without code changes. The service lists
  * tiers as separate ids (gemini-3.7-flash-low/-medium/-high) each with its
  * own thinkingBudget; this module collapses them into base models with a
- * tiers list. Falls back to a static snapshot when the network is down.
+ * tiers list. A static snapshot is the baseline catalog before the first
+ * successful refresh.
  */
 
-import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from "./constants.ts";
-import { buildAntigravityHarnessUserAgent } from "./fingerprint.ts";
+import { ANTIGRAVITY_ENDPOINT } from "./constants.ts";
+import { ANTIGRAVITY_USER_AGENT } from "./fingerprint.ts";
 import { fetchWithAgyCliTransport } from "./transport.ts";
 
 interface AgyModelTier {
@@ -113,43 +114,26 @@ export function getLiveModelCatalog(): AgyModelDefinition[] | undefined {
 	return cachedModels;
 }
 
-async function fetchModelsFromNetwork(accessToken: string, signal?: AbortSignal): Promise<AgyModelDefinition[]> {
-	let lastError: unknown;
-	for (const endpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
-		try {
-			const response = await fetchWithAgyCliTransport(
-				`${endpoint}${FETCH_AVAILABLE_MODELS_PATH}`,
-				{
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${accessToken}`,
-						"Content-Type": "application/json",
-						"User-Agent": buildAntigravityHarnessUserAgent(),
-					},
-					body: "{}",
-				},
-				{ signal, timeoutMs: 15_000, idleTimeoutMs: 15_000 },
-			);
-			if (response.ok) {
-				const models = normalizeRemoteModels((await response.json()) as FetchAvailableModelsResponse);
-				if (models.length > 0) return models;
-				lastError = new Error(`no usable models at ${endpoint}`);
-			} else {
-				lastError = new Error(`HTTP ${response.status} at ${endpoint}`);
-			}
-		} catch (error) {
-			lastError = error;
-		}
-	}
-	throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
-
 /**
- * Refresh the model catalog from the network. Throws on failure; the caller
- * keeps the previous catalog in that case.
+ * Refresh the model catalog from the network. Throws on failure.
  */
 export async function refreshModelCatalog(accessToken: string, signal?: AbortSignal): Promise<AgyModelDefinition[]> {
-	const models = await fetchModelsFromNetwork(accessToken, signal);
+	const response = await fetchWithAgyCliTransport(
+		`${ANTIGRAVITY_ENDPOINT}${FETCH_AVAILABLE_MODELS_PATH}`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+				"User-Agent": ANTIGRAVITY_USER_AGENT,
+			},
+			body: "{}",
+		},
+		{ signal, timeoutMs: 15_000, idleTimeoutMs: 15_000 },
+	);
+	if (!response.ok) throw new Error(`fetchAvailableModels failed: HTTP ${response.status}`);
+	const models = normalizeRemoteModels((await response.json()) as FetchAvailableModelsResponse);
+	if (models.length === 0) throw new Error("fetchAvailableModels returned no usable models");
 	cachedModels = models;
 	return models;
 }
