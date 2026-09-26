@@ -125,37 +125,3 @@ function normalizeWebRunCommand(cmd: WebRunCommand): WebRunCommand {
 
 	return normalized;
 }
-
-interface EndpointPayloadOptions {
-	sessionId?: string;
-	model?: string;
-}
-
-export function serializeWebRunPayload(
-	command: WebRunCommand,
-	options?: EndpointPayloadOptions,
-): Record<string, unknown> {
-	const commandsObj: Record<string, unknown> = {};
-
-	if (command.search_query && command.search_query.length > 0) {
-		commandsObj.search_query = command.search_query;
-	}
-	if (command.open && command.open.length > 0) {
-		commandsObj.open = command.open;
-	}
-	if (command.click && command.click.length > 0) {
-		commandsObj.click = command.click;
-	}
-	if (command.find && command.find.length > 0) {
-		commandsObj.find = command.find;
-	}
-	if (command.response_length) {
-		commandsObj.response_length = command.response_length;
-	}
-
-	return {
-		id: options?.sessionId ?? "search_1",
-		model: options?.model ?? "gpt-4o",
-		commands: commandsObj,
-	};
-}
