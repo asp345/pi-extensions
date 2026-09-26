@@ -2,7 +2,7 @@ import type { NormalizedBuildSystemPromptOptions } from "@earendil-works/pi-codi
 
 const FILE_PATHS_GUIDELINE = "Show file paths clearly when working with files";
 
-export interface HarnessDocsPaths {
+interface HarnessDocsPaths {
 	readme: string;
 	docs: string;
 	examples: string;
@@ -53,7 +53,7 @@ export function filterContextFiles(
 	});
 }
 
-export function harnessDocsBlock(paths: HarnessDocsPaths): string {
+function harnessDocsBlock(paths: HarnessDocsPaths): string {
 	return [
 		"Harness documentation (only when the user asks about harness itself, its SDK, extensions, themes, skills, or TUI):",
 		`- README: ${paths.readme} | Docs: ${paths.docs} | Examples: ${paths.examples}`,
