@@ -8,6 +8,7 @@ My personal Pi monorepo.
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
+- `extensions/pi-browser/`
 - `extensions/pi-compact-ui/`
 - `extensions/pi-compaction/`
 - `extensions/pi-custom-providers/`

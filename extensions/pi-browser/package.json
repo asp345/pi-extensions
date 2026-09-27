@@ -13,7 +13,8 @@
 		"*.ts",
 		"!*.test.ts",
 		"USAGE.md",
-		"LICENSE"
+		"LICENSE",
+		"README.md"
 	],
 	"pi": {
 		"extensions": [
