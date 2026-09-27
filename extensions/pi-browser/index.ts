@@ -1,13 +1,16 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type AgentToolResult, type ExtensionAPI, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Browser, type NetworkEntry, PROFILE_DIR, type Tab } from "./browser.ts";
 
-const USAGE_PATH = fileURLToPath(new URL("./USAGE.md", import.meta.url));
+const DESCRIPTION = [
+	"Control a headless Helium browser (dedicated profile) over CDP. The first call launches it. When the user must act in the browser (login, CAPTCHA), ask them to run `/browser launch headed`.",
+	"Actions: tabs; open(url?); close; navigate(url); snapshot: accessibility tree, prefer for page structure; html(selector?); eval(code): JS expression, promises awaited; click(selector | x,y in CSS px); type(text) at focus; key(text): Enter, Tab, Escape, Backspace, Delete, Arrow*, PageUp, PageDown, Home, End; screenshot; console(clear?); network(id?, clear?): list, or headers and bodies of one request; cookies(url?); set_cookie(cookie); delete_cookie(cookie); cdp(method, params?).",
+	"`tab` is an id prefix from `tabs`; default is the last used tab. Console and network are recorded per tab from its first use. Output over 2000 lines or 50KB is truncated and saved to a file.",
+].join("\n");
 
 const ACTIONS = [
 	"tabs",
@@ -128,7 +131,7 @@ export default function browserExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "browser",
 		label: "Browser",
-		description: `Control a Helium browser over CDP. Read ${USAGE_PATH} before first use.`,
+		description: DESCRIPTION,
 		promptSnippet: "Control a Helium browser over CDP",
 		parameters: Type.Object({
 			action: StringEnum(ACTIONS),
@@ -141,9 +144,19 @@ export default function browserExtension(pi: ExtensionAPI): void {
 			y: Type.Optional(Type.Number()),
 			id: Type.Optional(Type.String()),
 			clear: Type.Optional(Type.Boolean()),
-			cookie: Type.Optional(Type.String({ description: "JSON object" })),
+			cookie: Type.Optional(
+				Type.String({
+					description:
+						"JSON object of Network.setCookie/deleteCookies fields. Without url or domain, applies to the tab URL.",
+				}),
+			),
 			method: Type.Optional(Type.String()),
-			params: Type.Optional(Type.String({ description: "JSON object" })),
+			params: Type.Optional(
+				Type.String({
+					description:
+						'JSON object with every required field, e.g. {"width":390,"height":844,"deviceScaleFactor":3,"mobile":true}',
+				}),
+			),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params): Promise<Result> {

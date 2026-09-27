@@ -8,7 +8,7 @@ Requires `helium` on `PATH`.
 
 `browser` with `action: tabs|open|close|navigate|snapshot|html|eval|click|type|key|screenshot|console|network|cookies|set_cookie|delete_cookie|cdp` and optional `tab`, `url`, `selector`, `code`, `text`, `x`, `y`, `id`, `clear`, `cookie`, `method`, `params`.
 
-The tool description is one line that points to [`USAGE.md`](./USAGE.md); the model reads the per-action reference from that file before first use.
+The tool description lists each action with its parameters. `cookie` and `params` are JSON object strings so that value types survive tool-call serialization.
 
 ## Browser
 

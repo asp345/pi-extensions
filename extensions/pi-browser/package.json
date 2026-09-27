@@ -12,7 +12,6 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"USAGE.md",
 		"LICENSE",
 		"README.md"
 	],
