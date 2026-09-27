@@ -38,6 +38,13 @@ function required<T>(value: T | undefined, name: string, action: string): T {
 	return value;
 }
 
+function jsonObject(text: string, name: string): Record<string, unknown> {
+	const value: unknown = JSON.parse(text);
+	if (typeof value !== "object" || value === null || Array.isArray(value))
+		throw new Error(`${name} must be a JSON object`);
+	return value as Record<string, unknown>;
+}
+
 function stringify(value: unknown): string {
 	if (value === undefined) return "undefined";
 	return typeof value === "string" ? value : JSON.stringify(value, null, 2);
@@ -134,9 +141,9 @@ export default function browserExtension(pi: ExtensionAPI): void {
 			y: Type.Optional(Type.Number()),
 			id: Type.Optional(Type.String()),
 			clear: Type.Optional(Type.Boolean()),
-			cookie: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			cookie: Type.Optional(Type.String({ description: "JSON object" })),
 			method: Type.Optional(Type.String()),
-			params: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+			params: Type.Optional(Type.String({ description: "JSON object" })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params): Promise<Result> {
@@ -216,20 +223,26 @@ export default function browserExtension(pi: ExtensionAPI): void {
 				case "cookies":
 					return output(await browser.cookies(tab, params.url));
 				case "set_cookie": {
-					const cookie = required(params.cookie, "cookie", action);
+					const cookie = jsonObject(required(params.cookie, "cookie", action), "cookie");
 					const scope = cookie.url || cookie.domain ? {} : { url: await pageUrl(browser, tab) };
 					await browser.send(tab, "Network.setCookie", { ...scope, ...cookie });
 					return output(`Set cookie ${String(cookie.name)}`);
 				}
 				case "delete_cookie": {
-					const cookie = required(params.cookie, "cookie", action);
+					const cookie = jsonObject(required(params.cookie, "cookie", action), "cookie");
 					const scope = cookie.url || cookie.domain ? {} : { url: await pageUrl(browser, tab) };
 					await browser.send(tab, "Network.deleteCookies", { ...scope, ...cookie });
 					return output(`Deleted cookie ${String(cookie.name)}`);
 				}
 				case "cdp":
 					return output(
-						stringify(await browser.send(tab, required(params.method, "method", action), params.params ?? {})),
+						stringify(
+							await browser.send(
+								tab,
+								required(params.method, "method", action),
+								params.params ? jsonObject(params.params, "params") : {},
+							),
+						),
 					);
 			}
 		},

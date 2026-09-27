@@ -13,7 +13,7 @@ interface Message {
 	method?: string;
 	params?: CdpParams;
 	result?: CdpParams;
-	error?: { message: string };
+	error?: { message: string; data?: string };
 	sessionId?: string;
 }
 
@@ -103,8 +103,10 @@ export class Cdp {
 			if (!pending) return;
 			this.#pending.delete(message.id);
 			clearTimeout(pending.timer);
-			if (message.error) pending.reject(new Error(`${pending.method}: ${message.error.message}`));
-			else pending.resolve(message.result ?? {});
+			if (message.error) {
+				const { message: text, data } = message.error;
+				pending.reject(new Error(`${pending.method}: ${text}${data ? ` (${data})` : ""}`));
+			} else pending.resolve(message.result ?? {});
 			return;
 		}
 		if (!message.method) return;

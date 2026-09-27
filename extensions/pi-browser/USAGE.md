@@ -20,8 +20,8 @@ The first call launches headless Helium with a dedicated profile (`$PI_CODING_AG
 | `console` | `clear?`, `tab?` | Console calls, uncaught exceptions, and browser log entries. `clear` empties the buffer after returning it. |
 | `network` | `id?`, `clear?`, `tab?` | Without `id`: `requestId method status type url` lines. With `id`: request and response headers, request body, and response body. |
 | `cookies` | `url?`, `tab?` | Cookies for `url`, or for the tab's current URL. Includes HttpOnly cookies. |
-| `set_cookie` | `cookie`, `tab?` | `cookie` holds `Network.setCookie` fields (`name`, `value`, `domain`, `path`, `secure`, `httpOnly`, `sameSite`, `expires`, `url`). Without `url` or `domain`, it applies to the tab's URL. |
-| `delete_cookie` | `cookie`, `tab?` | `cookie` holds `Network.deleteCookies` fields (`name`, `url`, `domain`, `path`). Without `url` or `domain`, it applies to the tab's URL. |
-| `cdp` | `method`, `params?`, `tab?` | Sends a raw Chrome DevTools Protocol command on the tab session and returns the JSON result. |
+| `set_cookie` | `cookie`, `tab?` | `cookie` is a JSON object string of `Network.setCookie` fields (`name`, `value`, `domain`, `path`, `secure`, `httpOnly`, `sameSite`, `expires`, `url`). Without `url` or `domain`, it applies to the tab's URL. |
+| `delete_cookie` | `cookie`, `tab?` | `cookie` is a JSON object string of `Network.deleteCookies` fields (`name`, `url`, `domain`, `path`). Without `url` or `domain`, it applies to the tab's URL. |
+| `cdp` | `method`, `params?`, `tab?` | Sends a raw Chrome DevTools Protocol command on the tab session and returns the JSON result. `params` is a JSON object string with every required field of the method, e.g. `{"width":390,"height":844,"deviceScaleFactor":3,"mobile":true}` for `Emulation.setDeviceMetricsOverride`. |
 
 Output longer than 2000 lines or 50 KB is truncated, and the full text is saved to a file named in the result.
