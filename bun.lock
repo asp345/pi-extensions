@@ -43,6 +43,15 @@
         "typebox": "*",
       },
     },
+    "extensions/pi-browser": {
+      "name": "@asp345/pi-browser",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "extensions/pi-compact-ui": {
       "name": "@asp345/pi-compact-ui",
       "version": "0.0.0",
@@ -190,6 +199,8 @@
     "@asp345/pi-antigravity-auth": ["@asp345/pi-antigravity-auth@workspace:extensions/pi-antigravity-auth"],
 
     "@asp345/pi-background-tasks": ["@asp345/pi-background-tasks@workspace:extensions/pi-background-tasks"],
+
+    "@asp345/pi-browser": ["@asp345/pi-browser@workspace:extensions/pi-browser"],
 
     "@asp345/pi-compact-ui": ["@asp345/pi-compact-ui@workspace:extensions/pi-compact-ui"],
 
