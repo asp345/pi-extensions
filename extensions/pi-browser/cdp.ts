@@ -17,8 +17,6 @@ interface Message {
 	sessionId?: string;
 }
 
-const TIMEOUT_MS = 30_000;
-
 export class Cdp {
 	readonly #ws: WebSocket;
 	#id = 0;
@@ -47,13 +45,13 @@ export class Cdp {
 		});
 	}
 
-	send<T = CdpParams>(method: string, params: CdpParams = {}, sessionId?: string): Promise<T> {
+	send<T = CdpParams>(timeoutMs: number, method: string, params: CdpParams = {}, sessionId?: string): Promise<T> {
 		const id = ++this.#id;
 		return new Promise<T>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.#pending.delete(id);
-				reject(new Error(`CDP ${method} timed out after ${TIMEOUT_MS / 1000}s`));
-			}, TIMEOUT_MS);
+				reject(new Error(`CDP ${method} timed out after ${timeoutMs / 1000}s`));
+			}, timeoutMs);
 			this.#pending.set(id, { method, resolve: (value) => resolve(value as T), reject, timer });
 			this.#ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params }));
 		});
@@ -72,18 +70,18 @@ export class Cdp {
 		label: string,
 		match: (method: string, params: CdpParams, sessionId?: string) => boolean,
 		timeoutMs: number,
-	): { promise: Promise<void>; cancel: () => void } {
+	): { promise: Promise<CdpParams>; cancel: () => void } {
 		let off = () => {};
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		const cancel = () => {
 			clearTimeout(timer);
 			off();
 		};
-		const promise = new Promise<void>((resolve, reject) => {
+		const promise = new Promise<CdpParams>((resolve, reject) => {
 			off = this.onEvent((method, params, sessionId) => {
 				if (!match(method, params, sessionId)) return;
 				cancel();
-				resolve();
+				resolve(params);
 			});
 			timer = setTimeout(() => {
 				off();
