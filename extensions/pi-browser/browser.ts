@@ -178,6 +178,7 @@ async function launch(headed: boolean): Promise<Cdp> {
 	const args = [
 		`--user-data-dir=${PROFILE_DIR}`,
 		"--remote-debugging-port=0",
+		"--disable-blink-features=AutomationControlled",
 		"--no-first-run",
 		"--no-default-browser-check",
 	];
