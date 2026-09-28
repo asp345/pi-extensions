@@ -5,6 +5,25 @@ export function isJsonObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+export function sseData(text: string): string[] {
+	return text
+		.replace(/\r\n/g, "\n")
+		.split("\n\n")
+		.map((block) =>
+			block
+				.split("\n")
+				.filter((line) => line.startsWith("data:"))
+				.map((line) => line.slice(5).trimStart())
+				.join("\n")
+				.trim(),
+		)
+		.filter((data) => data.length > 0);
+}
+
 export function cloneItem<T>(value: T): T {
 	return structuredClone(value);
 }

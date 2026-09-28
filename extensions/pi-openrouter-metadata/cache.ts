@@ -1,28 +1,14 @@
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { CostOverride, MetadataOverride, OpenRouterModel } from "./types.ts";
-import {
-	cacheId,
-	displayName,
-	EFFORT_LEVELS,
-	finiteTimestamp,
-	headerValidator,
-	perMillionRate,
-	positiveInteger,
-	record,
-	storedRate,
-	string,
-	stringArray,
-	stringRecord,
-} from "./validate.ts";
+import { EFFORT_LEVELS, record, stringArray, writeJsonAtomic } from "../shared/json.ts";
+import type { CostOverride, MetadataOverride } from "./types.ts";
+import { cacheId, displayName, finiteTimestamp, headerValidator, perMillionRate } from "./validate.ts";
 
 export const CACHE_VERSION = 1;
 const CACHE_FILE = "openrouter-metadata-store.json";
-const PI_MODELS_STORE_FILE = "models-store.json";
 
 export interface OpenRouterMetadataCacheEntry {
 	version: typeof CACHE_VERSION;
@@ -45,72 +31,6 @@ export function readInitialMetadataCache(): OpenRouterMetadataCacheEntry | undef
 	}
 }
 
-export function readPiOpenRouterModels(): OpenRouterModel[] {
-	try {
-		const root = record(JSON.parse(readFileSync(join(getAgentDir(), PI_MODELS_STORE_FILE), "utf8")) as unknown);
-		const openrouter = record(root?.openrouter);
-		if (!Array.isArray(openrouter?.models)) return [];
-		return openrouter.models.flatMap((value) => {
-			const model = storedOpenRouterModel(value);
-			return model ? [model] : [];
-		});
-	} catch {
-		return [];
-	}
-}
-
-function storedOpenRouterModel(value: unknown): OpenRouterModel | undefined {
-	const source = record(value);
-	const id = cacheId(source?.id);
-	const name = displayName(source?.name);
-	const baseUrl = string(source?.baseUrl);
-	const input = stringArray(source?.input).filter(
-		(item): item is "text" | "image" => item === "text" || item === "image",
-	);
-	const rawCost = record(source?.cost);
-	const inputCost = storedRate(rawCost?.input);
-	const outputCost = storedRate(rawCost?.output);
-	const cacheRead = storedRate(rawCost?.cacheRead);
-	const cacheWrite = storedRate(rawCost?.cacheWrite);
-	const contextWindow = positiveInteger(source?.contextWindow);
-	const maxTokens = positiveInteger(source?.maxTokens);
-	if (
-		!source ||
-		!id ||
-		!name ||
-		!baseUrl ||
-		source.api !== "openai-completions" ||
-		source.provider !== "openrouter" ||
-		typeof source.reasoning !== "boolean" ||
-		!input.length ||
-		inputCost === undefined ||
-		outputCost === undefined ||
-		cacheRead === undefined ||
-		cacheWrite === undefined ||
-		contextWindow === undefined ||
-		maxTokens === undefined
-	) {
-		return undefined;
-	}
-	const compat = record(source.compat);
-	const headers = stringRecord(source.headers);
-	return {
-		id,
-		name,
-		api: "openai-completions",
-		provider: "openrouter",
-		baseUrl,
-		reasoning: source.reasoning,
-		thinkingLevelMap: cachedThinkingLevelMap(source.thinkingLevelMap),
-		input,
-		cost: { input: inputCost, output: outputCost, cacheRead, cacheWrite },
-		contextWindow,
-		maxTokens,
-		compat: compat ? (structuredClone(compat) as OpenRouterModel["compat"]) : undefined,
-		headers,
-	};
-}
-
 export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenRouterMetadataCache {
 	let writeQueue = Promise.resolve();
 	return {
@@ -122,31 +42,7 @@ export function fileMetadataCache(path = join(getAgentDir(), CACHE_FILE)): OpenR
 			}
 		},
 		write: (entry) => {
-			const write = writeQueue
-				.catch(() => undefined)
-				.then(async () => {
-					const directory = dirname(path);
-					await mkdir(directory, { recursive: true, mode: 0o700 });
-					const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-					let moved = false;
-					const file = await open(temporary, "wx", 0o600);
-					try {
-						await file.writeFile(`${JSON.stringify(entry, null, 2)}\n`);
-						await file.sync();
-						await file.close();
-						await rename(temporary, path);
-						moved = true;
-						const parent = await open(directory, "r");
-						try {
-							await parent.sync();
-						} finally {
-							await parent.close();
-						}
-					} finally {
-						await file.close().catch(() => undefined);
-						if (!moved) await unlink(temporary).catch(() => undefined);
-					}
-				});
+			const write = writeQueue.catch(() => undefined).then(() => writeJsonAtomic(path, entry));
 			writeQueue = write;
 			return write;
 		},

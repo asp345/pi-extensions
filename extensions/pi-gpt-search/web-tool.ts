@@ -1,10 +1,7 @@
-import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { compactCallLine } from "pi-compact-ui";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { CodexWebSearchProvider } from "./codex-provider.ts";
 import { type WebRunCommand, WebRunCommandSchema } from "./commands.ts";
 import { formatWebToolResult } from "./output.ts";
-import type { WebSearchProvider } from "./provider.ts";
 
 const BROWSING_GUIDELINES = [
 	"Use web when the user asks to search, browse, or verify; when information may have changed; or when niche facts or primary sources are needed.",
@@ -15,11 +12,6 @@ const BROWSING_GUIDELINES = [
 ];
 
 const WebToolParameters = WebRunCommandSchema;
-
-function firstText(result: AgentToolResult<unknown>): string {
-	const first = result.content[0];
-	return first && "text" in first ? first.text : "";
-}
 
 function describeCommandStatus(command: WebRunCommand): string {
 	const parts: string[] = [];
@@ -42,7 +34,7 @@ function describeCommandStatus(command: WebRunCommand): string {
 	return parts.length > 0 ? `${parts.join("; ")}...` : "Executing web research action...";
 }
 
-export function createWebTool(provider: WebSearchProvider): ToolDefinition {
+export function createWebTool(provider: CodexWebSearchProvider): ToolDefinition {
 	return {
 		name: "web",
 		label: "Web Research Harness",
@@ -62,7 +54,7 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 				});
 			}
 			try {
-				const response = await provider.execute(command, undefined, ctx, signal);
+				const response = await provider.execute(command, ctx, signal);
 				const formatted = formatWebToolResult(command, response, provider.getRefIndex());
 				return formatted;
 			} catch (err) {
@@ -70,13 +62,5 @@ export function createWebTool(provider: WebSearchProvider): ToolDefinition {
 				throw new Error(`Web execution failed: ${errorMsg}`);
 			}
 		},
-		renderCall(args, theme, context) {
-			return compactCallLine("web", args, theme, context) as Component;
-		},
-		renderResult(result, options, _theme, _context): Component {
-			if (!options.expanded) return new Container();
-			return new Text(firstText(result), 0, 0);
-		},
-		renderShell: "self",
 	};
 }

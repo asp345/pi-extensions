@@ -50,6 +50,7 @@ Environment:
 - Do not assume paths from your memory (`~/.pi/agent`, `%TEMP%`).
 - Ask the user on network, container, or GPU issues.
 - Prefer built-in tools over bash. Batch tool calls whenever possible.
+- Piping bash output may lead to lost output.
 
 Git:
 - Fetch remote once in a while before branching, rebasing, or committing.

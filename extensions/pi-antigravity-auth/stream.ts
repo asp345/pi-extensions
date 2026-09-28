@@ -231,14 +231,12 @@ export function streamAntigravity(
 				closeOpen();
 				throw new Error("Antigravity stream ended without a finish reason");
 			}
-			if (terminal) {
-				try {
-					await iterator.return?.(undefined);
-				} catch (error) {
-					if (!trailingAbort.signal.aborted) throw error;
-				}
-				await response.body?.cancel().catch(() => {});
+			try {
+				await iterator.return?.(undefined);
+			} catch (error) {
+				if (!trailingAbort.signal.aborted) throw error;
 			}
+			await response.body?.cancel().catch(() => {});
 			if (options?.signal?.aborted) throw new Error("Request was aborted");
 			if (output.stopReason === "error") {
 				stream.push({ type: "error", reason: "error", error: output });

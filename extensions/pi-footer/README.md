@@ -27,7 +27,7 @@ Quota plans are selected automatically from the current provider ID. Supported p
 - OpenCode Go
 - Command Code
 
-Credentials are resolved from provider environment variables or Pi's `auth.json`. OAuth-backed providers use Pi's model registry when available.
+Credentials are resolved in this order: the plan's environment variable (`MINIMAX_API_KEY`, `GLM_API_KEY`, `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, `OPENCODE_API_KEY`, `COMMANDCODE_API_KEY`), Pi's model registry, then Pi's `auth.json`. Anthropic, OpenAI Codex, xAI, and Google Antigravity use only the model registry and `auth.json`.
 
 ## Origin
 

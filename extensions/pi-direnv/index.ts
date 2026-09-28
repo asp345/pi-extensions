@@ -16,12 +16,11 @@ export default function direnv(pi: ExtensionAPI) {
 			return;
 		}
 
-		try {
-			const env = JSON.parse(result.stdout) as Record<string, string | null>;
-			for (const [name, value] of Object.entries(env)) {
-				if (value === null) delete process.env[name];
-				else process.env[name] = value;
-			}
-		} catch {}
+		if (!result.stdout.trim()) return;
+		const env = JSON.parse(result.stdout) as Record<string, string | null>;
+		for (const [name, value] of Object.entries(env)) {
+			if (value === null) delete process.env[name];
+			else process.env[name] = value;
+		}
 	});
 }

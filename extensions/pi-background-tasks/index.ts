@@ -1,11 +1,8 @@
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
-import { Container, Text } from "@earendil-works/pi-tui";
-import { type CompactSummary, compactCallLine } from "pi-compact-ui";
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
-import { duration, oneLine, taskLine } from "./render.ts";
+import { taskLine, visibleTasks } from "./render.ts";
 import { BackgroundRuntime, resolveTimeoutMs, type TaskSnapshot, tail } from "./runtime.ts";
 import { BackgroundUI, COMMAND, MESSAGE, renderTaskEvent, SHORTCUT } from "./ui.ts";
 
@@ -21,39 +18,6 @@ function startedText(task: TaskSnapshot): string {
 
 function stoppingText(id: string): string {
 	return `Stopping ${id}.`;
-}
-
-interface BackgroundTaskParams {
-	action: "start" | "list" | "read" | "stop" | "clear";
-	command?: string;
-	id?: string;
-}
-
-function taskCallSummary(params: BackgroundTaskParams, runtime: BackgroundRuntime): CompactSummary {
-	if (params.action === "start") {
-		return { name: "launch", content: oneLine(params.command?.trim() || "…") };
-	}
-	if (params.action === "list") {
-		const count = runtime.list().filter((task) => task.notify).length;
-		return { name: "list", content: count === 0 ? "no tasks" : `${count} task${count === 1 ? "" : "s"}` };
-	}
-	if (params.action === "clear") {
-		return { name: "clear", content: "finished tasks" };
-	}
-	const id = params.id?.trim() ?? "";
-	const task = runtime.get(id || undefined);
-	if (!task) return { name: params.action, content: id || "…" };
-	const elapsed = task.status === "running" ? Date.now() - task.startedAt : task.updatedAt - task.startedAt;
-	const meta = `${oneLine(task.command)} · ${duration(elapsed)}`;
-	if (params.action === "read" && task.status !== "running") {
-		return { name: "done", content: `${id} · ${meta}` };
-	}
-	return { name: params.action, content: `${id} · ${meta}` };
-}
-
-function firstText(result: AgentToolResult<unknown>): string {
-	const first = result.content[0];
-	return first && "text" in first ? first.text : "";
 }
 
 export default function backgroundTasks(pi: ExtensionAPI): void {
@@ -77,7 +41,6 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		publishState(runtime.runningNotifiedTaskIds());
 	};
 	pi.on("session_start", attach);
-	pi.on("agent_settled", async () => ui.flushEvents());
 	pi.registerMessageRenderer(MESSAGE, renderTaskEvent);
 	pi.on("session_shutdown", () => {
 		runtime.shutdown();
@@ -136,10 +99,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 				);
 			}
 			if (params.action === "list") {
-				const tasks = runtime
-					.list()
-					.filter((task) => task.notify)
-					.slice(0, 50);
+				const tasks = visibleTasks(runtime).slice(0, 50);
 				return result(tasks.length ? tasks.map(taskLine).join("\n") : "No background tasks.");
 			}
 			if (params.action === "clear") return result(clearedText());
@@ -151,23 +111,12 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			}
 			return runtime.stop(id, "agent") ? result(stoppingText(id)) : result(NO_MATCH, true);
 		},
-		renderCall(args, theme, context) {
-			const summary = taskCallSummary(args, runtime);
-			if (summary.name === "done")
-				return new Text(` ${theme.fg("dim", `Read ${args.id?.trim() || "task"} result`)}`, 0, 0);
-			return compactCallLine("background_task", args, theme, context, summary) as Component;
-		},
-		renderResult(result, options, _theme, _context): Component {
-			if (!options.expanded) return new Container();
-			return new Text(firstText(result), 1, 0);
-		},
-		renderShell: "self",
 	});
 
 	pi.registerCommand(COMMAND, {
 		description: "Open or manage the background-task dashboard",
 		handler: async (args, ctx) => {
-			ui.attach(ctx as ExtensionContext);
+			ui.attach(ctx);
 			const value = args.trim();
 			if (!value || value === "dashboard") return ui.open(ctx);
 			if (value === "list" || value === "status") return ctx.ui.notify(ui.listText(), "info");
@@ -189,7 +138,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			if (watch) {
 				const id = watch[1]?.trim();
 				if (!runtime.get(id)) return ctx.ui.notify(NO_MATCH, "warning");
-				return ui.open(ctx, id, "output");
+				return ui.open(ctx, id);
 			}
 			ctx.ui.notify("Usage: /bg [dashboard|list|run <command>|watch <id>|stop <id>|clear]", "warning");
 		},
@@ -198,8 +147,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	pi.registerShortcut(SHORTCUT, {
 		description: "Open the background-task dashboard",
 		handler: async (ctx) => {
-			ui.attach(ctx as ExtensionContext);
-			await ui.open(ctx as ExtensionContext);
+			ui.attach(ctx);
+			await ui.open(ctx);
 		},
 	});
 }

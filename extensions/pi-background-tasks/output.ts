@@ -7,7 +7,6 @@ const BUFFER_LIMIT = 120_000;
 /** Per-task output capture: bounded in-memory ring plus a rotated log file. */
 export class TaskOutput {
 	text = "";
-	outputBytes = 0;
 	/** When false, append drops incoming data. The runtime wires this to task liveness. */
 	isActive: () => boolean = () => false;
 	private onRaw: ((data: Buffer) => void) | null;
@@ -44,7 +43,6 @@ export class TaskOutput {
 
 	append(value: string): void {
 		if (!value || !this.isActive()) return;
-		this.outputBytes += Buffer.byteLength(value);
 		this.text = `${this.text}${value}`.slice(-BUFFER_LIMIT);
 		const now = Date.now();
 		this.onAppend(now);

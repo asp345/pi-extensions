@@ -23,18 +23,14 @@ export default function (pi: ExtensionAPI) {
 			ctx.ui.setStatus("gpt-search", `Searching web for "${query}"...`);
 			try {
 				const command = { search_query: [{ q: query }] };
-				const response = await provider.execute(command, undefined, ctx, ctx.signal);
+				const response = await provider.execute(command, ctx, ctx.signal);
 				ctx.ui.setStatus("gpt-search", undefined);
 
 				const formatted = formatWebToolResult(command, response, provider.getRefIndex());
 				const textOutput = formatted.content[0].text;
 				ctx.ui.notify(`Web action succeeded (${response.results.length} results)`, "info");
 
-				if ("print" in ctx.ui && typeof (ctx.ui as { print?: (text: string) => void }).print === "function") {
-					(ctx.ui as { print: (text: string) => void }).print(textOutput);
-				} else {
-					console.log(textOutput);
-				}
+				console.log(textOutput);
 			} catch (err) {
 				ctx.ui.setStatus("gpt-search", undefined);
 				const errorMsg = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { record } from "../shared/json.ts";
 
 export type Severity = "critical" | "high" | "medium";
 type RedactionScope = "protectedOnly" | "allOutput";
@@ -42,10 +43,6 @@ const DEFAULTS: GuardConfig = {
 	gitProtection: { enabled: true, blockCommit: true, blockPush: true },
 };
 
-function record(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
 function bool(value: unknown, fallback: boolean): boolean {
 	return typeof value === "boolean" ? value : fallback;
 }
@@ -64,14 +61,14 @@ function strings(value: unknown, fallback: string[]): string[] {
 export function loadConfig(): GuardConfig {
 	let raw: Record<string, unknown> = {};
 	try {
-		if (existsSync(CONFIG_PATH)) raw = record(JSON.parse(readFileSync(CONFIG_PATH, "utf8")));
+		if (existsSync(CONFIG_PATH)) raw = record(JSON.parse(readFileSync(CONFIG_PATH, "utf8"))) ?? {};
 	} catch {
 		return structuredClone(DEFAULTS);
 	}
 
-	const readRedaction = record(raw.readRedaction);
-	const contentScanning = record(raw.contentScanning);
-	const gitProtection = record(raw.gitProtection);
+	const readRedaction = record(raw.readRedaction) ?? {};
+	const contentScanning = record(raw.contentScanning) ?? {};
+	const gitProtection = record(raw.gitProtection) ?? {};
 
 	return {
 		enabled: bool(raw.enabled, DEFAULTS.enabled),
@@ -106,16 +103,7 @@ export function loadConfig(): GuardConfig {
 
 export function saveConfig(config: GuardConfig): void {
 	mkdirSync(dirname(CONFIG_PATH), { recursive: true });
-	let raw: Record<string, unknown> = {};
-	try {
-		if (existsSync(CONFIG_PATH)) raw = record(JSON.parse(readFileSync(CONFIG_PATH, "utf8")));
-	} catch {
-		// Replace an unreadable configuration with a valid minimal file.
-	}
-	delete raw.debug;
-	delete raw.blockedEvents;
-	delete raw.protectedFileEdits;
-	writeFileSync(CONFIG_PATH, `${JSON.stringify({ ...raw, ...config }, null, 2)}\n`, "utf8");
+	writeFileSync(CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
 const DEFAULT_PROTECTED = [
@@ -147,12 +135,8 @@ function matchesConfigured(path: string, patterns: string[], cwd: string): boole
 	const absolute = normalize(resolve(cwd, path));
 	const local = normalize(relative(cwd, absolute));
 	return patterns.some((pattern) => {
-		try {
-			const re = globPattern(pattern);
-			return re.test(absolute) || re.test(local);
-		} catch {
-			return false;
-		}
+		const re = globPattern(pattern);
+		return re.test(absolute) || re.test(local);
 	});
 }
 

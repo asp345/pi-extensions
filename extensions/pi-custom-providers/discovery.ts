@@ -1,25 +1,13 @@
-import type { AuthResult, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import type { AuthResult } from "@earendil-works/pi-ai";
+import { effortLevelMap, readJsonResponse, record, stringArray } from "../shared/json.ts";
 import type { CustomProviderConfig, ModelCost, ModelMetadata } from "./types.ts";
 
 const MAX_CATALOG_BYTES = 16_000_000;
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
-const EFFORT_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
-
-function record(value: unknown): Record<string, unknown> | undefined {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: undefined;
-}
-
 function string(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function number(value: unknown): number | undefined {
-	const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /** Prices may legitimately be zero; negatives are provider sentinels for variable pricing. */
@@ -28,13 +16,13 @@ function rate(value: unknown): number | undefined {
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
+function number(value: unknown): number | undefined {
+	return rate(value) || undefined;
+}
+
 function withTimeout(signal: AbortSignal | undefined): AbortSignal {
 	const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
-}
-
-function stringArray(value: unknown): string[] {
-	return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
 /**
@@ -65,12 +53,8 @@ function reasoningMetadata(raw: Record<string, unknown>): Pick<ModelMetadata, "r
 		tokens.has("custom_reasoning");
 	if (!enabled) return {};
 
-	const supported = new Set(stringArray(reasoning?.supported_efforts));
-	if (supported.size === 0) return { reasoning: true };
-	const thinkingLevelMap: ThinkingLevelMap = {};
-	if (reasoning?.mandatory === true) thinkingLevelMap.off = null;
-	for (const level of EFFORT_LEVELS) thinkingLevelMap[level] = supported.has(level) ? level : null;
-	return { reasoning: true, thinkingLevelMap };
+	const thinkingLevelMap = effortLevelMap(reasoning);
+	return thinkingLevelMap ? { reasoning: true, thinkingLevelMap } : { reasoning: true };
 }
 
 /** Auto-detected USD-per-million-token prices must stay within this range. */
@@ -161,8 +145,6 @@ export function parseModelMetadata(value: unknown, multiplier: PriceMultiplier =
 		cost: pricing(raw, multiplier),
 		contextWindow,
 		maxTokens,
-		contextDetected: contextWindow !== undefined,
-		maxTokensDetected: maxTokens !== undefined,
 	};
 }
 
@@ -173,14 +155,6 @@ export function modelEndpointCandidates(config: CustomProviderConfig): string[] 
 		return [baseUrl.endsWith("/v1beta") ? `${baseUrl}/models` : `${baseUrl}/v1beta/models`];
 	}
 	return baseUrl.match(/\/v\d+(?:beta)?$/u) ? [`${baseUrl}/models`] : [`${baseUrl}/v1/models`, `${baseUrl}/models`];
-}
-
-async function readJson(response: Response): Promise<unknown> {
-	const declared = Number(response.headers.get("content-length"));
-	if (Number.isFinite(declared) && declared > MAX_CATALOG_BYTES) throw new Error("model catalog is too large");
-	const text = await response.text();
-	if (Buffer.byteLength(text) > MAX_CATALOG_BYTES) throw new Error("model catalog is too large");
-	return JSON.parse(text) as unknown;
 }
 
 function requestHeaders(config: CustomProviderConfig, auth?: AuthResult): Record<string, string> {
@@ -210,7 +184,7 @@ export async function discoverProviderModels(
 				errors.push(`${response.status} ${response.statusText} at ${endpoint}`);
 				continue;
 			}
-			const payload = record(await readJson(response));
+			const payload = record(await readJsonResponse(response, MAX_CATALOG_BYTES));
 			const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
 			const models = new Map<string, ModelMetadata>();
 			for (const item of items) {

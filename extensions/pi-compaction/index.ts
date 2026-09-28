@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import registerClaudeCompaction from "./claude.ts";
 import registerCodexCompaction from "./codex.ts";
 import { type CompactionConfig, loadCompactionConfig } from "./config.ts";
+import { errorMessage } from "./protocol.ts";
 import registerTextCompaction from "./text.ts";
 
 export default function compaction(pi: ExtensionAPI): void {
@@ -19,7 +20,7 @@ export default function compaction(pi: ExtensionAPI): void {
 		} catch (error) {
 			config = undefined;
 			configError = error;
-			if (ctx.hasUI) ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			if (ctx.hasUI) ctx.ui.notify(errorMessage(error), "error");
 		}
 	});
 

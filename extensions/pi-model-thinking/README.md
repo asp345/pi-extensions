@@ -1,11 +1,9 @@
 # pi-model-thinking
 
-Remembers the selected thinking level for each `provider/model` pair and restores it when that model is selected again.
+Remembers the thinking level chosen for each `provider/modelId` pair.
 
-## Command
+Pi applies `modelThinkingLevels` from `settings.json` at startup and whenever a model is selected. The extension patches `InteractiveMode.prototype.cycleThinkingLevel` (the thinking-cycle shortcut) and `InteractiveMode.prototype.selectThinkingLevel` (`/thinking`) once per process. After either runs, the session's current level is stored for the current model with `SettingsManager.setModelThinkingLevel`.
 
-- `/model-thinking on`
-- `/model-thinking off`
-- `/model-thinking status`
+Other level changes are not stored: model switches, `--thinking`, the per-model entries in `/settings` (which already write `modelThinkingLevels`), RPC `set_thinking_level`, and `pi.setThinkingLevel` from extensions.
 
-Configuration is stored as `pi-model-thinking.json` in the Pi agent directory.
+`cycleThinkingLevel`, `selectThinkingLevel`, `session`, and `settingsManager` are private members of `InteractiveMode`; check them when updating Pi.

@@ -71,58 +71,33 @@ async function callbackServer(expectedState: string, signal?: AbortSignal) {
 }
 
 export async function login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
-	const authorization = await authorizeAntigravity();
-	const expectedState = new URL(authorization.url).searchParams.get("state") ?? "";
-	let callback: Awaited<ReturnType<typeof callbackServer>> | undefined;
+	const url = authorizeAntigravity();
+	const expectedState = new URL(url).searchParams.get("state") ?? "";
+	const callback = await callbackServer(expectedState, callbacks.signal);
+	callbacks.onAuth({ url, instructions: "Complete login in your browser, or paste the final callback URL." });
 	let result: Authorization | undefined;
 	try {
-		callback = await callbackServer(expectedState, callbacks.signal);
-	} catch {}
-
-	callbacks.onAuth({
-		url: authorization.url,
-		instructions: callback
-			? "Complete login in your browser, or paste the final callback URL."
-			: "Paste the final callback URL after completing login.",
-	});
-	if (callback) {
-		try {
-			result = callbacks.onManualCodeInput
-				? await Promise.race([
-						callback.result,
-						callbacks.onManualCodeInput().then((input) => parseAuthorization(input, expectedState)),
-					])
-				: await callback.result;
-		} finally {
-			callback.close();
-		}
+		result = callbacks.onManualCodeInput
+			? await Promise.race([
+					callback.result,
+					callbacks.onManualCodeInput().then((input) => parseAuthorization(input, expectedState)),
+				])
+			: await callback.result;
+	} finally {
+		callback.close();
 	}
 	if (callbacks.signal?.aborted) throw new Error("Antigravity OAuth login aborted.");
-	result ??= parseAuthorization(
-		await callbacks.onPrompt({ message: "Paste the Antigravity OAuth callback URL or code:" }),
-		expectedState,
-	);
 	if (!result) throw new Error("Missing Antigravity authorization code.");
 	if (result.state !== expectedState) throw new Error("Antigravity OAuth state mismatch.");
 
-	const exchanged = await exchangeAntigravity(result.code, result.state);
-	if (exchanged.type !== "success") {
-		throw new Error(`Antigravity OAuth exchange failed: ${exchanged.error}`);
-	}
-	return {
-		refresh: exchanged.refresh,
-		access: exchanged.access,
-		expires: exchanged.expires,
-	};
+	return exchangeAntigravity(result.code, result.state);
 }
 
 export async function refreshOAuth(credentials: OAuthCredentials): Promise<OAuthCredentials> {
-	const separator = credentials.refresh.indexOf("|");
-	const refreshToken = separator === -1 ? credentials.refresh : credentials.refresh.slice(0, separator);
-	const project = separator === -1 ? "" : credentials.refresh.slice(separator);
+	const [refreshToken, project = ""] = credentials.refresh.split("|");
 	const result = await refreshAntigravityToken(refreshToken);
 	return {
-		refresh: `${result.refresh}${project}`,
+		refresh: `${result.refresh}|${project}`,
 		access: result.access,
 		expires: result.expires,
 	};

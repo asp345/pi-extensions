@@ -16,10 +16,4 @@ function normalizeArch(arch: string): string {
 	return arch || "unknown";
 }
 
-export function buildAntigravityHarnessUserAgent(
-	version: string = AGY_CLI_VERSION,
-	platform: NodeJS.Platform = process.platform,
-	arch: string = process.arch,
-): string {
-	return `antigravity/cli/${version} (aidev_client; os_type=${normalizePlatform(platform)}; arch=${normalizeArch(arch)}; cl=${AGY_CLI_CHANGE_LIST}; auth_method=consumer)`;
-}
+export const ANTIGRAVITY_USER_AGENT = `antigravity/cli/${AGY_CLI_VERSION} (aidev_client; os_type=${normalizePlatform(process.platform)}; arch=${normalizeArch(process.arch)}; cl=${AGY_CLI_CHANGE_LIST}; auth_method=consumer)`;

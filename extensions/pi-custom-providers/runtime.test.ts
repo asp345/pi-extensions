@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { createProviderRegistrar, toProviderModel } from "./runtime.ts";
-import type { CustomModelConfig, CustomProviderConfig } from "./types.ts";
+import type { CustomProviderConfig, ModelMetadata } from "./types.ts";
 
 function recordingPi() {
 	const registered: string[] = [];
@@ -18,7 +18,7 @@ function recordingPi() {
 }
 
 test("a configured thinking map reaches pi untouched", () => {
-	const model: CustomModelConfig = { id: "vendor/model", reasoning: true, thinkingLevelMap: { max: "max" } };
+	const model: ModelMetadata = { id: "vendor/model", reasoning: true, thinkingLevelMap: { max: "max" } };
 	assert.deepEqual(toProviderModel(model).thinkingLevelMap, { max: "max" });
 });
 
@@ -32,22 +32,17 @@ test("configured models become complete Pi model definitions", () => {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 256_000,
 		maxTokens: 256_000,
-		headers: undefined,
 		compat: { supportsDeveloperRole: false },
 	});
 });
 
 test("the system role is the default, and an explicit setting still wins", () => {
-	const developerRole = (model: CustomModelConfig, provider?: CustomProviderConfig["compat"]) =>
+	const developerRole = (model: ModelMetadata, provider?: CustomProviderConfig["compat"]) =>
 		(toProviderModel(model, provider)?.compat as OpenAICompletionsCompat | undefined)?.supportsDeveloperRole;
 
 	assert.equal(developerRole({ id: "a" }), false);
 	assert.equal(developerRole({ id: "a" }, { supportsDeveloperRole: true }), true);
 	assert.equal(developerRole({ id: "a" }, { supportsDeveloperRole: undefined }), false);
-	assert.equal(
-		developerRole({ id: "a", compat: { supportsDeveloperRole: true } }, { supportsDeveloperRole: false }),
-		true,
-	);
 });
 
 test("only complete custom providers are registered, and built-ins are never replaced", () => {

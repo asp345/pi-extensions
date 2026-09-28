@@ -10,27 +10,11 @@ export const API_OPTIONS = [
 export const DEFAULT_CONTEXT_WINDOW = 256_000;
 export const DEFAULT_MAX_TOKENS = 256_000;
 
-type LimitSource = "detected" | "default" | "manual";
-
 export interface ModelCost {
 	input: number;
 	output: number;
 	cacheRead: number;
 	cacheWrite: number;
-}
-
-export interface CustomModelConfig {
-	id: string;
-	name?: string;
-	reasoning?: boolean;
-	thinkingLevelMap?: ThinkingLevelMap;
-	input?: ("text" | "image")[];
-	cost?: ModelCost;
-	contextWindow?: number;
-	maxTokens?: number;
-	limitSource?: LimitSource;
-	compat?: OpenAICompletionsCompat;
-	headers?: Record<string, string>;
 }
 
 export interface CustomProviderConfig {
@@ -58,6 +42,4 @@ export interface ModelMetadata {
 	cost?: ModelCost;
 	contextWindow?: number;
 	maxTokens?: number;
-	contextDetected?: boolean;
-	maxTokensDetected?: boolean;
 }

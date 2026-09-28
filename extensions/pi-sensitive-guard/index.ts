@@ -1,9 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { record, text } from "../shared/json.ts";
 import { isProtectedPath, loadConfig } from "./config.ts";
 import { inspectGit } from "./git.ts";
 import { redactOutput, scanSecrets } from "./scanner.ts";
-import { expandShellWord, inspectShell } from "./shell.ts";
-
+import { inspectShell } from "./shell.ts";
 import { registerSensitiveGuardUI } from "./ui.ts";
 
 function replacementText(input: Record<string, unknown>): string {
@@ -32,14 +32,6 @@ function replacementText(input: Record<string, unknown>): string {
 	return chunks.join("\n");
 }
 
-function inputRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function text(value: unknown): string {
-	return typeof value === "string" ? value : "";
-}
-
 function block(ctx: ExtensionContext, reason: string): { block: true; reason: string } {
 	if (ctx.hasUI) ctx.ui.notify(reason, "error");
 	return { block: true, reason };
@@ -61,7 +53,7 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!config.enabled) return {};
 		try {
-			const input = inputRecord(event.input);
+			const input = record(event.input) ?? {};
 			const path = text(input.path);
 			if (event.toolName === "read" || event.toolName === "grep") {
 				const protectedPath = isProtectedPath(path, ctx.cwd, config);
@@ -119,5 +111,3 @@ export default function sensitiveGuard(pi: ExtensionAPI): void {
 		return { content };
 	});
 }
-
-export { expandShellWord, inspectShell };

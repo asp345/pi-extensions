@@ -1,16 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatDuration } from "../shared/format.ts";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
 
-export type Pane = "tasks" | "output";
-
-export function duration(ms: number): string {
-	const seconds = Math.max(0, Math.floor(ms / 1000));
-	if (seconds < 60) return `${seconds}s`;
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
-	return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
+export type TaskKind = "running" | "done" | "failed" | "stopped";
 
 export function relative(timestamp: number, now = Date.now()): string {
 	const seconds = Math.max(0, Math.floor((now - timestamp) / 1000));
@@ -32,14 +24,38 @@ export function taskStatus(task: TaskSnapshot): string {
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }
 
+export function taskKind(task: TaskSnapshot): TaskKind {
+	if (task.status === "running") return "running";
+	if (task.timedOut || task.status === "failed") return "failed";
+	if (task.status === "stopped") return "stopped";
+	return "done";
+}
+
+export function taskIcon(task: TaskSnapshot, theme: Theme): string {
+	switch (taskKind(task)) {
+		case "running":
+			return theme.bold("◈");
+		case "done":
+			return theme.fg("success", "✓");
+		case "failed":
+			return theme.fg("error", "✗");
+		case "stopped":
+			return theme.fg("dim", "•");
+	}
+}
+
+export function elapsed(task: TaskSnapshot, now = Date.now()): number {
+	return (task.status === "running" ? now : task.updatedAt) - task.startedAt;
+}
+
 export function eventText(event: TaskEvent): string {
 	if (event.type === "running")
-		return `Background task ${event.task.id} is still running (${duration(Date.now() - event.task.startedAt)} elapsed).`;
-	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${duration(event.task.updatedAt - event.task.startedAt)}.`;
+		return `Background task ${event.task.id} is still running (${formatDuration(Date.now() - event.task.startedAt)} elapsed).`;
+	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${formatDuration(event.task.updatedAt - event.task.startedAt)}.`;
 }
 
 export function taskLine(task: TaskSnapshot): string {
-	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${oneLine(task.title)} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
+	return `${task.id} · ${taskStatus(task)} · pid ${task.pid} · ${oneLine(task.command)} · ${relative(task.lastOutputAt ?? task.updatedAt)}`;
 }
 
 export function oneLine(text: string): string {
@@ -54,24 +70,6 @@ export function lastOutputLine(output: string | undefined): string {
 			.filter((line) => line.trim())
 			.pop() ?? ""
 	);
-}
-
-export function pad(text: string, width: number): string {
-	const value = truncateToWidth(text, width);
-	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
-}
-
-export function frame(lines: string[], width: number, theme: Theme, title: string): string[] {
-	if (width < 5) return lines.map((line) => truncateToWidth(line, width));
-	const innerWidth = width - 2;
-	const contentWidth = Math.max(1, innerWidth - 2);
-	const label = truncateToWidth(` ${title} `, innerWidth);
-	const topFill = "─".repeat(Math.max(0, innerWidth - visibleWidth(label)));
-	return [
-		`${theme.fg("border", "╭")}${theme.fg("accent", theme.bold(label))}${theme.fg("border", `${topFill}╮`)}`,
-		...lines.map((line) => `${theme.fg("border", "│")} ${pad(line, contentWidth)} ${theme.fg("border", "│")}`),
-		`${theme.fg("border", `╰${"─".repeat(innerWidth)}╯`)}`,
-	];
 }
 
 export function visibleTasks(runtime: BackgroundRuntime): TaskSnapshot[] {

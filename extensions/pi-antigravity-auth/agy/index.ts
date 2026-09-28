@@ -3,7 +3,6 @@
  * @cortexkit/antigravity-auth-core 2.1.0 (MIT) and the agy CLI 1.1.20
  * MITM capture dated 2026-08-25. Differences from the upstream package:
  * - User-Agent and labels.request_id match agy 1.1.20 (cl=970154694).
- * - transport retries transient TLS handshake failures.
  * - Model catalog refreshes from v1internal:fetchAvailableModels.
  */
 export * from "./constants.ts";

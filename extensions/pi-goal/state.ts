@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { CustomEntry, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { isRecord } from "../shared/json.ts";
 
 export const GOAL_STATE_ENTRY = "goal-state";
 export const MAX_OBJECTIVE = 4_000;
 
-type GoalStatus = "active" | "paused" | "blocked" | "complete";
+type GoalStatus = "active" | "paused" | "blocked";
 
 export interface GoalState {
 	id: string;
@@ -62,8 +63,8 @@ function parseState(value: unknown): GoalState | undefined {
 		return undefined;
 	}
 
-	const status = normalizeStatus(raw.status);
-	if (status === "complete") return undefined;
+	const status = raw.status;
+	if (status !== "active" && status !== "paused" && status !== "blocked") return undefined;
 	const now = Date.now();
 	return {
 		id: raw.id,
@@ -79,21 +80,10 @@ function parseState(value: unknown): GoalState | undefined {
 	};
 }
 
-function normalizeStatus(value: unknown): GoalStatus {
-	if (value === "active" || value === "paused" || value === "blocked" || value === "complete") {
-		return value;
-	}
-	return "paused";
-}
-
 function finiteNumber(value: unknown, fallback: number) {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function safeCounter(value: unknown) {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

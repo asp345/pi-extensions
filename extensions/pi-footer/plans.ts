@@ -8,9 +8,9 @@ import { minimaxQuotaPlan } from "./providers/minimax.ts";
 import { openaiCodexQuotaPlan } from "./providers/openai-codex.ts";
 import { openCodeGoQuotaPlan } from "./providers/opencode-go.ts";
 import { xaiQuotaPlan } from "./providers/xai.ts";
-import type { TokenPlan } from "./quota.ts";
+import type { QuotaPlan } from "./quota.ts";
 
-export const TOKEN_PLANS: TokenPlan[] = [
+export const TOKEN_PLANS: QuotaPlan[] = [
 	minimaxQuotaPlan,
 	glmQuotaPlan,
 	kimiQuotaPlan,
@@ -23,6 +23,6 @@ export const TOKEN_PLANS: TokenPlan[] = [
 	antigravityQuotaPlan,
 ];
 
-export function resolveTokenPlan(provider: string): TokenPlan | null {
+export function resolveTokenPlan(provider: string): QuotaPlan | null {
 	return TOKEN_PLANS.find((plan) => plan.matchProviders.includes(provider)) ?? null;
 }

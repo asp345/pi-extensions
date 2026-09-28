@@ -1,6 +1,7 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import { writeJsonAtomic } from "../shared/json.ts";
 import type { CustomProvidersFile } from "./types.ts";
 
 const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");
@@ -25,15 +26,6 @@ export async function readCustomProvidersFile(path = CUSTOM_PROVIDERS_FILE): Pro
 		throw new Error("custom-providers.json providers must contain an object");
 	}
 	return value as CustomProvidersFile;
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-	const directory = dirname(path);
-	await mkdir(directory, { recursive: true, mode: 0o700 });
-	const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
-	await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-	await rename(temporary, path);
-	await chmod(path, 0o600);
 }
 
 export async function writeCustomProvidersFile(data: CustomProvidersFile, path = CUSTOM_PROVIDERS_FILE): Promise<void> {

@@ -22,5 +22,8 @@
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"
+	},
+	"dependencies": {
+		"unbash": "^4.0.10"
 	}
 }

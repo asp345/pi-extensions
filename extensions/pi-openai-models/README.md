@@ -47,7 +47,7 @@ Daybreak Blue still requires OpenAI approval and the required account or project
 - `flex (API only)`: `service_tier: "flex"` for direct OpenAI API requests; Codex uses default processing
 - `priority`: `service_tier: "priority"`
 
-Pi's Responses adapters calculate service-tier costs. The Chat Completions path applies multipliers of `0.5` for Flex and `2` for Priority, except GPT-5.5 Priority uses `2.5`.
+The tier is applied to `openai-responses` and `openai-codex-responses` models. Pi's Responses adapters calculate service-tier costs.
 
 ## Files
 
@@ -56,7 +56,7 @@ Pi's Responses adapters calculate service-tier costs. The Chat Completions path 
 | `index.ts` | Provider wrapping and `/openai` settings menu |
 | `models.ts` | Context overrides and optional Daybreak Blue registration |
 | `settings.ts` | Persistent OpenAI settings |
-| `tier.ts` | Service-tier payload and cost logic |
+| `tier.ts` | Service-tier payload logic |
 | `*.test.ts` | Model and service-tier unit tests |
 
 ## Sources
