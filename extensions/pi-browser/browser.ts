@@ -312,7 +312,7 @@ export class Browser {
 		if (result.loaderId) await loaded.promise;
 	}
 
-	async download(tab: Tab, url: string): Promise<Download> {
+	async download(tab: Tab, url: string, onBlocked: (status: number | undefined) => void): Promise<Download> {
 		const cdp = await this.connection();
 		await mkdir(DOWNLOAD_DIR, { recursive: true });
 		await cdp.send(this.timeoutMs, "Browser.setDownloadBehavior", {
@@ -345,9 +345,11 @@ export class Browser {
 				patterns: [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }],
 			});
 			const result = await this.send<{ errorText?: string; isDownload: boolean }>(tab, "Page.navigate", { url });
-			if (!result.isDownload)
-				throw new Error(`${url} did not start a download: ${result.errorText ?? `HTTP ${status}`}`);
-			const { guid, suggestedFilename } = (await began.promise) as { guid: string; suggestedFilename: string };
+			if (!result.isDownload && result.errorText) throw new Error(`Download of ${url} failed: ${result.errorText}`);
+			if (!result.isDownload) onBlocked(status);
+			const { guid, suggestedFilename } = (await began.promise.catch(() => {
+				throw new Error(`${url} did not start a download within ${this.timeoutMs / 1000}s (HTTP ${status})`);
+			})) as { guid: string; suggestedFilename: string };
 			const finished = cdp.waitFor(
 				"Browser.downloadProgress",
 				(method, params) =>

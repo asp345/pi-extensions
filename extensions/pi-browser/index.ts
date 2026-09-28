@@ -8,7 +8,7 @@ import { Browser, DEFAULT_TIMEOUT_MS, DOWNLOAD_DIR, type NetworkEntry, PROFILE_D
 
 const DESCRIPTION = [
 	"Control a Helium browser window (dedicated profile) over CDP. The first call launches it. Other Pi sessions may share the browser. When the user must act in the browser (login, CAPTCHA), ask them to do it in the Helium window.",
-	`Tabs: tabs; open(url?); close; navigate(url); download(url): saves the response of url in ${DOWNLOAD_DIR} with the browser session, waits until the file is complete, and returns its path.`,
+	`Tabs: tabs; open(url?); close; navigate(url); download(url): saves the response of url in ${DOWNLOAD_DIR} with the browser session, waits until the file is complete, and returns its path. If the response is a CAPTCHA or bot check, it notifies the user and waits for them to pass it; use a timeout of 120 or more for such sites.`,
 	"Read: snapshot: accessibility tree, prefer for page structure; html(selector?); eval(code): JS expression, promises awaited; screenshot; console(clear?); network(id?, clear?): list, or headers and bodies of one request; cookies(url?).",
 	"Input: click(selector | x,y in CSS px); type(text) at focus; key(text): Enter, Tab, Escape, Backspace, Delete, Arrow*, PageUp, PageDown, Home, End.",
 	"Other: set_cookie(cookie); delete_cookie(cookie); cdp(method, params?).",
@@ -170,7 +170,7 @@ export default function browserExtension(pi: ExtensionAPI): void {
 			),
 		}),
 		executionMode: "sequential",
-		async execute(_id, params): Promise<Result> {
+		async execute(_id, params, _signal, _update, ctx): Promise<Result> {
 			const { action } = params;
 			browser.timeoutMs = params.timeout === undefined ? DEFAULT_TIMEOUT_MS : params.timeout * 1000;
 			if (action === "tabs") return output(await tabsText(browser));
@@ -185,7 +185,13 @@ export default function browserExtension(pi: ExtensionAPI): void {
 					await browser.navigate(tab, required(params.url, "url", action));
 					return output(await pageLine(browser, tab));
 				case "download": {
-					const file = await browser.download(tab, required(params.url, "url", action));
+					const url = required(params.url, "url", action);
+					const file = await browser.download(tab, url, (status) =>
+						ctx.ui.notify(
+							`Browser download got HTTP ${status} from ${url}. Complete the check in the Helium window within ${browser.timeoutMs / 1000}s.`,
+							"warning",
+						),
+					);
 					return output(`Downloaded ${file.path} (${formatSize(file.bytes)})`);
 				}
 				case "snapshot":
