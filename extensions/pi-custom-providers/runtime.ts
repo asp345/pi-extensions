@@ -1,10 +1,12 @@
-import type { Api, Model, RefreshModelsContext } from "@earendil-works/pi-ai";
+import { type Api, isModelType, type Model, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { removeModelsStoreProviders } from "./config.ts";
 import { discoverProviderModels } from "./discovery.ts";
 import type { CustomProviderConfig, CustomProvidersFile, ModelMetadata } from "./types.ts";
 import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from "./types.ts";
+
+type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
 
 const BUILTIN_PROVIDERS = new Set<string>(getBuiltinProviders());
 const REFRESH_TTL_MS = 24 * 60 * 60_000;
@@ -27,7 +29,7 @@ function assigned<T extends object>(value: T | undefined): Partial<T> {
 export function toProviderModel(
 	metadata: ModelMetadata,
 	providerCompat?: CustomProviderConfig["compat"],
-): ProviderModelConfig {
+): ChatModelConfig {
 	return {
 		id: metadata.id,
 		name: metadata.name ?? metadata.id,
@@ -37,11 +39,11 @@ export function toProviderModel(
 		cost: metadata.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: metadata.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 		maxTokens: metadata.maxTokens ?? DEFAULT_MAX_TOKENS,
-		compat: { ...CUSTOM_PROVIDER_COMPAT, ...assigned(providerCompat) } as ProviderModelConfig["compat"],
+		compat: { ...CUSTOM_PROVIDER_COMPAT, ...assigned(providerCompat) } as ChatModelConfig["compat"],
 	};
 }
 
-function storedProviderModel(model: Model<Api>): ProviderModelConfig {
+function storedProviderModel(model: Model<Api>): ChatModelConfig {
 	return {
 		id: model.id,
 		name: model.name,
@@ -70,7 +72,7 @@ function refreshModels(providerId: string, config: CustomProviderConfig) {
 				await context.publish({ persist: null }).catch(() => undefined);
 				return [];
 			}
-			return persisted.models.map(storedProviderModel);
+			return persisted.models.filter((model) => isModelType(model, "chat")).map(storedProviderModel);
 		};
 
 		if (!context.allowNetwork || context.signal.aborted) return offline();
