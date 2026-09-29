@@ -7,12 +7,12 @@ import { Type } from "typebox";
 import { Browser, DEFAULT_TIMEOUT_MS, DOWNLOAD_DIR, type NetworkEntry, PROFILE_DIR, type Tab } from "./browser.ts";
 
 const DESCRIPTION = [
-	"Control a Helium browser window (dedicated profile) over CDP. The first call launches it. Other Pi sessions may share the browser. When the user must act in the browser (login, CAPTCHA), ask them to do it in the Helium window.",
-	`Tabs: tabs; open(url?); close; navigate(url); download(url): saves the response of url in ${DOWNLOAD_DIR} with the browser session, waits until the file is complete, and returns its path. If the response is a CAPTCHA or bot check, it notifies the user and waits for them to pass it; use a timeout of 120 or more for such sites.`,
-	"Read: snapshot: accessibility tree, prefer for page structure; html(selector?); eval(code): JS expression, promises awaited; screenshot; console(clear?); network(id?, clear?): list, or headers and bodies of one request; cookies(url?).",
-	"Input: click(selector | x,y in CSS px); type(text) at focus; key(text): Enter, Tab, Escape, Backspace, Delete, Arrow*, PageUp, PageDown, Home, End.",
+	"Helium browser over CDP, shared with other Pi sessions and launched on the first call. Ask the user to act in the Helium window for login or CAPTCHA.",
+	`Tabs: tabs; open(url?); close; navigate(url); download(url): saves to ${DOWNLOAD_DIR} through the browser session and returns the path; on a CAPTCHA or bot check it notifies the user and waits, so use a timeout of 120 or more.`,
+	"Read: snapshot (accessibility tree, preferred); html(selector?); eval(code); screenshot; console(clear?); network(id?, clear?); cookies(url?).",
+	"Input: click(selector | x,y in CSS px); type(text); key(text).",
 	"Other: set_cookie(cookie); delete_cookie(cookie); cdp(method, params?).",
-	`\`tab\` is an id prefix from \`tabs\`; default is the tab this session used last, or a new tab. \`timeout\` bounds each CDP command and wait in seconds (default ${DEFAULT_TIMEOUT_MS / 1000}); raise it for slow pages and large downloads. Console and network are recorded per tab from its first use. Output over 2000 lines or 50KB is truncated and saved to a file.`,
+	`tab: id prefix from tabs, default the last tab of this session or a new one. timeout: seconds per CDP command and wait, default ${DEFAULT_TIMEOUT_MS / 1000}. cookie, params: JSON object strings.`,
 ].join("\n");
 
 const ACTIONS = [
@@ -148,26 +148,10 @@ export default function browserExtension(pi: ExtensionAPI): void {
 			y: Type.Optional(Type.Number()),
 			id: Type.Optional(Type.String()),
 			clear: Type.Optional(Type.Boolean()),
-			cookie: Type.Optional(
-				Type.String({
-					description:
-						"JSON object of Network.setCookie/deleteCookies fields. Without url or domain, applies to the tab URL.",
-				}),
-			),
+			cookie: Type.Optional(Type.String()),
 			method: Type.Optional(Type.String()),
-			params: Type.Optional(
-				Type.String({
-					description:
-						'JSON object with every required field, e.g. {"width":390,"height":844,"deviceScaleFactor":3,"mobile":true}',
-				}),
-			),
-			timeout: Type.Optional(
-				Type.Number({
-					exclusiveMinimum: 0,
-					maximum: 2_147_483,
-					description: "Seconds for each CDP command and wait",
-				}),
-			),
+			params: Type.Optional(Type.String()),
+			timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2_147_483 })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _update, ctx): Promise<Result> {
