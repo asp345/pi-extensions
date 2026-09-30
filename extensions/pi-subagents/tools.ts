@@ -31,21 +31,19 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 	pi.registerTool({
 		name: "launch_subagent",
 		label: "Launch Subagent",
-		description:
-			"Launch a subagent in a separate in-process session and return its handle immediately. The subagent replies with messages that arrive at a later parent turn.",
+		description: "Launch a subagent in a separate in-process session and return its handle immediately.",
 		promptSnippet: "Launch a subagent",
 		promptGuidelines: [
 			"Use launch_subagent only when the user requests delegation or a substantial independent task needs isolated context or can run concurrently. Otherwise use direct tools. Start one by default; use multiple only for independent, non-overlapping tasks.",
 			"Do not use launch_subagent for a few-file inspection, routine validation, or work already in progress.",
-			"State the subagent role, the concrete objective, essential context, relevant paths, constraints, and verification in the prompt. The parent conversation is not inherited.",
-			"launch_subagent returns at admission. Results arrive only as messages from the subagent at a later turn. Continue independent work or end the turn; do not poll, wait, or duplicate its work.",
+			"Results arrive only as messages from the subagent at a later turn. Continue independent work or end the turn; do not poll, wait, or duplicate its work.",
 			"To give an existing subagent follow-up work in its own context, use send_message instead of launching a new one.",
 		],
 		parameters: Type.Object({
 			name: Type.String({
 				minLength: 1,
 				maxLength: 64,
-				description: "Unique short name for the subagent, used to address it with send_message.",
+				description: "Unique name used to address the subagent with send_message.",
 			}),
 			prompt: Type.String({
 				minLength: 1,
@@ -57,18 +55,15 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 				minLength: 1,
 				maxLength: 12_000,
 				description:
-					"Only context required to execute the task: relevant paths, symbols, observed behavior, constraints, validation, and any non-obvious project commands. Do not repeat the task or include unrelated parent-conversation history. The parent conversation is not inherited.",
+					"Only context needed for the task: paths, symbols, observed behavior, constraints, validation, non-obvious commands. Do not repeat the task or the parent conversation, which is not inherited.",
 			}),
 			model: Type.Optional(
 				Type.String({
 					maxLength: 256,
-					description:
-						"Optional exact provider/model override. Omit to inherit the parent model. Do not use speed labels such as `fast`.",
+					description: "Provider/model override; omit to inherit. Do not use speed labels such as `fast`.",
 				}),
 			),
-			thinking: Type.Optional(
-				StringEnum(THINKING_LEVELS, { description: "Optional thinking level. Omit to inherit the parent level." }),
-			),
+			thinking: Type.Optional(StringEnum(THINKING_LEVELS, { description: "Omit to inherit the parent level." })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const name = params.name.trim();

@@ -18,10 +18,9 @@ const HANDOFF_MS = HANDOFF_MINUTES * 60_000;
 const HANDOFF_LABEL = `${HANDOFF_MINUTES} minute${HANDOFF_MINUTES === 1 ? "" : "s"}`;
 const HANDOFF_SHORTCUT = "alt+h";
 
-const HANDOFF_GUIDELINE =
-	"When a command moves to a background task, continue independent work or check why it is taking long with background_task action=read; completion is delivered as steering at the next turn boundary. Never run sleep command to wait. Never use the timeout shell command. Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it.";
+const HANDOFF_GUIDELINE = "Never use the timeout shell command; use the timeout parameter.";
 
-const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to ${HANDOFF_LABEL}, then continue as a background task. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Don't use the timeout shell command to limit it. Completion arrives as a steering message at the next turn. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
+const HANDOFF_DESCRIPTION = `Execute a bash command in the current working directory. Commands stay in the foreground for up to ${HANDOFF_LABEL}, then continue as a background task. timeout, if set, covers the command's total foreground and background runtime; there is no default timeout. Output is truncated to the last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; if truncated, the full output is in a temp file.`;
 
 const hybridBashSchema = Type.Object({
 	command: Type.String({ description: "Bash command to execute" }),
