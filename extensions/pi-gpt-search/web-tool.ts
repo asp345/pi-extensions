@@ -39,7 +39,7 @@ export function createWebTool(provider: CodexWebSearchProvider): ToolDefinition 
 		name: "web",
 		label: "Web Research Harness",
 		description:
-			"Execute web research actions (search_query, open, find, click, response_length) against live web search & document browser engine. Use to search current information, inspect official docs, and perform iterative multi-step research.",
+			"Web search and page browsing. Each search result and opened page has a ref_id for open, find, and click. response_length defaults to medium.",
 		promptSnippet: "Perform iterative web research with search, open, find, click",
 		promptGuidelines: BROWSING_GUIDELINES,
 		parameters: WebToolParameters,

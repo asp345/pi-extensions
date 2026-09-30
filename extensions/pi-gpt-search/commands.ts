@@ -1,40 +1,35 @@
+import { StringEnum } from "@earendil-works/pi-ai";
 import { type Static, Type } from "typebox";
 import { Check, Errors } from "typebox/value";
 
 const SearchQuerySchema = Type.Object({
-	q: Type.String({ description: "Search query string" }),
-	recency: Type.Optional(Type.Number({ description: "Optional recency filter in days" })),
-	domains: Type.Optional(Type.Array(Type.String(), { description: "Allowed domain filters" })),
+	q: Type.String(),
+	recency: Type.Optional(Type.Number({ description: "days" })),
+	domains: Type.Optional(Type.Array(Type.String())),
 });
 type SearchQuery = Static<typeof SearchQuerySchema>;
 
 const OpenOperationSchema = Type.Object({
-	ref_id: Type.String({ description: "Reference ID of search result or document to open (e.g. turn0search0)" }),
-	lineno: Type.Optional(Type.Number({ description: "Line number to jump to" })),
+	ref_id: Type.String({ description: "e.g. turn0search0" }),
+	lineno: Type.Optional(Type.Number()),
 });
 type OpenOperation = Static<typeof OpenOperationSchema>;
 
 const ClickOperationSchema = Type.Object({
-	ref_id: Type.String({ description: "Reference ID of document" }),
-	id: Type.Number({ description: "Element ID to click" }),
+	ref_id: Type.String(),
+	id: Type.Number(),
 });
 const FindOperationSchema = Type.Object({
-	ref_id: Type.String({ description: "Reference ID of opened document" }),
-	pattern: Type.String({ description: "Pattern to find in document" }),
+	ref_id: Type.String(),
+	pattern: Type.String(),
 });
-const ResponseLengthSchema = Type.Union([Type.Literal("short"), Type.Literal("medium"), Type.Literal("long")], {
-	description: "Desired output length; defaults to medium",
+export const WebRunCommandSchema = Type.Object({
+	search_query: Type.Optional(Type.Array(SearchQuerySchema)),
+	open: Type.Optional(Type.Array(OpenOperationSchema)),
+	click: Type.Optional(Type.Array(ClickOperationSchema)),
+	find: Type.Optional(Type.Array(FindOperationSchema)),
+	response_length: Type.Optional(StringEnum(["short", "medium", "long"])),
 });
-export const WebRunCommandSchema = Type.Object(
-	{
-		search_query: Type.Optional(Type.Array(SearchQuerySchema, { description: "Search queries to execute" })),
-		open: Type.Optional(Type.Array(OpenOperationSchema, { description: "Open document/page by reference ID" })),
-		click: Type.Optional(Type.Array(ClickOperationSchema, { description: "Click element by ID inside document" })),
-		find: Type.Optional(Type.Array(FindOperationSchema, { description: "Find pattern inside document" })),
-		response_length: Type.Optional(ResponseLengthSchema),
-	},
-	{ description: "Web research action command" },
-);
 export type WebRunCommand = Static<typeof WebRunCommandSchema>;
 
 export class InvalidCommandError extends Error {
