@@ -4,12 +4,15 @@ import { join } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { type AgentToolResult, type ExtensionAPI, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Browser, type NetworkEntry, PROFILE_DIR, type Tab } from "./browser.ts";
+import { Browser, DEFAULT_TIMEOUT_MS, DOWNLOAD_DIR, type NetworkEntry, PROFILE_DIR, type Tab } from "./browser.ts";
 
 const DESCRIPTION = [
-	"Control a headless Helium browser (dedicated profile) over CDP. The first call launches it. When the user must act in the browser (login, CAPTCHA), ask them to run `/browser launch headed`.",
-	"Actions: tabs; open(url?); close; navigate(url); snapshot: accessibility tree, prefer for page structure; html(selector?); eval(code): JS expression, promises awaited; click(selector | x,y in CSS px); type(text) at focus; key(text): Enter, Tab, Escape, Backspace, Delete, Arrow*, PageUp, PageDown, Home, End; screenshot; console(clear?); network(id?, clear?): list, or headers and bodies of one request; cookies(url?); set_cookie(cookie); delete_cookie(cookie); cdp(method, params?).",
-	"`tab` is an id prefix from `tabs`; default is the last used tab. Console and network are recorded per tab from its first use. Output over 2000 lines or 50KB is truncated and saved to a file.",
+	"Helium browser over CDP, shared with other Pi sessions and launched on the first call. Ask the user to act in the Helium window for login or CAPTCHA.",
+	`Tabs: tabs; open(url?); close; navigate(url); download(url): saves to ${DOWNLOAD_DIR} through the browser session and returns the path; on a CAPTCHA or bot check it notifies the user and waits, so use a timeout of 120 or more.`,
+	"Read: snapshot (accessibility tree, preferred); html(selector?); eval(code); screenshot; console(clear?); network(id?, clear?); cookies(url?).",
+	"Input: click(selector | x,y in CSS px); type(text); key(text).",
+	"Other: set_cookie(cookie); delete_cookie(cookie); cdp(method, params?).",
+	`tab: id prefix from tabs, default the last tab of this session or a new one. timeout: seconds per CDP command and wait, default ${DEFAULT_TIMEOUT_MS / 1000}. cookie, params: JSON object strings.`,
 ].join("\n");
 
 const ACTIONS = [
@@ -17,16 +20,17 @@ const ACTIONS = [
 	"open",
 	"close",
 	"navigate",
+	"download",
 	"snapshot",
 	"html",
 	"eval",
-	"click",
-	"type",
-	"key",
 	"screenshot",
 	"console",
 	"network",
 	"cookies",
+	"click",
+	"type",
+	"key",
 	"set_cookie",
 	"delete_cookie",
 	"cdp",
@@ -144,23 +148,15 @@ export default function browserExtension(pi: ExtensionAPI): void {
 			y: Type.Optional(Type.Number()),
 			id: Type.Optional(Type.String()),
 			clear: Type.Optional(Type.Boolean()),
-			cookie: Type.Optional(
-				Type.String({
-					description:
-						"JSON object of Network.setCookie/deleteCookies fields. Without url or domain, applies to the tab URL.",
-				}),
-			),
+			cookie: Type.Optional(Type.String()),
 			method: Type.Optional(Type.String()),
-			params: Type.Optional(
-				Type.String({
-					description:
-						'JSON object with every required field, e.g. {"width":390,"height":844,"deviceScaleFactor":3,"mobile":true}',
-				}),
-			),
+			params: Type.Optional(Type.String()),
+			timeout: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: 2_147_483 })),
 		}),
 		executionMode: "sequential",
-		async execute(_id, params): Promise<Result> {
+		async execute(_id, params, _signal, _update, ctx): Promise<Result> {
 			const { action } = params;
+			browser.timeoutMs = params.timeout === undefined ? DEFAULT_TIMEOUT_MS : params.timeout * 1000;
 			if (action === "tabs") return output(await tabsText(browser));
 			if (action === "open") return output(await pageLine(browser, await browser.open(params.url)));
 
@@ -172,6 +168,16 @@ export default function browserExtension(pi: ExtensionAPI): void {
 				case "navigate":
 					await browser.navigate(tab, required(params.url, "url", action));
 					return output(await pageLine(browser, tab));
+				case "download": {
+					const url = required(params.url, "url", action);
+					const file = await browser.download(tab, url, (status) =>
+						ctx.ui.notify(
+							`Browser download got HTTP ${status} from ${url}. Complete the check in the Helium window within ${browser.timeoutMs / 1000}s.`,
+							"warning",
+						),
+					);
+					return output(`Downloaded ${file.path} (${formatSize(file.bytes)})`);
+				}
 				case "snapshot":
 					return output(await browser.snapshot(tab));
 				case "html": {
@@ -264,7 +270,8 @@ export default function browserExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("browser", {
 		description: "Show, launch, or quit the Helium browser used by the browser tool",
 		handler: async (args, ctx) => {
-			const [command = "status", mode = "headless"] = args.trim().split(/\s+/).filter(Boolean);
+			browser.timeoutMs = DEFAULT_TIMEOUT_MS;
+			const [command = "status", mode = "headed"] = args.trim().split(/\s+/).filter(Boolean);
 			if (command === "status") {
 				if (!browser.connected) return ctx.ui.notify(`Not connected. Profile: ${PROFILE_DIR}`, "info");
 				return ctx.ui.notify(await statusText(browser), "info");

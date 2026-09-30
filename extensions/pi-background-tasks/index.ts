@@ -1,3 +1,4 @@
+import { StringEnum } from "@earendil-works/pi-ai";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
@@ -54,18 +55,12 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle. While a task runs, a still-running notification is delivered at the heartbeat interval (default 30 minutes).",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
-			"After starting a background_task, continue independent work or end the turn; completion will be delivered and wake you again. Never run sleep command or poll Do other jobs or end the turn.",
+			"After starting a background_task, continue independent work or end the turn. Never sleep or poll to wait.",
 			"Use list or read only when you need status or output before completion arrives.",
 			"Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it. Run the command normally; it is already a managed background task.",
 		],
 		parameters: Type.Object({
-			action: Type.Union([
-				Type.Literal("start"),
-				Type.Literal("list"),
-				Type.Literal("read"),
-				Type.Literal("stop"),
-				Type.Literal("clear"),
-			]),
+			action: StringEnum(["start", "list", "read", "stop", "clear"]),
 			command: Type.Optional(Type.String()),
 			id: Type.Optional(Type.String()),
 			heartbeat: Type.Optional(
@@ -73,7 +68,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			),
 			timeout: Type.Optional(
 				Type.Number({
-					description: "Timeout in seconds. Kills the task after this time. Optional. No default timeout.",
+					description: "Timeout in seconds; none by default.",
 				}),
 			),
 		}),

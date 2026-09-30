@@ -48,9 +48,9 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 	// "excited" never match.
 	const resolveCitation = (cleanInner: string): string => {
 		if (cleanInner.includes("†")) {
-			const parts = cleanInner.split("†");
-			const label = parts.slice(1).join("†").trim();
-			return label ? `[${label}]` : "";
+			const [id, ...label] = cleanInner.split("†");
+			const text = label.join("†").trim();
+			return text ? `[${id.trim()}†${text}]` : "";
 		}
 		return refLabel(cleanInner);
 	};

@@ -1,4 +1,4 @@
-import type { OAuthCredentials } from "@earendil-works/pi-ai";
+import { isModelType, type OAuthCredentials } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	type AgyModelDefinition,
@@ -37,16 +37,18 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 		api: "google-generative-ai",
 		models: staticModels,
 		refreshModels: async (context) => {
-			const storedModels = context.stored?.models.map((model) => ({
-				id: model.id,
-				name: model.name,
-				reasoning: model.reasoning,
-				thinkingLevelMap: model.thinkingLevelMap,
-				input: model.input,
-				cost: model.cost,
-				contextWindow: model.contextWindow,
-				maxTokens: model.maxTokens,
-			}));
+			const storedModels = context.stored?.models
+				.filter((model) => isModelType(model, "chat"))
+				.map((model) => ({
+					id: model.id,
+					name: model.name,
+					reasoning: model.reasoning,
+					thinkingLevelMap: model.thinkingLevelMap,
+					input: model.input,
+					cost: model.cost,
+					contextWindow: model.contextWindow,
+					maxTokens: model.maxTokens,
+				}));
 			const current = storedModels?.length ? storedModels : staticModels;
 			const checkedAt = context.stored?.checkedAt ?? 0;
 			if (

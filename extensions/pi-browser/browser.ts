@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { link, mkdir, readFile, rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, parse } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Cdp, type CdpParams } from "./cdp.ts";
@@ -9,7 +10,8 @@ import { type AxNode, formatAxTree } from "./snapshot.ts";
 export const PROFILE_DIR = join(getAgentDir(), "helium");
 const PORT_FILE = join(PROFILE_DIR, "DevToolsActivePort");
 const LAUNCH_TIMEOUT_MS = 20_000;
-const LOAD_TIMEOUT_MS = 30_000;
+export const DEFAULT_TIMEOUT_MS = 30_000;
+export const DOWNLOAD_DIR = join(homedir(), "Downloads", "agent");
 const BUFFER_LIMIT = 500;
 const TAB_DOMAINS = ["Runtime.enable", "Log.enable", "Network.enable", "Page.enable"];
 
@@ -39,6 +41,23 @@ export interface Tab {
 	sessionId: string;
 	console: ConsoleEntry[];
 	network: Map<string, NetworkEntry>;
+}
+
+export interface Download {
+	path: string;
+	bytes: number;
+}
+
+interface HeaderEntry {
+	name: string;
+	value: string;
+}
+
+interface PausedResponse {
+	requestId: string;
+	frameId: string;
+	responseStatusCode?: number;
+	responseHeaders?: HeaderEntry[];
 }
 
 export interface PageInfo {
@@ -119,6 +138,29 @@ function remoteText(object: RemoteObject): string {
 	return object.unserializableValue ?? object.description ?? object.type;
 }
 
+function attachment(headers: HeaderEntry[]): HeaderEntry[] {
+	const disposition = headers.find((header) => header.name.toLowerCase() === "content-disposition");
+	const value = disposition ? disposition.value.replace(/^[^;]*/, "attachment") : "attachment";
+	return [...headers.filter((header) => header !== disposition), { name: "Content-Disposition", value }];
+}
+
+async function claim(file: string, name: string): Promise<string> {
+	const { name: stem, ext } = parse(name);
+	for (let n = 0; ; n++) {
+		const target = join(DOWNLOAD_DIR, n === 0 ? name : `${stem} (${n})${ext}`);
+		const linked = await link(file, target).then(
+			() => true,
+			(error: NodeJS.ErrnoException) => {
+				if (error.code === "EEXIST") return false;
+				throw error;
+			},
+		);
+		if (!linked) continue;
+		await rm(file);
+		return target;
+	}
+}
+
 function location(url: unknown, line: unknown): string | undefined {
 	if (typeof url !== "string" || !url) return undefined;
 	return typeof line === "number" ? `${url}:${line + 1}` : url;
@@ -136,6 +178,7 @@ async function launch(headed: boolean): Promise<Cdp> {
 	const args = [
 		`--user-data-dir=${PROFILE_DIR}`,
 		"--remote-debugging-port=0",
+		"--disable-blink-features=AutomationControlled",
 		"--no-first-run",
 		"--no-default-browser-check",
 	];
@@ -159,7 +202,8 @@ export class Browser {
 	readonly #tabs = new Map<string, Tab>();
 	readonly #sessions = new Map<string, Tab>();
 	#current?: string;
-	#headed = false;
+	#headed = true;
+	timeoutMs = DEFAULT_TIMEOUT_MS;
 
 	get connected(): boolean {
 		return this.#cdp !== undefined;
@@ -188,7 +232,7 @@ export class Browser {
 
 	async headless(): Promise<boolean> {
 		const cdp = await this.connection();
-		const { userAgent } = await cdp.send<{ userAgent: string }>("Browser.getVersion");
+		const { userAgent } = await cdp.send<{ userAgent: string }>(this.timeoutMs, "Browser.getVersion");
 		return userAgent.includes("HeadlessChrome");
 	}
 
@@ -196,14 +240,14 @@ export class Browser {
 		const cdp = this.#cdp ?? (await attach());
 		if (!cdp) return false;
 		const closed = new Promise<void>((resolve) => cdp.onClose(resolve));
-		await cdp.send("Browser.close");
+		await cdp.send(this.timeoutMs, "Browser.close");
 		await closed;
 		return true;
 	}
 
 	async pages(): Promise<PageInfo[]> {
 		const cdp = await this.connection();
-		const { targetInfos } = await cdp.send<{ targetInfos: PageInfo[] }>("Target.getTargets");
+		const { targetInfos } = await cdp.send<{ targetInfos: PageInfo[] }>(this.timeoutMs, "Target.getTargets");
 		return targetInfos.filter((target) => target.type === "page");
 	}
 
@@ -214,8 +258,7 @@ export class Browser {
 	async tab(prefix?: string): Promise<Tab> {
 		const ids = (await this.pages()).map((page) => page.targetId);
 		if (prefix) return this.#attach(resolvePrefix(prefix, ids));
-		const current = this.#current && ids.includes(this.#current) ? this.#current : ids[0];
-		return this.#attach(current ?? (await this.#create()));
+		return this.#attach(this.#current && ids.includes(this.#current) ? this.#current : await this.#create());
 	}
 
 	async open(url?: string): Promise<Tab> {
@@ -229,9 +272,9 @@ export class Browser {
 		const detached = cdp.waitFor(
 			"Target.detachedFromTarget",
 			(method, params) => method === "Target.detachedFromTarget" && params.sessionId === tab.sessionId,
-			LOAD_TIMEOUT_MS,
+			this.timeoutMs,
 		);
-		await cdp.send("Target.closeTarget", { targetId: tab.targetId }).catch((error: unknown) => {
+		await cdp.send(this.timeoutMs, "Target.closeTarget", { targetId: tab.targetId }).catch((error: unknown) => {
 			detached.cancel();
 			throw error;
 		});
@@ -241,7 +284,7 @@ export class Browser {
 
 	async info(tab: Tab): Promise<PageInfo> {
 		const cdp = await this.connection();
-		const { targetInfo } = await cdp.send<{ targetInfo: PageInfo }>("Target.getTargetInfo", {
+		const { targetInfo } = await cdp.send<{ targetInfo: PageInfo }>(this.timeoutMs, "Target.getTargetInfo", {
 			targetId: tab.targetId,
 		});
 		return targetInfo;
@@ -249,7 +292,7 @@ export class Browser {
 
 	async send<T = CdpParams>(tab: Tab, method: string, params: CdpParams = {}): Promise<T> {
 		const cdp = await this.connection();
-		return cdp.send<T>(method, params, tab.sessionId);
+		return cdp.send<T>(this.timeoutMs, method, params, tab.sessionId);
 	}
 
 	async navigate(tab: Tab, url: string): Promise<void> {
@@ -257,10 +300,10 @@ export class Browser {
 		const loaded = cdp.waitFor(
 			"Page.loadEventFired",
 			(method, _params, sessionId) => method === "Page.loadEventFired" && sessionId === tab.sessionId,
-			LOAD_TIMEOUT_MS,
+			this.timeoutMs,
 		);
 		const result = await cdp
-			.send<{ errorText?: string; loaderId?: string }>("Page.navigate", { url }, tab.sessionId)
+			.send<{ errorText?: string; loaderId?: string }>(this.timeoutMs, "Page.navigate", { url }, tab.sessionId)
 			.catch((error: unknown) => {
 				loaded.cancel();
 				throw error;
@@ -268,6 +311,65 @@ export class Browser {
 		if (result.errorText || !result.loaderId) loaded.cancel();
 		if (result.errorText) throw new Error(`Navigation to ${url} failed: ${result.errorText}`);
 		if (result.loaderId) await loaded.promise;
+	}
+
+	async download(tab: Tab, url: string, onBlocked: (status: number | undefined) => void): Promise<Download> {
+		const cdp = await this.connection();
+		await mkdir(DOWNLOAD_DIR, { recursive: true });
+		await cdp.send(this.timeoutMs, "Browser.setDownloadBehavior", {
+			behavior: "allowAndName",
+			downloadPath: DOWNLOAD_DIR,
+			eventsEnabled: true,
+		});
+		let status: number | undefined;
+		const continued: Promise<unknown>[] = [];
+		const off = cdp.onEvent((method, params, sessionId) => {
+			if (method !== "Fetch.requestPaused" || sessionId !== tab.sessionId) return;
+			const paused = params as unknown as PausedResponse;
+			const mainFrame = paused.frameId === tab.targetId;
+			if (mainFrame) status = paused.responseStatusCode;
+			const override =
+				mainFrame && status !== undefined && status >= 200 && status < 300
+					? { responseCode: status, responseHeaders: attachment(paused.responseHeaders ?? []) }
+					: {};
+			continued.push(
+				cdp.send(this.timeoutMs, "Fetch.continueResponse", { requestId: paused.requestId, ...override }, sessionId),
+			);
+		});
+		const began = cdp.waitFor(
+			"Browser.downloadWillBegin",
+			(method, params) => method === "Browser.downloadWillBegin" && params.frameId === tab.targetId,
+			this.timeoutMs,
+		);
+		try {
+			await this.send(tab, "Fetch.enable", {
+				patterns: [{ urlPattern: "*", resourceType: "Document", requestStage: "Response" }],
+			});
+			const result = await this.send<{ errorText?: string; isDownload: boolean }>(tab, "Page.navigate", { url });
+			if (!result.isDownload && result.errorText) throw new Error(`Download of ${url} failed: ${result.errorText}`);
+			if (!result.isDownload) onBlocked(status);
+			const { guid, suggestedFilename } = (await began.promise.catch(() => {
+				throw new Error(`${url} did not start a download within ${this.timeoutMs / 1000}s (HTTP ${status})`);
+			})) as { guid: string; suggestedFilename: string };
+			const finished = cdp.waitFor(
+				"Browser.downloadProgress",
+				(method, params) =>
+					method === "Browser.downloadProgress" && params.guid === guid && params.state !== "inProgress",
+				this.timeoutMs,
+			);
+			const progress = (await finished.promise.catch(async (error: unknown) => {
+				await cdp.send(this.timeoutMs, "Browser.cancelDownload", { guid });
+				throw error;
+			})) as { state: string; receivedBytes: number; filePath?: string };
+			if (progress.state === "canceled") throw new Error(`Download of ${url} was canceled`);
+			if (!progress.filePath) throw new Error(`Browser did not report the saved path of ${url}`);
+			return { path: await claim(progress.filePath, suggestedFilename), bytes: progress.receivedBytes };
+		} finally {
+			began.cancel();
+			off();
+			await this.send(tab, "Fetch.disable");
+			await Promise.all(continued);
+		}
 	}
 
 	async evaluate(tab: Tab, expression: string): Promise<unknown> {
@@ -351,7 +453,9 @@ export class Browser {
 
 	async #create(): Promise<string> {
 		const cdp = await this.connection();
-		const { targetId } = await cdp.send<{ targetId: string }>("Target.createTarget", { url: "about:blank" });
+		const { targetId } = await cdp.send<{ targetId: string }>(this.timeoutMs, "Target.createTarget", {
+			url: "about:blank",
+		});
 		return targetId;
 	}
 
@@ -360,11 +464,14 @@ export class Browser {
 		const existing = this.#tabs.get(targetId);
 		if (existing) return existing;
 		const cdp = await this.connection();
-		const { sessionId } = await cdp.send<{ sessionId: string }>("Target.attachToTarget", { targetId, flatten: true });
+		const { sessionId } = await cdp.send<{ sessionId: string }>(this.timeoutMs, "Target.attachToTarget", {
+			targetId,
+			flatten: true,
+		});
 		const tab: Tab = { targetId, sessionId, console: [], network: new Map() };
 		this.#tabs.set(targetId, tab);
 		this.#sessions.set(sessionId, tab);
-		await Promise.all(TAB_DOMAINS.map((method) => cdp.send(method, {}, sessionId)));
+		await Promise.all(TAB_DOMAINS.map((method) => cdp.send(this.timeoutMs, method, {}, sessionId)));
 		return tab;
 	}
 

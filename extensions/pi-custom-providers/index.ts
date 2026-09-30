@@ -39,6 +39,7 @@ export default async function customProvidersExtension(pi: ExtensionAPI): Promis
 					return;
 				}
 				for (const problem of registerProviders(updated)) ctx.ui.notify(problem, "warning");
+				await ctx.modelRegistry.refresh({ allowNetwork: false });
 			});
 		},
 	});
