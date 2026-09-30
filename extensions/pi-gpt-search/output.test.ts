@@ -18,7 +18,7 @@ test("cleanCitationMarkers rewrites unicode citation markers to hyperlinked refe
 	const cleaned = cleanCitationMarkers(text, results);
 	assert.equal(
 		cleaned,
-		"Codex \u001b]8;;https://github.com/openai/codex\u001b\\[1]\u001b]8;;\u001b\\ and [Skip to content]",
+		"Codex \u001b]8;;https://github.com/openai/codex\u001b\\[1]\u001b]8;;\u001b\\ and [0\u2020Skip to content]",
 	);
 });
 

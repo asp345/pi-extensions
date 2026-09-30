@@ -17,7 +17,7 @@ type OpenOperation = Static<typeof OpenOperationSchema>;
 
 const ClickOperationSchema = Type.Object({
 	ref_id: Type.String(),
-	id: Type.Number(),
+	id: Type.Number({ description: "Link number N in [N†text†domain]" }),
 });
 const FindOperationSchema = Type.Object({
 	ref_id: Type.String(),
