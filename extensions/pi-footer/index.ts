@@ -13,50 +13,28 @@ export default function piFooterExtension(pi: ExtensionAPI): void {
 	const requestRender = () => renderFooter?.();
 	const accountant = new UsageAccountant();
 	const store = new FooterConfigStore();
-	const quota = new QuotaController({
-		getTtl: () => store.config.ttl,
-		isSessionActive: () => sessionActive,
-		requestRender,
-	});
+	const quota = new QuotaController(() => store.config.ttl, requestRender);
 	registerFooterCommand(pi, store, quota, requestRender);
 
-	pi.on("turn_start", (_event, ctx) => {
-		accountant.beginTurn(Date.now());
-		quota.handleProviderChange(ctx);
+	pi.on("model_select", (event) => {
+		quota.setProvider(event.model.provider);
 		requestRender();
 	});
 
+	pi.on("message_start", (event) => {
+		if (event.message.role === "assistant") accountant.beginMessage();
+	});
+
 	pi.on("message_update", (event) => {
-		if (event.message.role !== "assistant") return;
-		const streamEvent = event.assistantMessageEvent;
-		if (
-			streamEvent.type !== "text_delta" &&
-			streamEvent.type !== "thinking_delta" &&
-			streamEvent.type !== "toolcall_delta"
-		) {
-			accountant.markStreaming();
-			return;
-		}
-		if (
-			accountant.recordStreamDelta(
-				streamEvent.delta,
-				streamEvent.partial.responseId,
-				streamEvent.partial.usage?.output,
-				Date.now(),
-			)
-		) {
-			requestRender();
+		const type = event.assistantMessageEvent.type;
+		if (type === "text_delta" || type === "thinking_delta" || type === "toolcall_delta") {
+			accountant.recordStreamDelta(Date.now());
 		}
 	});
 
 	pi.on("message_end", (event) => {
 		if (event.message.role !== "assistant") return;
-		accountant.recordAssistantEnd(event.message, Date.now());
-		requestRender();
-	});
-
-	pi.on("agent_end", () => {
-		accountant.endStreaming();
+		accountant.recordAssistantEnd(event.message);
 		requestRender();
 	});
 
@@ -68,7 +46,6 @@ export default function piFooterExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionActive = true;
-
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const render = () => tui.requestRender();
 			renderFooter = render;

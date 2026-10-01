@@ -4,7 +4,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../shared/json.ts";
 
 const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
-const SPEED_STYLES = ["t/s", "tok/s", "T/s", "liveAt"] as const;
+const SPEED_STYLES = ["t/s", "tok/s", "T/s"] as const;
 export type ContextStyle = (typeof CONTEXT_STYLES)[number];
 export type SpeedStyle = (typeof SPEED_STYLES)[number];
 export type DisplayKey =

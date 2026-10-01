@@ -70,14 +70,7 @@ export function renderMetricParts(params: {
 	if (segParts.length > 0) parts.push(dim(segParts.join(" ")));
 
 	if (cfg.speed && options.speed !== false) {
-		const liveSpeed = accountant.sampleDisplaySpeed(Date.now());
-		const speedNum = formatTokenSpeed(liveSpeed ?? accountant.lastLiveTokenSpeed ?? accountant.lastTokensPerSec);
-		const speedStyle = displayConfig.speedStyle;
-		if (speedStyle === "liveAt" && accountant.streaming && liveSpeed !== null) {
-			parts.push(dim(`⚡${formatTokens(accountant.liveEstimatedTokens)}@${speedNum}`));
-		} else {
-			parts.push(dim(`⚡${speedNum} ${speedStyle === "liveAt" ? "t/s" : speedStyle}`));
-		}
+		parts.push(dim(`⚡${formatTokenSpeed(accountant.lastTokensPerSec)} ${displayConfig.speedStyle}`));
 	}
 
 	if (cfg.context) {
@@ -100,7 +93,6 @@ export function renderMetricParts(params: {
 		}
 	}
 
-	quota.handleProviderChange(ctx);
 	const quotaState = quota.state;
 	if (options.quota !== false && quotaState) {
 		if (quotaState === "no-data") {

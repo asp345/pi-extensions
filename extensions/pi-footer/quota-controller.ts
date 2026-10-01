@@ -3,88 +3,60 @@ import { resolveCredential } from "./auth.ts";
 import { resolveTokenPlan } from "./plans.ts";
 import type { QuotaDisplay } from "./quota.ts";
 
-interface QuotaControllerOptions {
-	getTtl(): number;
-	isSessionActive(): boolean;
-	requestRender(): void;
-}
-
 export class QuotaController {
-	private readonly cache = new Map<string, { fetchedAt: number; data: unknown }>();
-	private timer: ReturnType<typeof setInterval> | null = null;
-	private provider: string | null = null;
-	private refreshVersion = 0;
 	state: QuotaDisplay | "no-data" | null = null;
+	private ctx: ExtensionContext | null = null;
+	private provider: string | undefined;
+	private timer: ReturnType<typeof setInterval> | undefined;
+	private version = 0;
 
-	constructor(private readonly options: QuotaControllerOptions) {}
-
-	async refresh(ctx: ExtensionContext, force = false): Promise<void> {
-		const provider = ctx.model?.provider ?? null;
-		if (provider !== this.provider) {
-			this.provider = provider;
-			this.state = null;
-		}
-		const version = ++this.refreshVersion;
-		const plan = provider ? resolveTokenPlan(provider) : null;
-		if (!plan) {
-			this.state = null;
-			this.options.requestRender();
-			return;
-		}
-		const cached = this.cache.get(plan.id);
-		if (!force && cached && Date.now() - cached.fetchedAt < this.options.getTtl() * 1000) {
-			this.state = plan.format(cached.data) ?? "no-data";
-			this.options.requestRender();
-			return;
-		}
-		try {
-			const credential = await resolveCredential(plan, ctx);
-			if (!credential) throw new Error(`Missing credentials for ${plan.id}`);
-			const data = await plan.fetch(credential, ctx.signal);
-			if (version !== this.refreshVersion || provider !== this.provider) return;
-			this.cache.set(plan.id, { fetchedAt: Date.now(), data });
-			this.state = plan.format(data) ?? "no-data";
-		} catch {
-			if (version !== this.refreshVersion || provider !== this.provider) return;
-			this.state = "no-data";
-		}
-		this.options.requestRender();
-	}
-
-	handleProviderChange(ctx: ExtensionContext): void {
-		const provider = ctx.model?.provider ?? null;
-		if (provider === this.provider) return;
-		this.provider = provider;
-		this.refreshVersion += 1;
-		this.state = null;
-		if (!provider) {
-			this.options.requestRender();
-			return;
-		}
-		setTimeout(() => {
-			if (this.options.isSessionActive()) void this.refresh(ctx, true);
-		}, 0);
-	}
-
-	restartTimer(ctx: ExtensionContext): void {
-		this.stop();
-		this.timer = setInterval(() => {
-			if (this.options.isSessionActive()) void this.refresh(ctx, ctx.model?.provider !== this.provider);
-		}, this.options.getTtl() * 1000);
-	}
+	constructor(
+		private readonly getTtl: () => number,
+		private readonly requestRender: () => void,
+	) {}
 
 	start(ctx: ExtensionContext): void {
-		this.provider = null;
-		this.refreshVersion += 1;
+		this.ctx = ctx;
+		this.provider = ctx.model?.provider;
 		this.state = null;
-		this.cache.clear();
-		this.restartTimer(ctx);
-		void this.refresh(ctx);
+		this.restartTimer();
+		void this.refresh();
 	}
 
 	stop(): void {
-		this.refreshVersion += 1;
-		if (this.timer) clearInterval(this.timer);
-		this.timer = null;
+		this.version++;
+		clearInterval(this.timer);
+		this.ctx = null;
+	}
+
+	restartTimer(): void {
+		clearInterval(this.timer);
+		this.timer = setInterval(() => void this.refresh(), this.getTtl() * 1000);
+	}
+
+	setProvider(provider: string): void {
+		if (provider === this.provider) return;
+		this.provider = provider;
+		this.state = null;
+		void this.refresh();
+	}
+
+	private async refresh(): Promise<void> {
+		const ctx = this.ctx;
+		if (!ctx) return;
+		const version = ++this.version;
+		const plan = this.provider ? resolveTokenPlan(this.provider) : null;
+		let state: QuotaDisplay | "no-data" | null = null;
+		if (plan) {
+			try {
+				const credential = await resolveCredential(plan, ctx);
+				state = credential ? (plan.format(await plan.fetch(credential, ctx.signal)) ?? "no-data") : "no-data";
+			} catch {
+				state = "no-data";
+			}
+		}
+		if (version !== this.version) return;
+		this.state = state;
+		this.requestRender();
 	}
 }

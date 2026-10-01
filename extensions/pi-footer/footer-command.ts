@@ -27,7 +27,6 @@ const SPEED_STYLE_OPTIONS: StyleOption<SpeedStyle>[] = [
 	{ label: "t/s", value: "t/s", preview: `⚡77.7 t/s` },
 	{ label: "tok/s", value: "tok/s", preview: `⚡77.7 tok/s` },
 	{ label: "T/s", value: "T/s", preview: `⚡77.7 T/s` },
-	{ label: "live@rate", value: "liveAt", preview: `⚡1.2k@77.7` },
 ];
 
 const ITEM_NAMES: Record<DisplayKey, string> = {
@@ -114,7 +113,7 @@ export default function registerFooterCommand(
 					return;
 				}
 				await store.save({ ...store.config, ttl: sec });
-				quota.restartTimer(ctx);
+				quota.restartTimer();
 				ctx.ui.notify(`Refresh interval set to ${sec}s`, "info");
 			}
 		},
