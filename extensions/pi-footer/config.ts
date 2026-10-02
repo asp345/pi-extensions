@@ -3,13 +3,15 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../shared/json.ts";
 
-const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
-const SPEED_STYLES = ["t/s", "tok/s", "T/s"] as const;
+export const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
+export const SPEED_STYLES = ["t/s", "tok/s", "T/s"] as const;
 export type ContextStyle = (typeof CONTEXT_STYLES)[number];
 export type SpeedStyle = (typeof SPEED_STYLES)[number];
 export type DisplayKey =
 	| "input"
 	| "output"
+	| "cacheRead"
+	| "cacheWrite"
 	| "totalTokens"
 	| "cost"
 	| "cacheHit"
@@ -33,12 +35,16 @@ export interface PiFooterConfig {
 	display: DisplayConfig;
 }
 
+export const MIN_TTL_SECONDS = 10;
+
 const CONFIG_FILE = join(getAgentDir(), "pi-footer.json");
 
 export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
 	items: {
 		input: true,
 		output: true,
+		cacheRead: true,
+		cacheWrite: true,
 		totalTokens: false,
 		cost: true,
 		cacheHit: true,
@@ -70,7 +76,7 @@ function parseDisplay(value: unknown): DisplayConfig {
 
 function parseConfig(value: unknown): PiFooterConfig {
 	const source = isRecord(value) ? value : {};
-	const ttl = typeof source.ttl === "number" && source.ttl >= 10 ? source.ttl : 300;
+	const ttl = typeof source.ttl === "number" && source.ttl >= MIN_TTL_SECONDS ? source.ttl : 300;
 	return {
 		ttl,
 		display: parseDisplay(source.display),

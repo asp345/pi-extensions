@@ -1,5 +1,5 @@
-import type { Usage } from "@earendil-works/pi-ai";
-import type { ExtensionContext, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
+import type { Api, Model, Usage } from "@earendil-works/pi-ai";
+import type { ContextUsage, ExtensionContext, SessionEntry, Theme } from "@earendil-works/pi-coding-agent";
 import type { DisplayConfig } from "./config.ts";
 import { formatTokenSpeed, formatTokens } from "./format.ts";
 import type { QuotaController } from "./quota-controller.ts";
@@ -18,6 +18,12 @@ interface UsageTotals {
 	cost: number;
 }
 
+interface SessionStats {
+	totals: UsageTotals;
+	latestCacheHitRate: number | undefined;
+	contextUsage: ContextUsage | undefined;
+}
+
 function entryUsage(entry: SessionEntry): Usage | undefined {
 	if (entry.type === "usage") return entry.usage;
 	if (entry.type === "compaction" || entry.type === "branch_summary") return entry.usage;
@@ -26,9 +32,10 @@ function entryUsage(entry: SessionEntry): Usage | undefined {
 	return message.role === "assistant" || message.role === "toolResult" ? message.usage : undefined;
 }
 
-function sessionUsage(entries: readonly SessionEntry[]): UsageTotals {
+function computeSessionStats(ctx: ExtensionContext): SessionStats {
 	const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-	for (const entry of entries) {
+	let latestCacheHitRate: number | undefined;
+	for (const entry of ctx.sessionManager.getEntries()) {
 		const usage = entryUsage(entry);
 		if (!usage) continue;
 		totals.input += usage.input;
@@ -36,19 +43,49 @@ function sessionUsage(entries: readonly SessionEntry[]): UsageTotals {
 		totals.cacheRead += usage.cacheRead;
 		totals.cacheWrite += usage.cacheWrite;
 		totals.cost += usage.cost?.total ?? 0;
+		if (entry.type === "message" && entry.message.role === "assistant") {
+			const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+			latestCacheHitRate = prompt > 0 ? (usage.cacheRead / prompt) * 100 : undefined;
+		}
 	}
-	return totals;
+	return { totals, latestCacheHitRate, contextUsage: ctx.getContextUsage() };
+}
+
+export function cachedSessionStats(): (ctx: ExtensionContext) => SessionStats {
+	let cached:
+		| { sessionId: string; leafId: string | null; model: Model<Api> | undefined; stats: SessionStats }
+		| undefined;
+	return (ctx) => {
+		const sessionId = ctx.sessionManager.getSessionId();
+		const leafId = ctx.sessionManager.getLeafId();
+		const model = ctx.model;
+		if (cached?.sessionId !== sessionId || cached.leafId !== leafId || cached.model !== model) {
+			cached = { sessionId, leafId, model, stats: computeSessionStats(ctx) };
+		}
+		return cached.stats;
+	};
+}
+
+function usingSubscription(ctx: ExtensionContext): boolean {
+	const model = ctx.model;
+	if (!model) return false;
+	if (model.provider === "kimi-coding") return true;
+	return (
+		ctx.modelRegistry.isUsingOAuth(model) &&
+		ctx.modelRegistry.getProvider(model.provider)?.auth.oauth?.isSubscription === true
+	);
 }
 
 export function renderMetricParts(params: {
 	theme: Theme;
 	ctx: ExtensionContext;
+	stats: SessionStats;
 	accountant: UsageAccountant;
 	displayConfig: DisplayConfig;
 	quota: QuotaController;
 	options?: MetricPartOptions;
 }): string[] {
-	const { theme, ctx, accountant, displayConfig, quota, options = {} } = params;
+	const { theme, ctx, stats, accountant, displayConfig, quota, options = {} } = params;
 	const dim = (s: string) => theme.fg("dim", s);
 	const warn = (s: string) => theme.fg("warning", s);
 	const error = (s: string) => theme.fg("error", s);
@@ -56,16 +93,16 @@ export function renderMetricParts(params: {
 	const parts: string[] = [];
 	const cfg = displayConfig.items;
 
-	const totals = sessionUsage(ctx.sessionManager.getEntries());
+	const { totals, latestCacheHitRate } = stats;
 	const segParts: string[] = [];
 	if (cfg.input) segParts.push(`↑${formatTokens(totals.input)}`);
 	if (cfg.output) segParts.push(`↓${formatTokens(totals.output)}`);
+	if (cfg.cacheRead && totals.cacheRead > 0) segParts.push(`R${formatTokens(totals.cacheRead)}`);
+	if (cfg.cacheWrite && totals.cacheWrite > 0) segParts.push(`W${formatTokens(totals.cacheWrite)}`);
 	if (cfg.totalTokens) segParts.push(`Σ${formatTokens(totals.input + totals.output)}`);
-	if (cfg.cost) segParts.push(`$${totals.cost.toFixed(4)}`);
-	if (cfg.cacheHit) {
-		const totalPrompt = totals.input + totals.cacheRead + totals.cacheWrite;
-		const cumCH = totalPrompt > 0 ? (totals.cacheRead / totalPrompt) * 100 : 0;
-		segParts.push(`CH${cumCH.toFixed(1)}%`);
+	if (cfg.cost) segParts.push(`$${totals.cost.toFixed(4)}${usingSubscription(ctx) ? " (sub)" : ""}`);
+	if (cfg.cacheHit && (totals.cacheRead > 0 || totals.cacheWrite > 0) && latestCacheHitRate !== undefined) {
+		segParts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
 	}
 	if (segParts.length > 0) parts.push(dim(segParts.join(" ")));
 
@@ -74,7 +111,7 @@ export function renderMetricParts(params: {
 	}
 
 	if (cfg.context) {
-		const cu = ctx.getContextUsage();
+		const cu = stats.contextUsage;
 		const ctxWindow = cu?.contextWindow ?? ctx.model?.contextWindow ?? 0;
 		const ctxPercent = typeof cu?.percent === "number" ? cu.percent : null;
 		if (ctxWindow > 0 && ctxPercent !== null) {

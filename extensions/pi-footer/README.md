@@ -1,16 +1,18 @@
 # pi-footer
 
-A Pi footer and `/footer` command for token metrics, timing, and provider quotas.
+A Pi footer and `/footer` command for token metrics, output speed, and provider quotas.
 
 ## Metrics
 
-- Input, output, and total tokens
-- Cost
+- Input, output, cache read, cache write, and total tokens
+- Cost, marked `(sub)` when the current provider is subscription-backed
 - Context-window usage
-- Cache hit rate
-- Average and rolling token throughput
+- Cache hit rate of the latest assistant message
+- Output speed of the latest assistant message
 
-Configuration is stored as `pi-footer.json` in the Pi agent directory. Use `/footer config` to configure the footer. The extension does not persist usage logs.
+The second line shows the working directory, git branch, session name, and extension statuses.
+
+Configuration is stored as `pi-footer.json` in the Pi agent directory. Use `/footer` to toggle items, pick the context and speed styles, and set the quota refresh interval. The extension does not persist usage logs.
 
 ## Provider quotas
 
