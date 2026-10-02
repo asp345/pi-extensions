@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { walkCommands } from "../shared/shell.ts";
+import { argumentText, walkCommands } from "../shared/shell.ts";
 import type { GuardConfig } from "./config.ts";
 import { isProtectedPath } from "./config.ts";
 
@@ -54,7 +54,7 @@ function commandName(word: string): string {
 function shellParts(command: string): ShellPart[] {
 	const parts: ShellPart[] = [];
 	walkCommands(command, (node) => {
-		const words = [node.name, ...node.suffix].flatMap((word) => (word ? [word.value] : []));
+		const words = [...(node.name ? [node.name.value] : []), ...node.args.map(argumentText)];
 		const index = Math.max(
 			0,
 			words.findIndex((word) => !word.includes("=") && !COMMAND_WRAPPERS.has(commandName(word))),

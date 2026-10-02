@@ -31,6 +31,7 @@ const NOTICE_LABELS: Record<NoticeKind, string> = {
 };
 
 export default function subagents(pi: ExtensionAPI): void {
+	let publishedRunning: string | undefined;
 	const manager: SubagentManager = new SubagentManager({
 		changed: () => {
 			ui.update();
@@ -38,6 +39,9 @@ export default function subagents(pi: ExtensionAPI): void {
 				.list()
 				.filter((record) => record.running)
 				.map((record) => record.id);
+			const key = runningAgentIds.join(",");
+			if (key === publishedRunning) return;
+			publishedRunning = key;
 			pi.events.emit(SUBAGENTS_STATE_EVENT, { runningAgentIds });
 		},
 		persist: (record) => pi.appendEntry(STATE_KIND, storeRecord(record)),
@@ -132,6 +136,7 @@ export default function subagents(pi: ExtensionAPI): void {
 			const stored = parseStoredRecord(entry.data);
 			if (stored) latest.set(stored.id, stored);
 		}
+		publishedRunning = undefined;
 		manager.restore([...latest.values()].map(restoreRecord));
 		ui.attach(ctx);
 	});

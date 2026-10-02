@@ -2,6 +2,7 @@ import { isAbsolute, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { handoffTaskId } from "../pi-background-tasks/events.ts";
 import { formatDuration } from "../shared/format.ts";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
@@ -11,6 +12,7 @@ const INPUT_PREFIX = "╰─ ";
 const OUTPUT_PREFIX = " › ";
 const INDENT = "   ";
 const DIFF_SUMMARY_PREFIX = "    ╰─ ";
+const PREVIEW_ROWS = 20;
 
 export interface ToolRowState {
 	name: string;
@@ -28,11 +30,11 @@ export interface ToolRowState {
 	endedAt?: number;
 }
 
-type ToolRowStatus = "queued" | "running" | "done" | "error";
+type ToolRowStatus = "queued" | "running" | "background" | "done" | "error";
 
 export function rowStatus(row: ToolRowState): ToolRowStatus {
 	if (row.result?.isError) return "error";
-	if (row.result && !row.isPartial) return "done";
+	if (row.result && !row.isPartial) return handoffTaskId(row.result.details) ? "background" : "done";
 	if (row.executionStarted) return "running";
 	return "queued";
 }
@@ -76,6 +78,20 @@ function diffOf(row: ToolRowState): string | undefined {
 	return typeof diff === "string" && diff ? diff : undefined;
 }
 
+function writtenDiff(row: ToolRowState): string | undefined {
+	if (row.name !== "write" || rowStatus(row) !== "done") return undefined;
+	const content =
+		typeof row.args === "object" && row.args !== null ? (row.args as { content?: unknown }).content : undefined;
+	if (typeof content !== "string" || !content) return undefined;
+	const lines = content.replace(/\n$/u, "").split("\n");
+	const numberWidth = String(lines.length).length;
+	return lines.map((line, index) => `+${String(index + 1).padStart(numberWidth)} ${line}`).join("\n");
+}
+
+function previewDiff(row: ToolRowState): string | undefined {
+	return diffOf(row) ?? writtenDiff(row);
+}
+
 function displayPath(path: string, cwd: string): string {
 	if (!isAbsolute(path)) return path;
 	const rel = relative(cwd, path);
@@ -94,6 +110,8 @@ function marker(status: ToolRowStatus, theme: Theme): string {
 			return theme.fg("error", "✗");
 		case "done":
 			return theme.fg("success", "✓");
+		case "background":
+			return theme.fg("accent", "↗");
 		case "running":
 			return theme.fg("bashMode", "◈");
 		case "queued":
@@ -107,9 +125,11 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	const head = ` ${marker(status, theme)} ${theme.fg("muted", row.name)}`;
 	const tail: string[] = [];
 	const output = outputText(row);
-	if ((status === "done" || status === "error") && output && !diffOf(row)) {
+	if ((status === "done" || status === "error") && output && !previewDiff(row)) {
 		tail.push(theme.fg("dim", `↓ ${output.split("\n").length} lines`));
 	}
+	const backgroundTaskId = status === "background" ? handoffTaskId(row.result?.details) : undefined;
+	if (backgroundTaskId) tail.push(theme.fg("accent", backgroundTaskId));
 	if (row.startedAt !== undefined) {
 		tail.push(theme.fg("dim", formatDuration((row.endedAt ?? now) - row.startedAt)));
 	}
@@ -124,7 +144,8 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 function diffSummaryLine(row: ToolRowState, diff: string, theme: Theme, width: number): string {
 	const { added, removed } = countChangedLines(diff);
 	const prefix = theme.fg("dim", DIFF_SUMMARY_PREFIX);
-	const counts = ` ${theme.fg("toolDiffAdded", `+${added}`)} ${theme.fg("toolDiffRemoved", `-${removed}`)}`;
+	const removedCount = diffOf(row) ? ` ${theme.fg("toolDiffRemoved", `-${removed}`)}` : "";
+	const counts = ` ${theme.fg("toolDiffAdded", `+${added}`)}${removedCount}`;
 	const available = Math.max(1, width - visibleWidth(prefix) - visibleWidth(counts));
 	const path = fit(displayPath(argPath(row.args), row.cwd), available);
 	return truncateToWidth(`${prefix}${theme.fg("muted", path)}${counts}`, width, "");
@@ -181,21 +202,33 @@ function renderOutput(lines: string[], row: ToolRowState, theme: Theme, width: n
 	wrapBlock(lines, note, OUTPUT_PREFIX, (text) => theme.fg("muted", text), theme, width, pending);
 }
 
+function diffRows(row: ToolRowState, diff: string, theme: Theme, width: number): string[] {
+	const contentWidth = Math.max(1, width - 1);
+	return renderDiffRows(diff, argPath(row.args), contentWidth, theme).map((diffRow) =>
+		truncateToWidth(` ${diffRow}`, width, ""),
+	);
+}
+
 export function renderToolRow(row: ToolRowState, theme: Theme, width: number, now: number): string[] {
 	const lines = [headerLine(row, theme, width, now)];
 	const diff = diffOf(row);
 	if (!row.expanded) {
-		if (diff) lines.push(diffSummaryLine(row, diff, theme, width));
+		const preview = previewDiff(row);
+		if (!preview) return lines;
+		lines.push(diffSummaryLine(row, preview, theme, width));
+		const rows = diffRows(row, preview, theme, width);
+		lines.push(...rows.slice(0, PREVIEW_ROWS));
+		if (rows.length > PREVIEW_ROWS) {
+			lines.push(
+				truncateToWidth(` ${theme.fg("dim", `${INDENT}… ${rows.length - PREVIEW_ROWS} more lines`)}`, width, ""),
+			);
+		}
 		return lines;
 	}
 	const hasArgs = renderArgs(lines, row, theme, width);
 	if (hasArgs) lines.push("");
 	if (diff) {
-		lines.push(diffSummaryLine(row, diff, theme, width));
-		const contentWidth = Math.max(1, width - 1);
-		for (const diffRow of renderDiffRows(diff, argPath(row.args), contentWidth, theme)) {
-			lines.push(truncateToWidth(` ${diffRow}`, width, ""));
-		}
+		lines.push(diffSummaryLine(row, diff, theme, width), ...diffRows(row, diff, theme, width));
 		return lines;
 	}
 	renderOutput(lines, row, theme, width);

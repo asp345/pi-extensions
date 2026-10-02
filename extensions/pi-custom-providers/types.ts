@@ -7,8 +7,8 @@ export const API_OPTIONS = [
 	"google-generative-ai",
 ] as const satisfies readonly Api[];
 
-export const DEFAULT_CONTEXT_WINDOW = 256_000;
-export const DEFAULT_MAX_TOKENS = 256_000;
+export const DEFAULT_CONTEXT_WINDOW = 262_144;
+export const DEFAULT_MAX_TOKENS = 131_072;
 
 export interface ModelCost {
 	input: number;

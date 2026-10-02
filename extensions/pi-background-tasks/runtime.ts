@@ -141,7 +141,6 @@ export class BackgroundRuntime {
 		const log = new TaskOutput(logFile, options.onOutputRaw ?? null, (at) => {
 			task.info.updatedAt = at;
 			task.info.lastOutputAt = at;
-			if (!this.shuttingDown) this.update();
 		});
 		const task: ManagedTask = {
 			info: {

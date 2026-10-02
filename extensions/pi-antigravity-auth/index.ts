@@ -75,6 +75,7 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 		},
 		oauth: {
 			name: "Google Antigravity",
+			isSubscription: true,
 			usesCallbackServer: true,
 			login,
 			refreshToken: refreshOAuth,

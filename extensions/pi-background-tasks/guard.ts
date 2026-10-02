@@ -1,4 +1,4 @@
-import { walkCommands } from "../shared/shell.ts";
+import { argumentText, walkCommands } from "../shared/shell.ts";
 
 const MAX_SLEEP_SECONDS = 30;
 
@@ -31,9 +31,10 @@ function sleepSeconds(command: string): number | null {
 	let unknown = false;
 	walkCommands(command, (node) => {
 		if (node.name?.value !== "sleep") return;
-		if (node.suffix[0]?.value === "--") return;
-		for (const arg of node.suffix) {
-			const seconds = literalSeconds(arg.value);
+		const args = node.args.map(argumentText);
+		if (args[0] === "--") return;
+		for (const arg of args) {
+			const seconds = literalSeconds(arg);
 			if (seconds === null) {
 				unknown = true;
 				return;
@@ -91,8 +92,7 @@ function processPoll(command: string): { name: string; sample: string } | null {
 		let full = false;
 		let endOfOptions = false;
 		let unsafe: string | null = null;
-		for (const arg of node.suffix) {
-			const text = arg.value;
+		for (const text of node.args.map(argumentText)) {
 			if (!endOfOptions && text === "--") {
 				endOfOptions = true;
 				continue;

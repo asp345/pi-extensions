@@ -249,9 +249,7 @@ export class SubagentManager {
 	}
 
 	private setActivity(record: AgentRecord, activity: string): void {
-		if (activity === record.activity) return;
 		record.activity = activity;
-		this.hooks.changed();
 	}
 
 	private startEpisode(record: AgentRecord): void {

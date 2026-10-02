@@ -58,7 +58,7 @@ function harnessDocsBlock(paths: HarnessDocsPaths): string {
 		"Harness documentation (only when the user asks about harness itself, its SDK, extensions, themes, skills, or TUI):",
 		`- README: ${paths.readme} | Docs: ${paths.docs} | Examples: ${paths.examples}`,
 		"- Resolve docs/... under Docs and examples/... under Examples, never under the working directory.",
-		"- Topic map: extensions, themes, skills, prompt-templates, tui, keybindings, sdk, custom-provider, models, packages, environment-variables (docs/<topic>.md).",
+		"- Topic map: extensions, themes, skills, prompt-templates, tui, keybindings, sdk, custom-provider, models, packages, environment-variables, mcp, codemode (docs/<topic>.md).",
 		"- Read the relevant files completely, following cross-references, before implementing.",
 	].join("\n");
 }
