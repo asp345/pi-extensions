@@ -2,6 +2,8 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import type { FileChangeDetails } from "./details.ts";
 import { captureSnapshot, changedFiles, type GitSnapshot } from "./snapshot.ts";
 
+const MAX_CHANGED_FILES = 10;
+
 function reportFailure(ctx: ExtensionContext, error: unknown): undefined {
 	const message = error instanceof Error ? error.message : String(error);
 	ctx.ui.notify(`pi-bash-diff snapshot failed: ${message}`, "warning");
@@ -25,7 +27,7 @@ export default function bashDiff(pi: ExtensionAPI): void {
 		const snapshot = await pending;
 		if (!snapshot) return;
 		const fileChanges = await changedFiles(snapshot);
-		if (fileChanges.length === 0) return;
+		if (fileChanges.length === 0 || fileChanges.length >= MAX_CHANGED_FILES) return;
 		const details: FileChangeDetails = { ...(event.details ?? {}), fileChanges };
 		return { details };
 	});
