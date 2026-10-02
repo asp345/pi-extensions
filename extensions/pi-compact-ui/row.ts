@@ -2,6 +2,7 @@ import { isAbsolute, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { handoffTaskId } from "../pi-background-tasks/events.ts";
 import { formatDuration } from "../shared/format.ts";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
@@ -28,11 +29,11 @@ export interface ToolRowState {
 	endedAt?: number;
 }
 
-type ToolRowStatus = "queued" | "running" | "done" | "error";
+type ToolRowStatus = "queued" | "running" | "background" | "done" | "error";
 
 export function rowStatus(row: ToolRowState): ToolRowStatus {
 	if (row.result?.isError) return "error";
-	if (row.result && !row.isPartial) return "done";
+	if (row.result && !row.isPartial) return handoffTaskId(row.result.details) ? "background" : "done";
 	if (row.executionStarted) return "running";
 	return "queued";
 }
@@ -94,6 +95,8 @@ function marker(status: ToolRowStatus, theme: Theme): string {
 			return theme.fg("error", "✗");
 		case "done":
 			return theme.fg("success", "✓");
+		case "background":
+			return theme.fg("accent", "↗");
 		case "running":
 			return theme.fg("bashMode", "◈");
 		case "queued":
@@ -110,6 +113,8 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	if ((status === "done" || status === "error") && output && !diffOf(row)) {
 		tail.push(theme.fg("dim", `↓ ${output.split("\n").length} lines`));
 	}
+	const backgroundTaskId = status === "background" ? handoffTaskId(row.result?.details) : undefined;
+	if (backgroundTaskId) tail.push(theme.fg("accent", backgroundTaskId));
 	if (row.startedAt !== undefined) {
 		tail.push(theme.fg("dim", formatDuration((row.endedAt ?? now) - row.startedAt)));
 	}

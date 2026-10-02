@@ -3,14 +3,17 @@ import { access as fsAccess } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import {
 	type BashOperations,
+	type BashToolDetails,
 	createBashToolDefinition,
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
 	type ExtensionContext,
 	getAgentDir,
+	truncateTail,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import type { HandoffDetails } from "./events.ts";
 import type { BackgroundRuntime } from "./runtime.ts";
 
 const HANDOFF_MINUTES = 1;
@@ -30,6 +33,15 @@ const hybridBashSchema = Type.Object({
 		}),
 	),
 });
+
+class BackgroundHandoff extends Error {
+	constructor(
+		readonly taskId: string,
+		note: string,
+	) {
+		super(note);
+	}
+}
 
 /** Session env for spawned commands: pi's managed bin dir on PATH plus PI_* session metadata. */
 export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
@@ -91,12 +103,10 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 				const reason = handoff.signal.aborted
 					? `Handoff requested with ${HANDOFF_SHORTCUT}`
 					: `Command still running after ${HANDOFF_LABEL}`;
-				onData(
-					Buffer.from(
-						`\n\n${reason}; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
-					),
+				throw new BackgroundHandoff(
+					task.id,
+					`${reason}; moved to background task ${task.id}.${timeoutNote} Completion is delivered as steering at the next turn boundary; Never run sleep command to wait. Inspect output meanwhile with background_task action=read id=${task.id}.`,
 				);
-				return { exitCode: null };
 			}
 			runtime.discard(task.id);
 			return { exitCode: done.task.exitCode };
@@ -109,6 +119,19 @@ function createHybridBashDefinition(cwd: string, runtime: BackgroundRuntime, for
 		description: HANDOFF_DESCRIPTION,
 		parameters: hybridBashSchema,
 		promptGuidelines: [...(definition.promptGuidelines ?? []), HANDOFF_GUIDELINE],
+		async execute(...args: Parameters<typeof definition.execute>) {
+			try {
+				return await definition.execute(...args);
+			} catch (error) {
+				if (!(error instanceof BackgroundHandoff)) throw error;
+				const output = truncateTail(runtime.output(error.taskId) ?? "").content.trimEnd();
+				const details: BashToolDetails & HandoffDetails = { backgroundTaskId: error.taskId };
+				return {
+					content: [{ type: "text" as const, text: output ? `${output}\n\n${error.message}` : error.message }],
+					details,
+				};
+			}
+		},
 	};
 }
 

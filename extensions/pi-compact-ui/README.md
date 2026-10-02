@@ -9,10 +9,12 @@ Collapsed, each call is one line:
 ```
  ✓ read · extensions/pi-compact-ui/row.ts · ↓ 214 lines · 0s
  ◈ bash · bun run check · 12s
+ ↗ bash · nix build · bg-1a2b3c · 1m 0s
  ✗ edit · README.md · 0s · error
 ```
 
-- Marker: `◇` queued, `◈` running, `✓` done, `✗` error.
+- Marker: `◇` queued, `◈` running, `↗` handed off to a background task, `✓` done, `✗` error.
+- A result whose `details.backgroundTaskId` is set (a `bash` call that `pi-background-tasks` moved to the background) shows the task ID before the duration; the duration stops at the hand-off.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
 - `↓ N lines`: the line count of the text result, shown once the call has finished.
 - Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
