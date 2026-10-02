@@ -1,4 +1,8 @@
-import { type Command, parse, type Word } from "unbash";
+import { type Command, type CommandArgument, parse, type Word } from "unbash";
+
+export function argumentText(argument: CommandArgument): string {
+	return argument.type === "Word" ? argument.value : argument.text;
+}
 
 /** Visit every command in the unbash AST, covering nested substitutions, function bodies, and heredoc bodies. */
 export function walkCommands(command: string, visit: (node: Command) => void): void {

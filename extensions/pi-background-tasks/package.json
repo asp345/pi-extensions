@@ -26,6 +26,6 @@
 		"typebox": "*"
 	},
 	"dependencies": {
-		"unbash": "^4.0.10"
+		"unbash": "^5.0.0"
 	}
 }
