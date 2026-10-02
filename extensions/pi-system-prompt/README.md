@@ -33,7 +33,7 @@ The composed options are the session's base options, so the same prompt is:
 | --- | --- |
 | `You are an expert coding assistant ...` | Replaced by `SYSTEM.txt` |
 | `Be concise in your responses` | Dropped |
-| `Use bash/powershell for file operations ...` | Dropped, conflicts with `Prefer built-in tools over bash` |
+| `Use bash/powershell for file operations ...` | Dropped |
 | `Show file paths clearly ...` | Kept |
 | Tool list, tool guidelines, harness docs | Rebuilt as the `tools`, `rules`, and `docs` sections |
 | `<project_context>`, skills, cwd | Built by the core |

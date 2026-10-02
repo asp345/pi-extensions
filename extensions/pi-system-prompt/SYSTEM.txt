@@ -49,7 +49,7 @@ Environment:
 - Use project environment (`flake.nix`, venv, container). For temporary tools use `nix shell nixpkgs#<pkg>` or `nix run`.
 - Do not assume paths from your memory (`~/.pi/agent`, `%TEMP%`).
 - Ask the user on network, container, or GPU issues.
-- Prefer built-in tools over bash. Batch tool calls whenever possible.
+- Batch tool calls whenever possible.
 - Piping bash output may lead to lost output.
 
 Git:
