@@ -11,6 +11,12 @@ const PARENT = Symbol.for("pi-compact-ui:parent");
 const TIMING = Symbol.for("pi-compact-ui:timing");
 const HEADER_ROW = Symbol.for("pi-compact-ui:header-row");
 const BASE_PATCHED = Symbol.for("pi-compact-ui:base-patched");
+const RENDER_CACHE = Symbol.for("pi-compact-ui:render-cache");
+
+interface RenderCache {
+	key: readonly unknown[];
+	lines: readonly string[];
+}
 
 interface RowFields {
 	toolName: string;
@@ -60,6 +66,22 @@ function rowState(row: ToolExecutionComponent): ToolRowState {
 	};
 }
 
+function renderKey(state: ToolRowState, width: number, now: number): unknown[] {
+	const elapsed =
+		state.startedAt === undefined ? undefined : Math.floor(((state.endedAt ?? now) - state.startedAt) / 1000);
+	return [width, state.args, state.result, state.expanded, state.isPartial, state.executionStarted, elapsed];
+}
+
+function cachedRow(row: ToolExecutionComponent, state: ToolRowState, theme: Theme, width: number): string[] {
+	const now = Date.now();
+	const key = renderKey(state, width, now);
+	const cached = Reflect.get(row, RENDER_CACHE) as RenderCache | undefined;
+	if (cached?.key.every((value, index) => value === key[index])) return [...cached.lines];
+	const lines = renderToolRow(state, theme, width, now);
+	Reflect.set(row, RENDER_CACHE, { key, lines: [...lines] } satisfies RenderCache);
+	return lines;
+}
+
 function followsToolRow(row: ToolExecutionComponent, width: number): boolean {
 	const parent = parentOf(row);
 	if (!parent) return false;
@@ -95,6 +117,11 @@ function installBasePatches(): void {
 		if (!isPartial && current.startedAt !== undefined) current.endedAt ??= Date.now();
 		baseUpdateResult.apply(this, args);
 	};
+	const baseInvalidate = prototype.invalidate;
+	prototype.invalidate = function (this: ToolExecutionComponent): void {
+		Reflect.deleteProperty(this, RENDER_CACHE);
+		baseInvalidate.call(this);
+	};
 	Reflect.set(prototype, BASE_PATCHED, true);
 }
 
@@ -128,7 +155,7 @@ function installRenderer(ui: { readonly theme: Theme }): void {
 			}
 		}
 		const view = fields(this);
-		const lines = renderToolRow(state, ui.theme, width, Date.now());
+		const lines = cachedRow(this, state, ui.theme, width);
 		view.imageComponents.forEach((image, index) => {
 			lines.push(...(view.imageSpacers[index]?.render(width) ?? []), ...image.render(width));
 		});

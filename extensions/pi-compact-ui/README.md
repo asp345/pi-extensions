@@ -36,6 +36,7 @@ Images in results render below the row. A tool row directly after another tool r
 
 ## Implementation
 
-- Patches `ToolExecutionComponent.prototype` once per process: `render` and `handleMouse` are replaced when a TUI session starts (`ctx.mode === "tui"`), `markExecutionStarted` and `updateResult` record the timing, and `Container.prototype.addChild` records each component's parent for the spacing rule.
+- Patches `ToolExecutionComponent.prototype` once per process: `render` and `handleMouse` are replaced when a TUI session starts (`ctx.mode === "tui"`), `markExecutionStarted` and `updateResult` record the timing, `invalidate` clears the row's cached lines, and `Container.prototype.addChild` records each component's parent for the spacing rule.
 - Sessions without a TUI (print, RPC, and in-process subagent sessions) do not install the renderer.
+- Each row caches its lines and rebuilds them only when the width, arguments, result, expanded state, running state, or elapsed whole seconds change.
 - `row.ts` builds the lines, `diff.ts` renders the diff block.
