@@ -44,14 +44,6 @@ Guidelines are not filtered by phrasing; only exact duplicates and lines restate
 
 `/system-prompt` reports the prompt length, whether it starts with the custom prompt, the section names, the number of selected tools and rules, the context file paths, and the skill names. Context file contents are never printed.
 
-## Syncing rules
-
-`SYSTEM.txt` tracks `../nixos/modules/features/AGENTS.md` but is formatted independently (flat `Label:` sections, no title). After changing the source, copy it over and re-apply that formatting:
-
-```bash
-cp ../nixos/modules/features/AGENTS.md extensions/pi-system-prompt/SYSTEM.txt
-```
-
 ## Verification
 
 ```bash
