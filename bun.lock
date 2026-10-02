@@ -43,6 +43,13 @@
         "typebox": "*",
       },
     },
+    "extensions/pi-bash-diff": {
+      "name": "@asp345/pi-bash-diff",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "extensions/pi-browser": {
       "name": "@asp345/pi-browser",
       "version": "0.0.0",
@@ -199,6 +206,8 @@
     "@asp345/pi-antigravity-auth": ["@asp345/pi-antigravity-auth@workspace:extensions/pi-antigravity-auth"],
 
     "@asp345/pi-background-tasks": ["@asp345/pi-background-tasks@workspace:extensions/pi-background-tasks"],
+
+    "@asp345/pi-bash-diff": ["@asp345/pi-bash-diff@workspace:extensions/pi-bash-diff"],
 
     "@asp345/pi-browser": ["@asp345/pi-browser@workspace:extensions/pi-browser"],
 

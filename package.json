@@ -34,6 +34,7 @@
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
+			"./extensions/pi-bash-diff/index.ts",
 			"./extensions/pi-compaction/index.ts",
 			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-openai-models/index.ts",
