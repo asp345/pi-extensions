@@ -16,7 +16,7 @@ Collapsed, each call is one line:
 - Marker: `◇` queued, `◈` running, `↗` handed off to a background task, `✓` done, `✗` error.
 - A result whose `details.backgroundTaskId` is set (a `bash` call that `pi-background-tasks` moved to the background) shows the task ID before the duration; the duration stops at the hand-off.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
-- `↓ N lines`: the line count of the text result, shown once the call has finished.
+- `↓ N lines`: the line count of the text result, shown once the call has finished, except for rows that show a diff preview.
 - Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
@@ -25,6 +25,14 @@ A result whose `details.diff` is a string (the `edit` tool) adds a summary line 
 ```
     ╰─ extensions/pi-compact-ui/row.ts +12 -3
 ```
+
+A successful `write` call adds a summary line with the written line count while collapsed:
+
+```
+    ╰─ notes.md +40
+```
+
+While collapsed, both follow the summary line with up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut.
 
 Expanded (`ctrl+o`, or a click on the header line):
 
