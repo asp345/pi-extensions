@@ -1,4 +1,4 @@
-import type { Provider } from "@earendil-works/pi-ai";
+import { isModelType, type Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readJsonResponse } from "../shared/json.ts";
 import {
@@ -142,6 +142,7 @@ function createOpenRouterMetadataProvider(
 		...base,
 		[BASE_PROVIDER]: base,
 		getModels: () => models,
+		getAllModels: () => [...models, ...(base.getAllModels?.() ?? []).filter((model) => !isModelType(model, "chat"))],
 		refreshModels,
 	};
 	return wrapped;
