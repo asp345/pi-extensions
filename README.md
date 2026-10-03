@@ -14,6 +14,7 @@ My personal Pi monorepo.
 - `extensions/pi-compaction/`
 - `extensions/pi-custom-providers/`
 - `extensions/pi-direnv/`
+- `extensions/pi-flat-edit/`
 - `extensions/pi-footer/`
 - `extensions/pi-goal/`
 - `extensions/pi-gpt-search/`
