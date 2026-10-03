@@ -4,7 +4,7 @@
 	"vars": {
 		"bg": "#242119",
 		"fg": "#e0dac2",
-		"gray": "#716c5b",
+		"gray": "#6c6c6c",
 		"darkGray": "#37342a",
 		"accent": "#e6bf4c",
 		"accentDark": "#ab892b",
@@ -23,7 +23,7 @@
 		"diffAdded": "#9cc9a8",
 		"diffRemoved": "#daa995",
 		"diffContext": "#bfb69b",
-		"thinkOff": "#716c5b",
+		"thinkOff": "#6c6c6c",
 		"thinkMinimal": "#706e66",
 		"thinkLow": "#928868",
 		"thinkMedium": "#b7a366",
