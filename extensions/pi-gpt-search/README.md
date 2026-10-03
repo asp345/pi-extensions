@@ -47,8 +47,7 @@ Perform a direct web search immediately without spending LLM tokens:
 
 ### 2. Automatic LLM Tool: `web`
 
-Ask any model a question requiring current facts. A quick lookup passes only `search_query`;
-`open`, `find`, and `click` turn it into iterative research:
+Ask any model a question requiring current facts. A quick lookup passes only `search_query`; `open`, `find`, and `click` turn it into iterative research:
 
 ```bash
 pi --model antigravity/gemini-3.5-flash "What is the latest release of Rust and what changed?"
