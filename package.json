@@ -23,7 +23,6 @@
 	"pi": {
 		"extensions": [
 			"./extensions/pi-system-prompt/index.ts",
-			"./extensions/pi-question/index.ts",
 			"./extensions/pi-goal/index.ts",
 			"./extensions/pi-gpt-search/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",
@@ -34,6 +33,7 @@
 			"./extensions/pi-sensitive-guard/index.ts",
 			"./extensions/pi-antigravity-auth/index.ts",
 			"./extensions/pi-background-tasks/index.ts",
+			"./extensions/pi-bash-diff/index.ts",
 			"./extensions/pi-compaction/index.ts",
 			"./extensions/pi-subagents/index.ts",
 			"./extensions/pi-openai-models/index.ts",
@@ -41,7 +41,8 @@
 			"./extensions/pi-model-thinking/index.ts",
 			"./extensions/pi-tool-loop-guard/index.ts",
 			"./extensions/pi-compact-ui/index.ts",
-			"./extensions/pi-browser/index.ts"
+			"./extensions/pi-browser/index.ts",
+			"./extensions/pi-flat-edit/index.ts"
 		],
 		"prompts": [
 			"./prompts"

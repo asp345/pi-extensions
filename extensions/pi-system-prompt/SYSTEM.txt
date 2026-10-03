@@ -19,8 +19,8 @@ Thinking and Writing:
 
 Intent Check:
 - Clearly state what you are going to do. Give brief updates while you work. But don't repeat the user prompt.
-- Answer user questions first. Then proceed the ongoing work. Ask user whenever unclear.
-- Do not invent/assume the spec or user intent.
+- Answer user questions first. Then proceed the ongoing work.
+- Do not assume the user intent. Ask user whatever unclear.
 - When requesting decisions, omit deferential clichés (e.g., "needs your call", "up to you"). State the concrete decision target and explicit options objectively.
 
 Code:
@@ -42,6 +42,7 @@ Documentation:
 - Write docs only when requested. Ask to update docs when a code change makes it stale.
 - Report only requested findings. Do not state absence of problems. When requested to verify, clearly say what was checked.
 - No disclaimers or guarantee statements.
+- Do not hard-wrap lines. Write each paragraph and list item as one line.
 
 Environment:
 - Debian GNU/Linux with bash
@@ -49,7 +50,7 @@ Environment:
 - Use the project environment (bun/npm, venv, container). Install temporary tools with `apt` or a project-local package manager.
 - Do not assume paths from your memory (`~/.pi/agent`, `%TEMP%`).
 - Ask the user on network, container, or GPU issues.
-- Prefer built-in tools over bash. Batch tool calls whenever possible.
+- Batch tool calls whenever possible.
 - Piping bash output may lead to lost output.
 
 Git:

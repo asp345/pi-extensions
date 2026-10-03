@@ -37,7 +37,7 @@ Every change emits `pi-subagents:state` on `pi.events` with `{ runningAgentIds: 
 ## Sessions and persistence
 
 - The subagent session is created with `createAgentSessionServices` and `createAgentSessionFromServices` for the parent's cwd and project trust. It loads the same extensions, skills, and context files as the parent, so compaction (including `pi-compaction`) runs in the subagent as in the parent. Prompt templates and themes are not loaded.
-- The extension that registers `launch_subagent` is removed from the subagent's extension set and replaced by an inline extension that provides the subagent `send_message`. `question`, `goal_complete`, and `goal_blocked` are excluded.
+- The extension that registers `launch_subagent` is removed from the subagent's extension set and replaced by an inline extension that provides the subagent `send_message`. `goal_complete` and `goal_blocked` are excluded.
 - Session files are written to `<parent session file without .jsonl>.subagents/`, with the parent session recorded as `parentSession`. They are not listed by `/resume`.
 - Each record (name, prompt, cwd, model, thinking level, session file, cost, last text, last error) is appended to the parent session as a `pi-subagent-state` custom entry. On `session_start` the latest entry per ID on the branch is restored as `inactive`.
 - On parent shutdown, reload, or session switch, open subagent sessions are aborted and closed (`session_shutdown` is emitted to their extensions) and their records are persisted.

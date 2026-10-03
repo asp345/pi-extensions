@@ -56,7 +56,7 @@ export const glmQuotaPlan: QuotaPlan = {
 		return {
 			segments: quotaSegments(
 				{ fiveHour: intervalRemaining, week: weeklyRemaining },
-				entries.map((entry) => entry.nextResetTime),
+				{ fiveHour: fiveHour?.nextResetTime, week: weekly?.nextResetTime },
 			),
 			color: quotaColor(intervalRemaining, weeklyRemaining),
 		};

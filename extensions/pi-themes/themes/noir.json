@@ -51,9 +51,9 @@
 		"error": "error",
 		"warning": "warning",
 		"muted": "text-muted",
-		"dim": "text-dim",
+		"dim": "gray",
 		"text": "text",
-		"thinkingText": "text-dim",
+		"thinkingText": "gray",
 
 		"selectedBg": "surface-hi",
 		"scrollbarThumb": "gray-dark",

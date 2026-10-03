@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/pi-system-prompt",
+	"name": "@asp345/pi-flat-edit",
 	"version": "0.0.0",
-	"description": "Compose harness system prompt from bundled SYSTEM.txt rules",
+	"description": "Single-replacement edit tool schema for pi",
 	"license": "MIT",
 	"type": "module",
 	"main": "./index.ts",
@@ -12,8 +12,6 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"SYSTEM.txt",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {
@@ -22,6 +20,7 @@
 		]
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": "*"
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
 	}
 }

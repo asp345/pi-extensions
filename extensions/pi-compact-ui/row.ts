@@ -3,6 +3,7 @@ import { stripVTControlCharacters } from "node:util";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { handoffTaskId } from "../pi-background-tasks/events.ts";
+import { fileChangesOf } from "../pi-bash-diff/details.ts";
 import { formatDuration } from "../shared/format.ts";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
@@ -31,6 +32,12 @@ export interface ToolRowState {
 }
 
 type ToolRowStatus = "queued" | "running" | "background" | "done" | "error";
+
+interface DiffBlock {
+	path: string;
+	diff: string;
+	showRemoved: boolean;
+}
 
 export function rowStatus(row: ToolRowState): ToolRowStatus {
 	if (row.result?.isError) return "error";
@@ -92,6 +99,19 @@ function previewDiff(row: ToolRowState): string | undefined {
 	return diffOf(row) ?? writtenDiff(row);
 }
 
+function fileChangeBlocks(row: ToolRowState): DiffBlock[] {
+	return fileChangesOf(row.result?.details).map((change) => ({ ...change, showRemoved: true }));
+}
+
+function previewBlocks(row: ToolRowState): DiffBlock[] {
+	const path = argPath(row.args);
+	const diff = diffOf(row);
+	if (diff) return [{ path, diff, showRemoved: true }];
+	const written = writtenDiff(row);
+	if (written) return [{ path, diff: written, showRemoved: false }];
+	return fileChangeBlocks(row);
+}
+
 function displayPath(path: string, cwd: string): string {
 	if (!isAbsolute(path)) return path;
 	const rel = relative(cwd, path);
@@ -141,13 +161,17 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	return `${head}${separator}${theme.fg("dim", fit(preview, available))}${suffix}`;
 }
 
-function diffSummaryLine(row: ToolRowState, diff: string, theme: Theme, width: number): string {
-	const { added, removed } = countChangedLines(diff);
+function diffCounts(block: DiffBlock, theme: Theme): string {
+	const { added, removed } = countChangedLines(block.diff);
+	const removedCount = block.showRemoved ? ` ${theme.fg("toolDiffRemoved", `-${removed}`)}` : "";
+	return ` ${theme.fg("toolDiffAdded", `+${added}`)}${removedCount}`;
+}
+
+function diffSummaryLine(row: ToolRowState, block: DiffBlock, theme: Theme, width: number): string {
 	const prefix = theme.fg("dim", DIFF_SUMMARY_PREFIX);
-	const removedCount = diffOf(row) ? ` ${theme.fg("toolDiffRemoved", `-${removed}`)}` : "";
-	const counts = ` ${theme.fg("toolDiffAdded", `+${added}`)}${removedCount}`;
+	const counts = diffCounts(block, theme);
 	const available = Math.max(1, width - visibleWidth(prefix) - visibleWidth(counts));
-	const path = fit(displayPath(argPath(row.args), row.cwd), available);
+	const path = fit(displayPath(block.path, row.cwd), available);
 	return truncateToWidth(`${prefix}${theme.fg("muted", path)}${counts}`, width, "");
 }
 
@@ -202,35 +226,50 @@ function renderOutput(lines: string[], row: ToolRowState, theme: Theme, width: n
 	wrapBlock(lines, note, OUTPUT_PREFIX, (text) => theme.fg("muted", text), theme, width, pending);
 }
 
-function diffRows(row: ToolRowState, diff: string, theme: Theme, width: number): string[] {
+function diffRows(block: DiffBlock, theme: Theme, width: number): string[] {
 	const contentWidth = Math.max(1, width - 1);
-	return renderDiffRows(diff, argPath(row.args), contentWidth, theme).map((diffRow) =>
+	return renderDiffRows(block.diff, block.path, contentWidth, theme).map((diffRow) =>
 		truncateToWidth(` ${diffRow}`, width, ""),
 	);
 }
 
+function renderBlocks(
+	lines: string[],
+	row: ToolRowState,
+	blocks: DiffBlock[],
+	theme: Theme,
+	width: number,
+	limit: number,
+): void {
+	for (const block of blocks) {
+		lines.push(diffSummaryLine(row, block, theme, width));
+		const rows = diffRows(block, theme, width);
+		const shown = Math.min(rows.length, limit);
+		lines.push(...rows.slice(0, shown));
+		if (rows.length > shown) {
+			lines.push(truncateToWidth(` ${theme.fg("dim", `${INDENT}… ${rows.length - shown} more lines`)}`, width, ""));
+		}
+	}
+}
+
 export function renderToolRow(row: ToolRowState, theme: Theme, width: number, now: number): string[] {
 	const lines = [headerLine(row, theme, width, now)];
-	const diff = diffOf(row);
 	if (!row.expanded) {
-		const preview = previewDiff(row);
-		if (!preview) return lines;
-		lines.push(diffSummaryLine(row, preview, theme, width));
-		const rows = diffRows(row, preview, theme, width);
-		lines.push(...rows.slice(0, PREVIEW_ROWS));
-		if (rows.length > PREVIEW_ROWS) {
-			lines.push(
-				truncateToWidth(` ${theme.fg("dim", `${INDENT}… ${rows.length - PREVIEW_ROWS} more lines`)}`, width, ""),
-			);
-		}
+		renderBlocks(lines, row, previewBlocks(row), theme, width, PREVIEW_ROWS);
 		return lines;
 	}
 	const hasArgs = renderArgs(lines, row, theme, width);
 	if (hasArgs) lines.push("");
+	const diff = diffOf(row);
 	if (diff) {
-		lines.push(diffSummaryLine(row, diff, theme, width), ...diffRows(row, diff, theme, width));
+		renderBlocks(lines, row, [{ path: argPath(row.args), diff, showRemoved: true }], theme, width, Infinity);
 		return lines;
 	}
 	renderOutput(lines, row, theme, width);
+	const changes = fileChangeBlocks(row);
+	if (changes.length > 0) {
+		lines.push("");
+		renderBlocks(lines, row, changes, theme, width, Infinity);
+	}
 	return lines;
 }

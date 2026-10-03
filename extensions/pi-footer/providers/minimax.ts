@@ -36,7 +36,13 @@ export const minimaxQuotaPlan: QuotaPlan = {
 		const weeklyRemaining =
 			typeof m.current_weekly_remaining_percent === "number" ? m.current_weekly_remaining_percent : 0;
 		return {
-			segments: quotaSegments({ fiveHour: intervalRemaining, week: weeklyRemaining }, [m.end_time, m.weekly_end_time]),
+			segments: quotaSegments(
+				{ fiveHour: intervalRemaining, week: weeklyRemaining },
+				{
+					fiveHour: m.end_time,
+					week: m.weekly_end_time,
+				},
+			),
 			color: quotaColor(intervalRemaining, weeklyRemaining),
 		};
 	},

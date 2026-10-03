@@ -12,7 +12,7 @@ import { Type } from "typebox";
 import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
 import type { ThinkingLevel } from "./types.ts";
 
-const PARENT_ONLY_TOOLS = ["question", "goal_complete", "goal_blocked"];
+const PARENT_ONLY_TOOLS = ["goal_complete", "goal_blocked"];
 
 const CHILD_GUIDELINES = [
 	"You are a subagent launched by a parent agent. The parent does not see your text output; it receives only what you send with send_message.",

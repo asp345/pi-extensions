@@ -16,7 +16,7 @@ Collapsed, each call is one line:
 - Marker: `◇` queued, `◈` running, `↗` handed off to a background task, `✓` done, `✗` error.
 - A result whose `details.backgroundTaskId` is set (a `bash` call that `pi-background-tasks` moved to the background) shows the task ID before the duration; the duration stops at the hand-off.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
-- `↓ N lines`: the line count of the text result, shown once the call has finished, except for rows that show a diff preview.
+- `↓ N lines`: the line count of the text result, shown once the call has finished, except for `edit` and `write` rows that show a diff preview.
 - Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
@@ -32,12 +32,20 @@ A successful `write` call adds a summary line with the written line count while 
     ╰─ notes.md +40
 ```
 
-While collapsed, both follow the summary line with up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut.
+A result whose `details.fileChanges` lists files (a `bash` call that `pi-bash-diff` diffed) adds one summary line per file in both states:
+
+```
+    ╰─ src/a.py +2 -2
+    ╰─ notes.md +3 -0
+```
+
+While collapsed, each summary line is followed by up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut. The limit applies to each file separately.
 
 Expanded (`ctrl+o`, or a click on the header line):
 
 - `╰─ key: value` for each top-level argument; non-string values are JSON.
 - ` › ` followed by the text result, or the syntax-highlighted diff with line-number gutters when `details.diff` is present.
+- When `details.fileChanges` is present, a blank line after the text result, then each file's summary line and full diff.
 - `waiting for output...` while running, `no output` for an empty result.
 
 Images in results render below the row. A tool row directly after another tool row, or after an assistant message without visible text, has no leading blank line.

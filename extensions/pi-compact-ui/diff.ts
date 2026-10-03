@@ -1,7 +1,15 @@
 import { getLanguageFromPath, highlightCode, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
-import { sliceByColumn, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import {
+	type Color,
+	colorToOkhsl,
+	okhslColor,
+	sliceByColumn,
+	truncateToWidth,
+	visibleWidth,
+} from "@earendil-works/pi-tui";
 
 const MIN_NUMBER_WIDTH = 3;
+const DIFF_BG_LIGHTNESS = 0.22;
 
 type CodeLineKind = "added" | "removed" | "context";
 
@@ -89,8 +97,15 @@ function diffCodeLines(diff: string, path: string): CodeLine[] {
 	});
 }
 
+function diffBackground(color: Color): Color {
+	const { h, s } = colorToOkhsl(color);
+	return okhslColor(h, s, DIFF_BG_LIGHTNESS);
+}
+
 export function renderDiffRows(diff: string, path: string, width: number, theme: Theme): string[] {
 	const pad = (line: string) => line + " ".repeat(Math.max(0, width - visibleWidth(line)));
+	const addedBg = diffBackground(theme.colors.toolDiffAdded);
+	const removedBg = diffBackground(theme.colors.toolDiffRemoved);
 	const out: string[] = [];
 	for (const line of diffCodeLines(diff, path)) {
 		const sign = theme.fg(GUTTER_COLOR[line.kind], line.sign);
@@ -98,8 +113,8 @@ export function renderDiffRows(diff: string, path: string, width: number, theme:
 		const code = line.codeColor ? theme.fg(line.codeColor, line.code) : line.code;
 		for (const wrapped of wrapCodeLine(`${sign}${number}`, code, width)) {
 			const padded = pad(wrapped);
-			if (line.kind === "added") out.push(theme.bg("toolSuccessBg", padded));
-			else if (line.kind === "removed") out.push(theme.bg("toolErrorBg", padded));
+			if (line.kind === "added") out.push(theme.style(padded, { bg: addedBg }));
+			else if (line.kind === "removed") out.push(theme.style(padded, { bg: removedBg }));
 			else out.push(padded);
 		}
 	}

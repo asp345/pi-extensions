@@ -8,11 +8,13 @@ My personal Pi monorepo. This `debian` branch targets Debian GNU/Linux with bash
 - `extensions/pi-anthropic-oauth/`
 - `extensions/pi-antigravity-auth/`
 - `extensions/pi-background-tasks/`
+- `extensions/pi-bash-diff/`
 - `extensions/pi-browser/`
 - `extensions/pi-compact-ui/`
 - `extensions/pi-compaction/`
 - `extensions/pi-custom-providers/`
 - `extensions/pi-direnv/`
+- `extensions/pi-flat-edit/`
 - `extensions/pi-footer/`
 - `extensions/pi-goal/`
 - `extensions/pi-gpt-search/`
@@ -20,7 +22,6 @@ My personal Pi monorepo. This `debian` branch targets Debian GNU/Linux with bash
 - `extensions/pi-nix-store-guard/`
 - `extensions/pi-openai-models/`
 - `extensions/pi-openrouter-metadata/`
-- `extensions/pi-question/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-system-prompt/`
