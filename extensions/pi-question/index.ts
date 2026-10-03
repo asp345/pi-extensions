@@ -8,6 +8,7 @@ export default function question(pi: ExtensionAPI) {
 		name: "question",
 		label: "Question",
 		description: "Ask the user to choose an option or enter an answer.",
+		promptGuidelines: ["Before calling question, explain the context and each option to the user in your response."],
 		parameters: Type.Object({
 			question: Type.String(),
 			options: Type.Array(Type.String(), { minItems: 1 }),
