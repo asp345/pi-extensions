@@ -83,14 +83,17 @@ export const commandCodeQuotaPlan: QuotaPlan = {
 			monthlyPercent = (monthlyRemaining / plan.monthlyCreditsUsd) * 100;
 		}
 
-		// Use the earliest reset among the five-hour, weekly, and monthly billing windows.
 		// resetAt may be in seconds or milliseconds; values above 2e10 are treated as milliseconds.
-		const resets = [fiveHour, weekly].map((window) => {
+		const resetOf = (window: CommandCodeWindow | undefined) => {
 			const time = Number(window?.resetAt ?? 0);
 			return time > 20000000000 ? time : time * 1000;
-		});
+		};
 		const periodEnd = sub.currentPeriodEnd;
-		if (typeof periodEnd === "string" || typeof periodEnd === "number") resets.push(new Date(periodEnd).getTime());
+		const resets = {
+			fiveHour: resetOf(fiveHour),
+			week: resetOf(weekly),
+			month: typeof periodEnd === "string" || typeof periodEnd === "number" ? new Date(periodEnd).getTime() : undefined,
+		};
 
 		const segments = quotaSegments(
 			{ fiveHour: intervalRemaining, week: weeklyRemaining, month: monthlyPercent },

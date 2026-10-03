@@ -36,9 +36,9 @@ const CONTEXT_STYLE_PREVIEWS: Record<ContextStyle, string> = {
 };
 
 const SPEED_STYLE_PREVIEWS: Record<SpeedStyle, string> = {
-	"t/s": "⚡77.7 t/s",
-	"tok/s": "⚡77.7 tok/s",
-	"T/s": "⚡77.7 T/s",
+	"t/s": "77.7 t/s",
+	"tok/s": "77.7 tok/s",
+	"T/s": "77.7 T/s",
 };
 
 const ITEM_NAMES: Record<DisplayKey, string> = {

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { lstat, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import type { FileChange } from "./details.ts";
@@ -82,6 +82,13 @@ export async function captureSnapshot(cwd: string): Promise<GitSnapshot | undefi
 		}),
 	);
 	return { root, head, files };
+}
+
+export async function refreshFile(snapshot: GitSnapshot, absolutePath: string): Promise<void> {
+	const path = relative(snapshot.root, absolutePath);
+	if (path === ".." || path.startsWith(`..${sep}`) || isAbsolute(path)) return;
+	const content = await readWorktree(absolutePath);
+	if (content) snapshot.files.set(path, content);
 }
 
 function fileChange(path: string, before: Content, after: Content): FileChange | undefined {

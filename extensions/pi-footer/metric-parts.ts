@@ -107,7 +107,7 @@ export function renderMetricParts(params: {
 	if (segParts.length > 0) parts.push(dim(segParts.join(" ")));
 
 	if (cfg.speed && options.speed !== false) {
-		parts.push(dim(`⚡${formatTokenSpeed(accountant.lastTokensPerSec)} ${displayConfig.speedStyle}`));
+		parts.push(dim(`${formatTokenSpeed(accountant.lastTokensPerSec)} ${displayConfig.speedStyle}`));
 	}
 
 	if (cfg.context) {

@@ -23,9 +23,10 @@ export const openCodeGoQuotaPlan: QuotaPlan = {
 		const windows = [usage.rolling, usage.weekly, usage.monthly].map((value) => (isUsageWindow(value) ? value : null));
 		if (windows.every((window) => window === null)) return null;
 		const [rolling, weekly, monthly] = windows.map((window) => (window ? 100 - window.percent : null));
-		const resets = windows.map((window) =>
+		const [rollingReset, weeklyReset, monthlyReset] = windows.map((window) =>
 			typeof window?.resetsAt === "string" ? Date.parse(window.resetsAt) : undefined,
 		);
+		const resets = { fiveHour: rollingReset, week: weeklyReset, month: monthlyReset };
 		return {
 			segments: quotaSegments({ fiveHour: rolling, week: weekly, month: monthly }, resets),
 			color: quotaColor(rolling, weekly, monthly),

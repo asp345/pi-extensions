@@ -24,21 +24,21 @@ export const kimiQuotaPlan: QuotaPlan = {
 		const limits = Array.isArray(payload.limits)
 			? payload.limits.filter((limit): limit is KimiLimit => isRecord(limit))
 			: [];
-		const resets: unknown[] = [];
+		const resets: { fiveHour?: unknown; week?: unknown } = {};
 		let intervalRemaining = 100;
 		if (limits.length > 0) {
 			const d = isRecord(limits[0].detail) ? (limits[0].detail as KimiLimitDetail) : {};
 			const limit = typeof d.limit === "number" && d.limit ? d.limit : 1;
 			const remaining = Math.max(typeof d.remaining === "number" ? d.remaining : 0, 0);
 			intervalRemaining = (remaining / limit) * 100;
-			resets.push(resetMs(d.resetTime));
+			resets.fiveHour = resetMs(d.resetTime);
 		}
 		const usage = isRecord(payload.usage) ? (payload.usage as KimiLimitDetail) : {};
 		let weeklyRemaining = 100;
 		if (typeof usage.limit === "number" && usage.limit) {
 			const remaining = Math.max(typeof usage.remaining === "number" ? usage.remaining : 0, 0);
 			weeklyRemaining = (remaining / usage.limit) * 100;
-			resets.push(resetMs(usage.resetTime));
+			resets.week = resetMs(usage.resetTime);
 		}
 		if (intervalRemaining >= 100 && weeklyRemaining >= 100) return null;
 		return {

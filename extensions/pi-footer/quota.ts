@@ -26,16 +26,19 @@ const PERCENT_LABELS: Record<PercentKey, string> = { fiveHour: "5h", day: "D", w
 
 export function quotaSegments(
 	remaining: Partial<Record<PercentKey, number | null>>,
-	resets: readonly unknown[] = [],
+	resets: Partial<Record<PercentKey, unknown>> = {},
 ): QuotaSegments {
 	const segments: QuotaSegments = {};
+	let lowest: PercentKey | undefined;
 	for (const key of Object.keys(PERCENT_LABELS) as PercentKey[]) {
 		const value = remaining[key];
-		if (typeof value === "number") segments[key] = `${PERCENT_LABELS[key]}: ${Math.round(value)}%`;
+		if (typeof value !== "number") continue;
+		segments[key] = `${PERCENT_LABELS[key]}: ${Math.round(value)}%`;
+		if (lowest === undefined || value <= (remaining[lowest] as number)) lowest = key;
 	}
-	const now = Date.now();
-	const nearest = Math.min(...resets.filter((time): time is number => typeof time === "number" && time > now));
-	if (nearest - now < 30 * DAY_MS) segments.reset = formatDuration(nearest - now);
+	const reset = lowest && resets[lowest];
+	const left = typeof reset === "number" ? reset - Date.now() : 0;
+	if (left > 0 && left < 30 * DAY_MS) segments.reset = formatDuration(left);
 	return segments;
 }
 

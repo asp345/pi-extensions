@@ -30,17 +30,17 @@ function windowKey(limit: UsageLimit): WindowKey | undefined {
 export function formatUsageLimits(data: unknown): QuotaDisplay | null {
 	const limits = data as UsageLimit[];
 	const windows: Partial<Record<WindowKey, number>> = {};
+	const resets: Partial<Record<WindowKey, number>> = {};
 	for (const limit of limits) {
 		const key = windowKey(limit);
 		const fraction = limit.remainingFraction;
 		if (!key || fraction === undefined || !Number.isFinite(fraction)) continue;
 		const remaining = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
-		windows[key] = Math.min(windows[key] ?? 100, remaining);
+		if (remaining >= (windows[key] ?? 101)) continue;
+		windows[key] = remaining;
+		resets[key] = limit.window?.resetsAt;
 	}
-	const segments = quotaSegments(
-		windows,
-		limits.map((limit) => limit.window?.resetsAt),
-	);
+	const segments = quotaSegments(windows, resets);
 	if (Object.keys(segments).length === 0) return null;
 	return { segments, color: quotaColor(...Object.values(windows)) };
 }
