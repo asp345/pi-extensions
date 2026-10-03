@@ -42,6 +42,7 @@ Documentation:
 - Write docs only when requested. Ask to update docs when a code change makes it stale.
 - Report only requested findings. Do not state absence of problems. When requested to verify, clearly say what was checked.
 - No disclaimers or guarantee statements.
+- Do not hard-wrap lines. Write each paragraph and list item as one line.
 
 Environment:
 - NixOS with zsh
