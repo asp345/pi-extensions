@@ -92,6 +92,14 @@
         "@earendil-works/pi-coding-agent": "*",
       },
     },
+    "extensions/pi-flat-edit": {
+      "name": "@asp345/pi-flat-edit",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "extensions/pi-footer": {
       "name": "@asp345/pi-footer",
       "version": "0.0.0",
@@ -146,14 +154,6 @@
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
-      },
-    },
-    "extensions/pi-question": {
-      "name": "@asp345/pi-question",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
       },
     },
     "extensions/pi-sensitive-guard": {
@@ -219,6 +219,8 @@
 
     "@asp345/pi-direnv": ["@asp345/pi-direnv@workspace:extensions/pi-direnv"],
 
+    "@asp345/pi-flat-edit": ["@asp345/pi-flat-edit@workspace:extensions/pi-flat-edit"],
+
     "@asp345/pi-footer": ["@asp345/pi-footer@workspace:extensions/pi-footer"],
 
     "@asp345/pi-goal": ["@asp345/pi-goal@workspace:extensions/pi-goal"],
@@ -232,8 +234,6 @@
     "@asp345/pi-openai-models": ["@asp345/pi-openai-models@workspace:extensions/pi-openai-models"],
 
     "@asp345/pi-openrouter-metadata": ["@asp345/pi-openrouter-metadata@workspace:extensions/pi-openrouter-metadata"],
-
-    "@asp345/pi-question": ["@asp345/pi-question@workspace:extensions/pi-question"],
 
     "@asp345/pi-sensitive-guard": ["@asp345/pi-sensitive-guard@workspace:extensions/pi-sensitive-guard"],
 

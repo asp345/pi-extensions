@@ -22,7 +22,6 @@ My personal Pi monorepo.
 - `extensions/pi-nix-store-guard/`
 - `extensions/pi-openai-models/`
 - `extensions/pi-openrouter-metadata/`
-- `extensions/pi-question/`
 - `extensions/pi-sensitive-guard/`
 - `extensions/pi-subagents/`
 - `extensions/pi-system-prompt/`
