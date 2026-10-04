@@ -17,7 +17,7 @@ export interface QuotaPlan {
 	matchProviders: string[];
 	apiKeyEnv?: string;
 	fetch(credential: ResolvedCredential, signal?: AbortSignal): Promise<unknown>;
-	format(data: unknown): QuotaDisplay | null;
+	format(data: unknown, modelId?: string): QuotaDisplay | null;
 }
 
 const HOUR_MS = 60 * 60 * 1000;
