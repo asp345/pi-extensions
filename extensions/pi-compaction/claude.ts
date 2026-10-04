@@ -1,4 +1,4 @@
-import type { Message } from "@earendil-works/pi-ai";
+import { getCurrentSystemMessage, type Message } from "@earendil-works/pi-ai";
 import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { buildSessionProjection, convertToLlm } from "@earendil-works/pi-coding-agent";
@@ -53,7 +53,11 @@ function messagesBeforeCut(branch: SessionEntry[], firstKeptEntryId: string): Me
 	const projection = buildSessionProjection(branch);
 	const cut = projection.entries.findIndex((entry) => entry.sourceEntry.id === firstKeptEntryId);
 	if (cut <= 0) return undefined;
-	return convertToLlm(projection.entries.slice(0, cut).flatMap((entry) => entry.messages));
+	const head = getCurrentSystemMessage(projection.messages);
+	const summarized = convertToLlm(projection.entries.slice(0, cut).flatMap((entry) => entry.messages)).filter(
+		(message) => message.role !== "system",
+	);
+	return head ? [head, ...summarized] : summarized;
 }
 
 export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: () => CompactionConfig): void {
