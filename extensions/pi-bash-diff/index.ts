@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../shared/format.ts";
 import type { FileChangeDetails } from "./details.ts";
 import { captureSnapshot, changedFiles, type GitSnapshot, refreshFile } from "./snapshot.ts";
 
@@ -13,7 +14,7 @@ interface FileMutation {
 }
 
 function reportFailure(ctx: ExtensionContext, error: unknown): undefined {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = errorMessage(error);
 	ctx.ui.notify(`pi-bash-diff snapshot failed: ${message}`, "warning");
 	return undefined;
 }

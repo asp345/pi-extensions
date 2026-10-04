@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../shared/format.ts";
 import { isRecord } from "../shared/json.ts";
-import { errorMessage } from "./protocol.ts";
 
 export interface CompactionConfig {
 	nativeCodex: boolean;

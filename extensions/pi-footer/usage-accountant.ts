@@ -3,7 +3,6 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 const MIN_GENERATION_SECONDS = 0.25;
 
-/** Decode speed of the last finished assistant message. */
 export class UsageAccountant {
 	lastTokensPerSec = 0;
 
@@ -28,7 +27,6 @@ export class UsageAccountant {
 		this.beginMessage();
 	}
 
-	/** Restores output tokens over request start to message write time, which includes time to first token. */
 	restoreLastSpeed(branch: SessionEntry[]): void {
 		this.lastTokensPerSec = 0;
 		for (const entry of branch) {
@@ -44,7 +42,6 @@ export class UsageAccountant {
 }
 
 function normalizeTimestampMs(timestamp: number): number {
-	// Session timestamps mix seconds, milliseconds, and microseconds.
 	if (timestamp < 1e11) return timestamp * 1000;
 	if (timestamp > 1e14) return Math.floor(timestamp / 1000);
 	return timestamp;

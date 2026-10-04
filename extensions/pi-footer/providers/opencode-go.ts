@@ -17,7 +17,6 @@ export const openCodeGoQuotaPlan: QuotaPlan = {
 	fetch: ({ accessToken }) =>
 		getJson("https://opencode.ai/zen/go/v1/usage", { Authorization: `Bearer ${accessToken}` }),
 	format: (data) => {
-		// The official /v1/usage endpoint reports percent used; remaining is 100 minus percent.
 		const payload = isRecord(data) ? data : {};
 		const usage = isRecord(payload.usage) ? payload.usage : payload;
 		const windows = [usage.rolling, usage.weekly, usage.monthly].map((value) => (isUsageWindow(value) ? value : null));

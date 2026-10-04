@@ -32,7 +32,6 @@ export async function writeCustomProvidersFile(data: CustomProvidersFile, path =
 	await writeJsonAtomic(path, data);
 }
 
-/** Removes cached catalogs only for providers removed through this extension. */
 export async function removeModelsStoreProviders(
 	providerIds: ReadonlySet<string>,
 	path = MODELS_STORE_FILE,

@@ -3,9 +3,9 @@ import type { ResolvedCredential } from "./types.ts";
 
 type PercentKey = "fiveHour" | "day" | "week" | "month";
 
-export type QuotaSegments = Partial<Record<PercentKey | "balance" | "reset", string>>;
+type QuotaSegments = Partial<Record<PercentKey | "balance" | "reset", string>>;
 
-export type QuotaColor = "ok" | "warn" | "err";
+type QuotaColor = "ok" | "warn" | "err";
 
 export interface QuotaDisplay {
 	segments: QuotaSegments;

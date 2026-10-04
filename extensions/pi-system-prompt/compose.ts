@@ -12,10 +12,6 @@ function trimmed(value: string | undefined): string {
 	return value?.trim() ?? "";
 }
 
-// No phrasing-based filters by design: only tool-registered and extension strings
-// arrive here, so matching their wording would couple to third-party phrasing.
-// A guideline fully contained in the base is dropped because restatement carries
-// no information.
 export function dedupeGuidelines(guidelines: readonly string[], baseText: string): string[] {
 	const base = baseText.toLowerCase();
 	const seen = new Set<string>();

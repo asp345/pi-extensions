@@ -25,7 +25,6 @@ export interface CustomProviderConfig {
 	headers?: Record<string, string>;
 	authHeader?: boolean;
 	compat?: OpenAICompletionsCompat;
-	/** Listing value × multiplier = USD per million tokens; "auto" detects the scale. */
 	priceMultiplier?: number | "auto";
 }
 

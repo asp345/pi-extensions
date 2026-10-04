@@ -11,7 +11,8 @@
 	],
 	"files": [
 		"*.ts",
-		"!*.test.ts"
+		"!*.test.ts",
+		"README.md"
 	],
 	"pi": {
 		"extensions": [

@@ -31,9 +31,6 @@ export class CodexWebSearchProvider {
 		return this.refIndex;
 	}
 
-	// Groups indexed ids by their kind prefix (turn0search, turn2view, ...) into
-	// "prefix<min>-<max> (<count>)" ranges so a model that guessed an id can pick a
-	// valid one without another failing request.
 	private knownRefsSummary(): string {
 		if (!this.refIndex.size) return "none indexed yet";
 		const indexesByPrefix = new Map<string, Set<number>>();
@@ -67,8 +64,6 @@ export class CodexWebSearchProvider {
 	async execute(command: WebRunCommand, ctx: ExtensionContext, signal?: AbortSignal): Promise<SearchResponse> {
 		const validatedCmd = validateWebRunCommand(command);
 
-		// Document refs are only resolvable while the backend session and this process's
-		// ref index agree; fail fast with guidance instead of an opaque HTTP error.
 		for (const operation of [
 			...(validatedCmd.open ?? []),
 			...(validatedCmd.click ?? []),

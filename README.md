@@ -2,33 +2,9 @@
 
 My personal Pi monorepo.
 
-
 ## Extensions
 
-- `extensions/pi-anthropic-oauth/`
-- `extensions/pi-antigravity-auth/`
-- `extensions/pi-background-tasks/`
-- `extensions/pi-bash-diff/`
-- `extensions/pi-browser/`
-- `extensions/pi-compact-ui/`
-- `extensions/pi-compaction/`
-- `extensions/pi-custom-providers/`
-- `extensions/pi-direnv/`
-- `extensions/pi-flat-edit/`
-- `extensions/pi-footer/`
-- `extensions/pi-goal/`
-- `extensions/pi-gpt-search/`
-- `extensions/pi-model-thinking/`
-- `extensions/pi-nix-store-guard/`
-- `extensions/pi-openai-models/`
-- `extensions/pi-openrouter-metadata/`
-- `extensions/pi-sensitive-guard/`
-- `extensions/pi-subagents/`
-- `extensions/pi-system-prompt/`
-- `extensions/pi-themes/`
-- `extensions/pi-tool-loop-guard/`
-
-Each extension's details are documented in its own `README.md`.
+Each extension lives in `extensions/<name>/` and is documented in its own `README.md`. The loaded extensions, prompts, and themes are listed under `pi` in `package.json`.
 
 ## Development
 

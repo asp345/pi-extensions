@@ -168,7 +168,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.on("session_before_compact", (_event) => {
 		if (runtime.goal) runtime.persist();
 	});
-	// Automatic compaction is followed by agent_settled; manual compaction is not.
 	pi.on("session_compact", (event, ctx) => {
 		if (event.reason === "manual") void runtime.settleAfterCompaction(ctx);
 	});

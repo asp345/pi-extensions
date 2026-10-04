@@ -1,10 +1,11 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { cloneItem, isJsonObject, isResponseItem, type ResponseItem } from "./protocol.ts";
+import { isRecord } from "../shared/json.ts";
+import { cloneItem, isResponseItem, type ResponseItem } from "./protocol.ts";
 
 export const NATIVE_COMPACTION_KIND = "openai-codex-native-compaction";
 export const NATIVE_COMPACTION_VERSION = 1;
-export interface NativeCompactionDetails {
+interface NativeCompactionDetails {
 	kind: typeof NATIVE_COMPACTION_KIND;
 	version: typeof NATIVE_COMPACTION_VERSION;
 	modelKey: string;
@@ -17,7 +18,7 @@ export type CheckpointLookup<T> =
 	| { status: "valid"; checkpoint: { entryIndex: number; entryId: string; details: T } };
 
 export function isOpenAICodexModel(model: unknown): model is Model<"openai-codex-responses"> {
-	if (!isJsonObject(model)) return false;
+	if (!isRecord(model)) return false;
 	return model.provider === "openai-codex" && model.api === "openai-codex-responses";
 }
 
@@ -26,7 +27,7 @@ export function modelKey(model: Pick<Model<Api>, "provider" | "api" | "id">): st
 }
 
 function parseNativeCompactionDetails(value: unknown): NativeCompactionDetails | undefined {
-	if (!isJsonObject(value)) return undefined;
+	if (!isRecord(value)) return undefined;
 	if (value.kind !== NATIVE_COMPACTION_KIND) return undefined;
 	if (typeof value.modelKey !== "string" || !Array.isArray(value.replacementHistory)) return undefined;
 
@@ -61,7 +62,7 @@ export function findCheckpoint<T>(
 
 		let rawDetails: unknown;
 		if (entry.type === "compaction") {
-			if (!isJsonObject(entry.details) || entry.details.kind !== kind) {
+			if (!isRecord(entry.details) || entry.details.kind !== kind) {
 				return { status: "none" };
 			}
 			rawDetails = entry.details;

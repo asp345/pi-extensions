@@ -2,6 +2,8 @@ import { getCurrentSystemMessage, type Message } from "@earendil-works/pi-ai";
 import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { buildSessionProjection, convertToLlm } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../shared/format.ts";
+import { isRecord } from "../shared/json.ts";
 import {
 	ANTHROPIC_NATIVE_COMPACTION_KIND,
 	ANTHROPIC_NATIVE_COMPACTION_VERSION,
@@ -19,7 +21,7 @@ import {
 } from "./anthropic.ts";
 import { modelKey } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
-import { errorMessage, isJsonObject, type JsonObject } from "./protocol.ts";
+import type { JsonObject } from "./protocol.ts";
 import { requestThroughProvider, sessionReasoning } from "./provider-request.ts";
 
 function summaryTextOf(branch: SessionEntry[], entryId: string): string | undefined {
@@ -30,12 +32,12 @@ function summaryTextOf(branch: SessionEntry[], entryId: string): string | undefi
 
 function convertStaleThinkingToText(tail: unknown[]): unknown[] {
 	return tail.map((message) => {
-		if (!isJsonObject(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
+		if (!isRecord(message) || message.role !== "assistant" || !Array.isArray(message.content)) {
 			return message;
 		}
 		const content: unknown[] = [];
 		for (const block of message.content) {
-			if (!isJsonObject(block)) {
+			if (!isRecord(block)) {
 				content.push(block);
 				continue;
 			}
@@ -89,11 +91,11 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 		const first = messages[0];
 		const expected = summaryTextOf(ctx.sessionManager.getBranch() as SessionEntry[], checkpoint.entryId);
 		const matches =
-			isJsonObject(first) &&
+			isRecord(first) &&
 			first.role === "user" &&
 			Array.isArray(first.content) &&
 			first.content.length === 1 &&
-			isJsonObject(first.content[0]) &&
+			isRecord(first.content[0]) &&
 			first.content[0].type === "text" &&
 			typeof first.content[0].text === "string" &&
 			expected !== undefined &&
@@ -122,7 +124,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 		const tail = messages.slice(1);
 		while (
 			tail.length > 0 &&
-			isJsonObject(tail[0]) &&
+			isRecord(tail[0]) &&
 			tail[0].role === "system" &&
 			Array.isArray(tail[0].content) &&
 			tail[0].content.length === 0
@@ -145,7 +147,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 	});
 
 	pi.on("before_provider_request", (event, ctx) => {
-		if (!isJsonObject(event.payload)) return undefined;
+		if (!isRecord(event.payload)) return undefined;
 		return applyCheckpoint(ctx, event.payload);
 	});
 

@@ -14,6 +14,7 @@ import {
 	SettingsList,
 	Text,
 } from "@earendil-works/pi-tui";
+import { errorMessage } from "../shared/format.ts";
 import {
 	CONTEXT_STYLES,
 	type ContextStyle,
@@ -168,7 +169,7 @@ export default function registerFooterCommand(
 						requestRender();
 					})
 					.catch((error: unknown) => {
-						ctx.ui.notify(`Footer settings failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+						ctx.ui.notify(`Footer settings failed: ${errorMessage(error)}`, "error");
 					});
 			};
 

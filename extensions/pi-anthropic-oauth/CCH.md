@@ -64,7 +64,7 @@ Captured alongside the billing header from the same `claude -p` runs:
 
 ## Maintenance
 
-- The lanes rotate between Claude Code releases. When bumping `CLAUDE_CODE_VERSION` (exported from `pi-anthropic-oauth/index.ts`, also used by `pi-footer/providers/anthropic.ts`), re-capture one CLI request and re-run the check in step 6; a mismatch means new lanes (`movabs` constants in the fetch hook) or changed normalization.
+- The lanes rotate between Claude Code releases. When bumping `CLAUDE_CODE_VERSION` (in `pi-anthropic-oauth/constants.ts`, also used by `pi-footer/providers/anthropic.ts`), re-capture one CLI request and re-run the check in step 6; a mismatch means new lanes (`movabs` constants in the fetch hook) or changed normalization.
 - The beta list also changes between releases: diff the captured `anthropic-beta` header against `CLAUDE_CODE_BETA` and drop/add entries to match.
 - The suffix salt has been stable across all observed versions.
 - The server currently accepts any 5-hex `cch` on regular OAuth requests (random values returned 200 during testing), so wrong lanes degrade to unattested rather than failing. Gated features may enforce it strictly.

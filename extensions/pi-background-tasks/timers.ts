@@ -1,4 +1,3 @@
-/** Timer storage for one managed task: heartbeat, timeout, and the deferred force-kill. */
 export class TaskTimers {
 	private heartbeat: ReturnType<typeof setInterval> | undefined;
 	private force: ReturnType<typeof setTimeout> | undefined;

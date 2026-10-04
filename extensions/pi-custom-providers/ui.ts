@@ -2,6 +2,7 @@ import type { Api } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, matchesKey, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
+import { errorMessage } from "../shared/format.ts";
 import type { CustomProviderConfig, CustomProvidersFile } from "./types.ts";
 import { API_OPTIONS } from "./types.ts";
 
@@ -24,13 +25,6 @@ export function filterChoices<T extends string>(choices: readonly Choice<T>[], f
 	return choices.filter((choice) => `${choice.label} ${choice.description ?? ""}`.toLowerCase().includes(needle));
 }
 
-/**
- * A scrolling, filterable picker.
- *
- * The built-in selector draws every option at once, which runs off screen for
- * catalogs with hundreds of models, so lists are rendered through `SelectList`
- * with a bounded viewport and a substring filter.
- */
 async function pick<T extends string>(
 	ctx: ExtensionContext,
 	title: string,
@@ -102,7 +96,6 @@ function formatPriceMultiplier(value: number | "auto" | undefined): string {
 	return value === undefined || value === "auto" ? "auto" : String(value);
 }
 
-/** Menu rows are labelled by id and described by this detail line. */
 function providerDetail(ctx: ExtensionContext, providerId: string): string {
 	const models = `${ctx.modelRegistry.getProvider(providerId)?.getModels().length ?? 0} models`;
 	const authenticated = ctx.modelRegistry.getProviderAuthStatus(providerId).configured;
@@ -261,7 +254,7 @@ async function refreshModels(ctx: ExtensionContext, providerId: string): Promise
 		const count = ctx.modelRegistry.getProvider(providerId)?.getModels().length ?? 0;
 		ctx.ui.notify(`Refreshed ${count} models`, "info");
 	} catch (error) {
-		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+		ctx.ui.notify(errorMessage(error), "error");
 	} finally {
 		clearTimeout(timeout);
 	}

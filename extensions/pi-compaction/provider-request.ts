@@ -1,6 +1,7 @@
 import type { Api, Context, FetchFunction, Model, ThinkingLevel, Transport } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isJsonObject, type JsonObject } from "./protocol.ts";
+import { isRecord } from "../shared/json.ts";
+import type { JsonObject } from "./protocol.ts";
 
 const REQUEST_TIMEOUT_MS = 300_000;
 
@@ -9,7 +10,7 @@ export function sessionReasoning(model: Model<Api>, level: string | undefined): 
 	return level as ThinkingLevel;
 }
 
-export interface ProviderRequest<T> {
+interface ProviderRequest<T> {
 	ctx: ExtensionContext;
 	model: Model<Api>;
 	context: Context;
@@ -54,7 +55,7 @@ export async function requestThroughProvider<T>(request: ProviderRequest<T>): Pr
 			reasoning: request.reasoning,
 			transport: request.transport,
 			headers: request.headers,
-			onPayload: (payload) => (isJsonObject(payload) ? request.editPayload(payload) : payload),
+			onPayload: (payload) => (isRecord(payload) ? request.editPayload(payload) : payload),
 			fetch: async (input, init) => {
 				try {
 					outcome = { value: await send(input, init ?? {}, request.readResponse, signal) };

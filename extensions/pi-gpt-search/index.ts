@@ -6,11 +6,9 @@ import { createWebTool } from "./web-tool.ts";
 export default function (pi: ExtensionAPI) {
 	const provider = new CodexWebSearchProvider();
 
-	// Register primary web research tool
 	const webTool = createWebTool(provider);
 	pi.registerTool(webTool);
 
-	// Register /gpt-search slash command
 	pi.registerCommand("gpt-search", {
 		description: "Search the web directly using Codex standalone web search engine",
 		handler: async (args, ctx) => {

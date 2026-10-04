@@ -11,6 +11,7 @@ import {
 	type ToolCall,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
+import { errorMessage } from "../shared/format.ts";
 import type { GeminiResponsePart } from "./gemini.ts";
 import { sendRequest } from "./request.ts";
 import { refreshByAccessToken, requestSessionKey, requestSessions } from "./session.ts";
@@ -250,7 +251,7 @@ export function streamAntigravity(
 		} catch (error) {
 			await response?.body?.cancel().catch(() => {});
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : String(error);
+			output.errorMessage = errorMessage(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

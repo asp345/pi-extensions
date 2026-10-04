@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../shared/format.ts";
 import { closeChildSession, createChildSession } from "./child.ts";
 import { type NoticeKind, parentMessagePrompt, preview } from "./delegation.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";
@@ -24,10 +25,6 @@ type SendOutcome = "steered" | "started" | "resumed";
 
 function childSessionDir(parentSessionFile: string): string {
 	return join(dirname(parentSessionFile), `${basename(parentSessionFile, ".jsonl")}.subagents`);
-}
-
-function errorText(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function finalError(session: AgentSession): string | undefined {
@@ -267,7 +264,7 @@ export class SubagentManager {
 		this.startEpisode(record);
 		session
 			.prompt(text, { expandPromptTemplates: false, source: "extension", streamingBehavior: "steer" })
-			.catch((error: unknown) => this.finishEpisode(record, session, errorText(error)));
+			.catch((error: unknown) => this.finishEpisode(record, session, errorMessage(error)));
 	}
 
 	private finishEpisode(record: AgentRecord, session: AgentSession, thrown?: string): void {

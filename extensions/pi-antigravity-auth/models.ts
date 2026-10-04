@@ -10,7 +10,7 @@ export interface AgyTierSpec {
 	thinkingLevel?: AgyThinkingLevel;
 }
 
-export interface AgyModelTier extends AgyTierSpec {
+interface AgyModelTier extends AgyTierSpec {
 	tier: "low" | "medium" | "high";
 }
 

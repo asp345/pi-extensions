@@ -7,6 +7,8 @@ import {
 	type SessionEntry,
 	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
+import { errorMessage } from "../shared/format.ts";
+import { isRecord } from "../shared/json.ts";
 import {
 	findNativeCheckpoint,
 	isOpenAICodexModel,
@@ -16,7 +18,7 @@ import {
 } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
 import { buildReplacementHistory, effectiveInputForBranch } from "./items.ts";
-import { errorMessage, isJsonObject, type JsonObject, type ResponseItem } from "./protocol.ts";
+import type { JsonObject, ResponseItem } from "./protocol.ts";
 import { requestThroughProvider, sessionReasoning } from "./provider-request.ts";
 import { buildCompactionRequestBody, mergeFeatureHeader, readCodexCompactionResponse } from "./remote.ts";
 
@@ -68,7 +70,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 
 	pi.on("before_provider_request", async (event, ctx) => {
 		const model = ctx.model;
-		if (!isOpenAICodexModel(model) || !isJsonObject(event.payload)) return undefined;
+		if (!isOpenAICodexModel(model) || !isRecord(event.payload)) return undefined;
 		try {
 			const input = checkpointInput(ctx.sessionManager.getBranch() as SessionEntry[], model);
 			return input ? withInput(event.payload, input) : undefined;
@@ -101,7 +103,7 @@ export default function codexCompactionExtension(pi: ExtensionAPI, getConfig: ()
 				headers: { "x-codex-beta-features": mergeFeatureHeader(undefined) },
 				editPayload: (payload) => {
 					input =
-						checkpointInput(branch, model) ?? (Array.isArray(payload.input) ? payload.input.filter(isJsonObject) : []);
+						checkpointInput(branch, model) ?? (Array.isArray(payload.input) ? payload.input.filter(isRecord) : []);
 					return buildCompactionRequestBody(payload, input);
 				},
 				readResponse: readCodexCompactionResponse(model),

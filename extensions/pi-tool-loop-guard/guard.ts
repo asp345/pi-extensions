@@ -11,15 +11,6 @@ function callKey(toolName: string, input: unknown): string {
 	return JSON.stringify([toolName, input ?? null]);
 }
 
-/**
- * Tracks the last completed tool call and how many consecutive completed calls
- * matched it on tool name, input, and output. record() runs in tool_result;
- * shouldBlock() runs in tool_call before the next execution, blocking only
- * when the finished chain already reached MAX_CONSECUTIVE identical calls. A
- * different name, input, or output restarts the count, and assistant text
- * output between calls resets it, so calls that still produce something new
- * are never blocked.
- */
 export class LoopGuard {
 	private lastCall: string | null = null;
 	private lastOutput: string | null = null;

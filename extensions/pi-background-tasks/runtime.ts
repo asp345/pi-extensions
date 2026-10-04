@@ -270,7 +270,6 @@ export class BackgroundRuntime {
 		});
 	}
 
-	// Tasks run indefinitely; each heartbeat interval reminds the agent that the task is still running.
 	private heartbeat(task: ManagedTask): void {
 		if (task.closed || this.shuttingDown || !this.tasks.has(task.info.id)) return;
 		if (!task.info.notify) return;

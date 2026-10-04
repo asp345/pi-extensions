@@ -15,7 +15,7 @@ export const DOWNLOAD_DIR = join(homedir(), "Downloads", "agent");
 const BUFFER_LIMIT = 500;
 const TAB_DOMAINS = ["Runtime.enable", "Log.enable", "Network.enable", "Page.enable"];
 
-export interface ConsoleEntry {
+interface ConsoleEntry {
 	level: string;
 	text: string;
 	source?: string;
@@ -43,7 +43,7 @@ export interface Tab {
 	network: Map<string, NetworkEntry>;
 }
 
-export interface Download {
+interface Download {
 	path: string;
 	bytes: number;
 }
@@ -60,7 +60,7 @@ interface PausedResponse {
 	responseHeaders?: HeaderEntry[];
 }
 
-export interface PageInfo {
+interface PageInfo {
 	targetId: string;
 	type: string;
 	title: string;
@@ -114,7 +114,7 @@ const KEYS: Record<string, { code: number; text?: string }> = {
 	End: { code: 35 },
 };
 
-export const KEY_NAMES = Object.keys(KEYS);
+const KEY_NAMES = Object.keys(KEYS);
 
 function push<T>(list: T[], item: T): void {
 	list.push(item);
@@ -561,7 +561,7 @@ export class Browser {
 	}
 }
 
-export function resolvePrefix(prefix: string, ids: string[]): string {
+function resolvePrefix(prefix: string, ids: string[]): string {
 	const upper = prefix.toUpperCase();
 	const matches = ids.filter((id) => id.toUpperCase().startsWith(upper));
 	if (matches.length === 1) return matches[0] as string;
