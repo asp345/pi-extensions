@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readCustomProvidersFile, writeCustomProvidersFile } from "./config.ts";
 import { createProviderRegistrar } from "./runtime.ts";
@@ -21,10 +22,7 @@ export default async function customProvidersExtension(pi: ExtensionAPI): Promis
 			try {
 				data = await readCustomProvidersFile();
 			} catch (error) {
-				ctx.ui.notify(
-					`Cannot read custom-providers.json: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
+				ctx.ui.notify(`Cannot read custom-providers.json: ${errorMessage(error)}`, "error");
 				return;
 			}
 
@@ -32,10 +30,7 @@ export default async function customProvidersExtension(pi: ExtensionAPI): Promis
 				try {
 					await writeCustomProvidersFile(updated);
 				} catch (error) {
-					ctx.ui.notify(
-						`Cannot save custom-providers.json: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					);
+					ctx.ui.notify(`Cannot save custom-providers.json: ${errorMessage(error)}`, "error");
 					return;
 				}
 				for (const problem of registerProviders(updated)) ctx.ui.notify(problem, "warning");

@@ -1,10 +1,10 @@
 import { isAbsolute, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
+import { handoffTaskId } from "@asp345/pi-background-tasks/events.ts";
+import { fileChangesOf } from "@asp345/pi-bash-diff/details.ts";
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { handoffTaskId } from "../pi-background-tasks/events.ts";
-import { fileChangesOf } from "../pi-bash-diff/details.ts";
-import { formatDuration } from "../shared/format.ts";
 import { countChangedLines, renderDiffRows } from "./diff.ts";
 
 export const RUNNING_REFRESH_MS = 1000;

@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import { type Api, isModelType, type Model, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
@@ -12,16 +13,8 @@ const BUILTIN_PROVIDERS = new Set<string>(getBuiltinProviders());
 const REFRESH_TTL_MS = 24 * 60 * 60_000;
 const CATALOG_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 
-/**
- * Pi reads an unknown OpenAI-compatible endpoint as speaking OpenAI's role
- * vocabulary and sends the system prompt as a `developer` message for every
- * reasoning model. Most gateways validate against the standard four roles and
- * reject that with a bare 400, so custom providers default to `system`, which
- * carries the same authority on the endpoints that accept either name.
- */
 const CUSTOM_PROVIDER_COMPAT = { supportsDeveloperRole: false } as const;
 
-/** Values left unset in the wizard must not mask provider defaults. */
 function assigned<T extends object>(value: T | undefined): Partial<T> {
 	return Object.fromEntries(Object.entries(value ?? {}).filter(([, entry]) => entry !== undefined)) as Partial<T>;
 }
@@ -119,7 +112,6 @@ function providerRegistration(providerId: string, config: CustomProviderConfig):
 	};
 }
 
-/** Registers complete custom providers without replacing Pi's built-in providers. */
 export function createProviderRegistrar(pi: ExtensionAPI): (data: CustomProvidersFile) => string[] {
 	const registered = new Set<string>();
 	return (data) => {
@@ -145,7 +137,7 @@ export function createProviderRegistrar(pi: ExtensionAPI): (data: CustomProvider
 				pi.registerProvider(providerId, registration);
 				registered.add(providerId);
 			} catch (error) {
-				problems.push(`${providerId}: ${error instanceof Error ? error.message : String(error)}`);
+				problems.push(`${providerId}: ${errorMessage(error)}`);
 			}
 		}
 		return problems;

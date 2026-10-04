@@ -13,9 +13,6 @@ export function formatTerminalHyperlink(url: string, text: string): string {
 	return `\u001b]8;;${url}\u001b\\${text}\u001b]8;;\u001b\\`;
 }
 
-// Backend reference ids are minted per research turn as turn<turn><kind><index>:
-// turn1search0, turn2view3. Citation rewriting and bracketed-list rewriting share
-// this one grammar description.
 const TURN_REF_SOURCE = String.raw`turn\d+[a-z0-9_]*`;
 const CITATION_PUA_RE = /[\uE000-\uE2FF]cite[\uE000-\uE2FF]([^\uE000-\uE2FF\r\n]+)[\uE000-\uE2FF]/gi;
 const CITATION_BARE_RE = new RegExp(String.raw`\bcite((?:${TURN_REF_SOURCE}|\d+)(?:†[^\r\n]*)?)`, "gi");
@@ -42,10 +39,6 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 		return indexUrl ? formatTerminalHyperlink(indexUrl, `[${ref}]`) : `[${ref}]`;
 	};
 
-	// 1. Rewrites Codex private Unicode citation markers (\uE200cite\uE202<ref>\uE201)
-	// and bare cite<ref> payloads. The bare form only counts when the payload is a
-	// reference id (optionally with a † label), so ordinary words such as "cited" or
-	// "excited" never match.
 	const resolveCitation = (cleanInner: string): string => {
 		if (cleanInner.includes("†")) {
 			const [id, ...label] = cleanInner.split("†");
@@ -58,7 +51,6 @@ export function cleanCitationMarkers(text: string, results: SearchResult[] = [],
 	let cleaned = text.replace(CITATION_PUA_RE, (_match, inner: string) => resolveCitation(inner.trim()));
 	cleaned = cleaned.replace(CITATION_BARE_RE, (_match, inner: string) => resolveCitation(inner.trim()));
 
-	// 2. Converts raw turn references like [turn0search0, turn2view0] into clickable OSC 8 hyperlink brackets [1] [2]
 	cleaned = cleaned.replace(BRACKETED_REFS_RE, (_match, inner: string) => {
 		return inner
 			.split(",")
@@ -79,12 +71,7 @@ export function formatWebToolResult(
 	if (typeof response.output === "string" && response.output.trim().length > 0) {
 		primaryText = cleanCitationMarkers(response.output.trim(), response.results, refIndex);
 
-		// Append formatted source reference list if results exist and aren't already formatted at end.
-		// Every url-bearing result is published: capping this footer hides the ref_id for
-		// later display numbers, which forces the model to guess ids when opening documents.
 		if (response.results && response.results.length > 0 && !primaryText.includes("Sources:")) {
-			// Keep each entry's position from the full result list so source numbers match
-			// the inline citation numbers produced by cleanCitationMarkers.
 			const sourcesList = response.results
 				.map((r, index) => ({ r, index }))
 				.filter((entry): entry is { r: SearchResult & { url: string }; index: number } => Boolean(entry.r.url))

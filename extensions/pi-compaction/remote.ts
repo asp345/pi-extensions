@@ -1,15 +1,16 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
-import { cloneItem, isJsonObject, isResponseItem, type JsonObject, type ResponseItem, sseData } from "./protocol.ts";
+import { cloneItem, isResponseItem, type JsonObject, type ResponseItem, sseData } from "./protocol.ts";
 
 const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";
 
-export type RemoteCompactionResult = {
+type RemoteCompactionResult = {
 	compactionItem: ResponseItem;
 	usage?: Usage;
 };
 
 export function buildCompactionRequestBody(payload: JsonObject, input: ResponseItem[]): JsonObject {
-	const previousText = isJsonObject(payload.text) ? payload.text : undefined;
+	const previousText = isRecord(payload.text) ? payload.text : undefined;
 	const include = Array.isArray(payload.include)
 		? payload.include.filter((value): value is string => typeof value === "string")
 		: [];
@@ -51,7 +52,7 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 		} catch {
 			throw new Error("OpenAI Codex returned malformed compaction SSE data.");
 		}
-		if (!isJsonObject(event)) continue;
+		if (!isRecord(event)) continue;
 		if (event.type === "error") {
 			if (typeof event.message !== "string" || !event.message.trim()) {
 				throw new Error("OpenAI Codex compaction failed.");
@@ -69,7 +70,7 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 		}
 		if (event.type === "response.completed" || event.type === "response.done") {
 			completed = true;
-			usage = isJsonObject(event.response) ? event.response.usage : undefined;
+			usage = isRecord(event.response) ? event.response.usage : undefined;
 		}
 	}
 	if (!completed) {
@@ -86,10 +87,10 @@ async function parseSseResponse(response: Response): Promise<{ item: ResponseIte
 }
 
 function usageFromResponse(model: Model<Api>, value: unknown): Usage | undefined {
-	if (!isJsonObject(value)) return undefined;
+	if (!isRecord(value)) return undefined;
 	const inputTokens = typeof value.input_tokens === "number" ? value.input_tokens : 0;
 	const outputTokens = typeof value.output_tokens === "number" ? value.output_tokens : 0;
-	const details = isJsonObject(value.input_tokens_details) ? value.input_tokens_details : undefined;
+	const details = isRecord(value.input_tokens_details) ? value.input_tokens_details : undefined;
 	const cacheRead = typeof details?.cached_tokens === "number" ? details.cached_tokens : 0;
 	const cacheWrite = typeof details?.cache_write_tokens === "number" ? details.cache_write_tokens : 0;
 	const usage: Usage = {

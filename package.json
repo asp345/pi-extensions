@@ -4,18 +4,17 @@
 	"private": true,
 	"packageManager": "bun@1.4.2",
 	"description": "Personal Pi monorepo",
-	"license": "UNLICENSED",
+	"license": "ISC",
 	"type": "module",
 	"workspaces": [
 		"extensions/*"
 	],
 	"scripts": {
-		"check": "bun run biome && bun run typecheck && bun run test && bun run structure",
-		"biome": "biome check extensions scripts package.json tsconfig.json biome.json",
-		"biome:fix": "biome check --write extensions scripts package.json tsconfig.json biome.json",
+		"check": "bun run biome && bun run typecheck && bun run test",
+		"biome": "biome check extensions package.json tsconfig.json biome.json",
+		"biome:fix": "biome check --write extensions package.json tsconfig.json biome.json",
 		"typecheck": "tsc --noEmit",
-		"test": "bun test extensions",
-		"structure": "bun scripts/check.ts"
+		"test": "bun test extensions"
 	},
 	"keywords": [
 		"pi-package"
@@ -53,15 +52,11 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
-		"@earendil-works/pi-ai": "^1.0.0",
-		"@earendil-works/pi-coding-agent": "^1.0.0",
-		"@earendil-works/pi-tui": "^1.0.0",
+		"@earendil-works/pi-ai": "^1.0.1",
+		"@earendil-works/pi-coding-agent": "^1.0.1",
+		"@earendil-works/pi-tui": "^1.0.1",
 		"@types/node": "^26.6.4",
-		"bun-types": "^1.4.2",
 		"typebox": "^1.3.34",
 		"typescript": "7.0.2"
-	},
-	"overrides": {
-		"minimatch": "10.2.6"
 	}
 }

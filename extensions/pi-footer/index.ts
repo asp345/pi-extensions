@@ -18,7 +18,7 @@ export default function piFooterExtension(pi: ExtensionAPI): void {
 	registerFooterCommand(pi, store, quota, requestRender);
 
 	pi.on("model_select", (event) => {
-		quota.setProvider(event.model.provider);
+		quota.setModel(event.model.provider, event.model.id);
 		requestRender();
 	});
 

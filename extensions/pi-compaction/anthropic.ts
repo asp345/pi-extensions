@@ -1,7 +1,8 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { type CheckpointLookup, findCheckpoint, modelKey } from "./checkpoint.ts";
-import { isJsonObject, sseData } from "./protocol.ts";
+import { sseData } from "./protocol.ts";
 
 export const ANTHROPIC_NATIVE_COMPACTION_KIND = "anthropic-native-compaction";
 export const ANTHROPIC_NATIVE_COMPACTION_VERSION = 1;
@@ -57,7 +58,7 @@ const UPDATE_SUMMARIZATION_BASE = `Update the existing structured summary with n
 
 ${SUMMARY_FORMAT}`;
 
-export interface NativeInstructionsInput {
+interface NativeInstructionsInput {
 	customInstructions?: string;
 	previousSummary?: string;
 	isSplitTurn: boolean;
@@ -99,7 +100,7 @@ export function buildNativeInstructions(input: NativeInstructionsInput): string 
 	return instructions;
 }
 
-export interface AnthropicCompactionBlock {
+interface AnthropicCompactionBlock {
 	type: "compaction";
 	content: string;
 	signature: string;
@@ -115,18 +116,18 @@ export interface AnthropicNativeCompactionDetails {
 }
 
 export function isAnthropicMessagesModel(model: unknown): model is Model<"anthropic-messages"> {
-	if (!isJsonObject(model)) return false;
+	if (!isRecord(model)) return false;
 	return model.provider === "anthropic" && model.api === "anthropic-messages";
 }
 
 function parseAnthropicCompactionDetails(value: unknown): AnthropicNativeCompactionDetails | undefined {
-	if (!isJsonObject(value)) return undefined;
+	if (!isRecord(value)) return undefined;
 	if (value.kind !== ANTHROPIC_NATIVE_COMPACTION_KIND || value.version !== ANTHROPIC_NATIVE_COMPACTION_VERSION)
 		return undefined;
 	if (typeof value.modelKey !== "string") return undefined;
 	if (typeof value.systemText !== "string" || typeof value.toolsHash !== "string") return undefined;
 	const block = value.block;
-	if (!isJsonObject(block) || block.type !== "compaction") return undefined;
+	if (!isRecord(block) || block.type !== "compaction") return undefined;
 	if (typeof block.content !== "string" || typeof block.signature !== "string") return undefined;
 	return {
 		kind: ANTHROPIC_NATIVE_COMPACTION_KIND,
@@ -167,8 +168,8 @@ export async function modelSupportsOnDemandCompaction(
 	});
 	if (!response.ok) throw new Error(`Anthropic Models API returned HTTP ${response.status}.`);
 	const json: unknown = await response.json();
-	const compaction = isJsonObject(json) && isJsonObject(json.capabilities) ? json.capabilities.compaction : undefined;
-	const supported = compaction === true || (isJsonObject(compaction) && compaction.supported === true);
+	const compaction = isRecord(json) && isRecord(json.capabilities) ? json.capabilities.compaction : undefined;
+	const supported = compaction === true || (isRecord(compaction) && compaction.supported === true);
 	compactionSupportByModel.set(key, supported);
 	return supported;
 }
@@ -178,7 +179,7 @@ export function canonicalSystemText(system: unknown): string {
 	if (!Array.isArray(system)) return "";
 	const parts: string[] = [];
 	for (const block of system) {
-		if (isJsonObject(block) && block.type === "text" && typeof block.text === "string") {
+		if (isRecord(block) && block.type === "text" && typeof block.text === "string") {
 			parts.push(block.text);
 		}
 	}
@@ -187,7 +188,7 @@ export function canonicalSystemText(system: unknown): string {
 
 function canonicalJson(value: unknown): string {
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-	if (isJsonObject(value)) {
+	if (isRecord(value)) {
 		const entries = Object.keys(value)
 			.sort()
 			.map((key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`);
@@ -197,7 +198,7 @@ function canonicalJson(value: unknown): string {
 }
 
 function stripToolDecorations(tool: unknown): unknown {
-	if (!isJsonObject(tool)) return tool;
+	if (!isRecord(tool)) return tool;
 	const copy = { ...tool };
 	for (const key of ["eager_input_streaming", "strict", "cache_control", "defer_loading"]) delete copy[key];
 	return copy;
@@ -209,17 +210,17 @@ export function hashStrippedTools(tools: unknown): string {
 	return canonicalJson(list);
 }
 
-export type SummaryResult = {
+type SummaryResult = {
 	block: AnthropicCompactionBlock;
 	usage?: Usage;
 };
 
 function usageFromIterations(model: Model<Api>, json: unknown): Usage | undefined {
-	if (!isJsonObject(json) || !isJsonObject(json.usage)) return undefined;
+	if (!isRecord(json) || !isRecord(json.usage)) return undefined;
 	const iterations = json.usage.iterations;
 	if (!Array.isArray(iterations)) return undefined;
-	const entry = iterations.find((item) => isJsonObject(item) && item.type === "compaction");
-	if (!isJsonObject(entry)) return undefined;
+	const entry = iterations.find((item) => isRecord(item) && item.type === "compaction");
+	if (!isRecord(entry)) return undefined;
 	const input = typeof entry.input_tokens === "number" ? entry.input_tokens : 0;
 	const output = typeof entry.output_tokens === "number" ? entry.output_tokens : 0;
 	const cacheRead = typeof entry.cache_read_input_tokens === "number" ? entry.cache_read_input_tokens : 0;
@@ -243,21 +244,20 @@ export function readCompactionResponse(model: Model<Api>): (response: Response) 
 		let usage: unknown;
 		for (const data of sseData(await response.text())) {
 			const event: unknown = JSON.parse(data);
-			if (!isJsonObject(event)) continue;
+			if (!isRecord(event)) continue;
 			if (event.type === "error") {
-				const error = isJsonObject(event.error) ? event.error.message : undefined;
+				const error = isRecord(event.error) ? event.error.message : undefined;
 				throw new Error(`Anthropic compaction failed: ${typeof error === "string" ? error : "stream error"}`);
 			}
 			const content = event.content_block;
-			if (event.type === "content_block_start" && isJsonObject(content) && content.type === "compaction") {
+			if (event.type === "content_block_start" && isRecord(content) && content.type === "compaction") {
 				if (typeof content.content !== "string" || typeof content.signature !== "string") {
 					throw new Error("Anthropic compaction returned a block without content or signature.");
 				}
 				block = { type: "compaction", content: content.content, signature: content.signature };
 			}
 			if (event.type === "message_delta") {
-				if (isJsonObject(event.delta) && typeof event.delta.stop_reason === "string")
-					stopReason = event.delta.stop_reason;
+				if (isRecord(event.delta) && typeof event.delta.stop_reason === "string") stopReason = event.delta.stop_reason;
 				usage = event.usage;
 			}
 		}

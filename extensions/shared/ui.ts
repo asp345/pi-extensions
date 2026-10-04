@@ -6,12 +6,12 @@ export function fitLine(line: string, width: number, theme: Theme): string {
 	return `${truncateToWidth(line, Math.max(0, width - 1), "")}${theme.fg("dim", "…")}`;
 }
 
-export function cell(text: string, width: number): string {
+function cell(text: string, width: number): string {
 	const value = truncateToWidth(text, width, "");
 	return value + " ".repeat(Math.max(0, width - visibleWidth(value)));
 }
 
-export function cellEnd(text: string, width: number): string {
+function cellEnd(text: string, width: number): string {
 	return " ".repeat(Math.max(0, width - visibleWidth(text))) + text;
 }
 
@@ -105,7 +105,7 @@ export class StatusLineWidget {
 	}
 }
 
-export interface MessageEntry {
+interface MessageEntry {
 	marker: string;
 	label: string;
 	meta: string[];

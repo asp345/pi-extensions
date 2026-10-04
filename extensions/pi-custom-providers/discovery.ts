@@ -1,5 +1,6 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { effortLevelMap, readJsonResponse, record, stringArray } from "@asp345/pi-shared/json.ts";
 import type { AuthResult } from "@earendil-works/pi-ai";
-import { effortLevelMap, readJsonResponse, record, stringArray } from "../shared/json.ts";
 import type { CustomProviderConfig, ModelCost, ModelMetadata } from "./types.ts";
 
 const MAX_CATALOG_BYTES = 16_000_000;
@@ -10,7 +11,6 @@ function string(value: unknown): string | undefined {
 	return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-/** Prices may legitimately be zero; negatives are provider sentinels for variable pricing. */
 function rate(value: unknown): number | undefined {
 	const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
 	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
@@ -25,12 +25,6 @@ function withTimeout(signal: AbortSignal | undefined): AbortSignal {
 	return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-/**
- * Providers spell their capability list differently: `features` (Novita),
- * `supported_features` (Baseten), `supported_parameters` (OpenRouter), plus
- * `tags` and `capabilities` elsewhere. All of them are read so a declared
- * capability is never missed because of the field name.
- */
 export function capabilityTokens(raw: Record<string, unknown>): Set<string> {
 	const tokens = new Set<string>();
 	for (const field of [raw.features, raw.supported_features, raw.tags, raw.capabilities, raw.supported_parameters]) {
@@ -57,11 +51,9 @@ function reasoningMetadata(raw: Record<string, unknown>): Pick<ModelMetadata, "r
 	return thinkingLevelMap ? { reasoning: true, thinkingLevelMap } : { reasoning: true };
 }
 
-/** Auto-detected USD-per-million-token prices must stay within this range. */
 const PRICE_MIN = 0.001;
 const PRICE_MAX = 100;
 
-/** Raw listing value multipliers: per-token, per-million, and Novita units. */
 const PRICE_MULTIPLIERS = [1_000_000, 1, 1 / 10_000] as const;
 
 type PriceMultiplier = number | "auto";
@@ -195,7 +187,7 @@ export async function discoverProviderModels(
 			errors.push(`empty model catalog at ${endpoint}`);
 		} catch (error) {
 			if (signal?.aborted) throw error;
-			errors.push(error instanceof Error ? error.message : String(error));
+			errors.push(errorMessage(error));
 		}
 	}
 	throw new Error(errors.join("; "));

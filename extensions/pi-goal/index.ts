@@ -1,7 +1,7 @@
+import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "@asp345/pi-background-tasks/events.ts";
+import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "@asp345/pi-subagents/events.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
-import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "../pi-subagents/events.ts";
 import { type GoalContext, GoalRuntime } from "./runtime.ts";
 import { createGoal, type GoalState, loadGoal, MAX_OBJECTIVE, rejection, resumeGoal } from "./state.ts";
 
@@ -168,7 +168,6 @@ export default function goalExtension(pi: ExtensionAPI) {
 	pi.on("session_before_compact", (_event) => {
 		if (runtime.goal) runtime.persist();
 	});
-	// Automatic compaction is followed by agent_settled; manual compaction is not.
 	pi.on("session_compact", (event, ctx) => {
 		if (event.reason === "manual") void runtime.settleAfterCompaction(ctx);
 	});

@@ -10,11 +10,11 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CLAUDE_CODE_VERSION } from "./constants.ts";
 
-const CLAUDE_CODE_VERSION = "2.1.280";
 const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
 const CLAUDE_CODE_BETA =
-	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07,mid-conversation-output-config-2026-07-01,fine-grained-tool-streaming-2025-05-14,server-side-fallback-2026-07-01,compact-2026-09-04";
+	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,inline-tools-2026-09-15,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07";
 const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
 const CLAUDE_CODE_LEGACY_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -63,7 +63,10 @@ function firstUserText(messages: unknown): string {
 	return "";
 }
 
-const CCH_SEED = 0x4d659218e32a3268n;
+const CCH_V1 = 0xae4fba0790eae83en;
+const CCH_V2 = 0x101840560aff1db7n;
+const CCH_V3 = 0x4d659218e32a3268n;
+const CCH_V4 = 0xaf2e18675d3e67e1n;
 const CCH_PLACEHOLDER = "cch=00000";
 const BILLING_SYSTEM_MARKER = `"system":[{"type":"text","text":"x-anthropic-billing-header:`;
 const CCH_SEARCH_WINDOW = 200;
@@ -106,15 +109,15 @@ function xxh64U64(data: Uint8Array, offset: number): bigint {
 	);
 }
 
-function xxHash64(data: Uint8Array, seed: bigint): bigint {
+function xxHash64(data: Uint8Array): bigint {
 	const length = data.length;
 	let pos = 0;
 	let hash: bigint;
 	if (length >= 32) {
-		let v1 = (seed + XXH64_P1 + XXH64_P2) & XXH64_MASK;
-		let v2 = (seed + XXH64_P2) & XXH64_MASK;
-		let v3 = seed & XXH64_MASK;
-		let v4 = (seed - XXH64_P1) & XXH64_MASK;
+		let v1 = CCH_V1;
+		let v2 = CCH_V2;
+		let v3 = CCH_V3;
+		let v4 = CCH_V4;
 		while (pos + 32 <= length) {
 			v1 = xxh64Round(v1, xxh64U64(data, pos));
 			v2 = xxh64Round(v2, xxh64U64(data, pos + 8));
@@ -128,7 +131,7 @@ function xxHash64(data: Uint8Array, seed: bigint): bigint {
 			hash = (hash * XXH64_P1 + XXH64_P4) & XXH64_MASK;
 		}
 	} else {
-		hash = (seed + XXH64_P5) & XXH64_MASK;
+		hash = (CCH_V3 + XXH64_P5) & XXH64_MASK;
 	}
 	hash = (hash + BigInt(length)) & XXH64_MASK;
 	while (pos + 8 <= length) {
@@ -332,7 +335,7 @@ function patchCch(body: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | unde
 	const placeholder = textEncoder.encode(`${CCH_PLACEHOLDER};`);
 	const idx = indexOfBytes(body, placeholder, searchFrom, searchFrom + CCH_SEARCH_WINDOW);
 	if (idx === -1) return undefined;
-	const digest = xxHash64(normalizeCchInput(body), CCH_SEED) & 0xfffffn;
+	const digest = xxHash64(normalizeCchInput(body)) & 0xfffffn;
 	const hex = digest.toString(16).padStart(5, "0");
 	for (let i = 0; i < 5; i++) body[idx + 4 + i] = hex.charCodeAt(i);
 	return body;
@@ -342,7 +345,8 @@ function buildBillingPlaceholder(promptId: string, firstUserText: string): strin
 	const suffix = billingVersionSuffix(firstUserText);
 	return (
 		`x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}.${suffix}; ` +
-		`cc_entrypoint=sdk-cli; ${CCH_PLACEHOLDER}; cc_prompt_id=${promptId}; cc_turn_origin=sdk;`
+		`cc_entrypoint=sdk-cli; ${CCH_PLACEHOLDER}; cc_prompt_id=${promptId}; cc_turn_origin=sdk; ` +
+		`cc_prompt_index=0; cc_turn_index=1;`
 	);
 }
 

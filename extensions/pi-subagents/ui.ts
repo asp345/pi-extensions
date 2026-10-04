@@ -1,7 +1,15 @@
+import { formatDuration } from "@asp345/pi-shared/format.ts";
+import {
+	type Column,
+	fitLine,
+	frame,
+	highlight,
+	listSelection,
+	StatusLineWidget,
+	tableRow,
+} from "@asp345/pi-shared/ui.ts";
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { formatDuration } from "../shared/format.ts";
-import { type Column, fitLine, frame, highlight, listSelection, StatusLineWidget, tableRow } from "../shared/ui.ts";
 import { preview } from "./delegation.ts";
 import type { SubagentManager } from "./manager.ts";
 import { type AgentRecord, type AgentStatus, agentStatus } from "./types.ts";

@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-tool-loop-guard",
 	"version": "0.0.0",
 	"description": "Block consecutive identical tool calls in pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",

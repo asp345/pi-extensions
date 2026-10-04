@@ -1,4 +1,4 @@
-import { isRecord } from "../../shared/json.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface MiniMaxModelRemain {

@@ -43,7 +43,6 @@ class BackgroundHandoff extends Error {
 	}
 }
 
-/** Session env for spawned commands: pi's managed bin dir on PATH plus PI_* session metadata. */
 export function buildSessionEnv(ctx: ExtensionContext): NodeJS.ProcessEnv {
 	const binDir = join(getAgentDir(), "bin");
 	const pathKey = Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";

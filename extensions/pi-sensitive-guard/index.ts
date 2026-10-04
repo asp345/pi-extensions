@@ -1,5 +1,5 @@
+import { record, text } from "@asp345/pi-shared/json.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { record, text } from "../shared/json.ts";
 import { isProtectedPath, loadConfig } from "./config.ts";
 import { inspectGit } from "./git.ts";
 import { redactOutput, scanSecrets } from "./scanner.ts";

@@ -14,3 +14,7 @@ export function formatDuration(ms: number): string {
 	if (index === -1 || !next) return `${seconds}s`;
 	return `${Math.floor(seconds / size)}${unit} ${Math.floor((seconds % size) / next[1])}${next[0]}`;
 }
+
+export function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}

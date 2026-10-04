@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-custom-providers",
 	"version": "0.0.0",
 	"description": "Custom provider management for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -12,7 +12,6 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {
@@ -24,5 +23,8 @@
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
+	},
+	"dependencies": {
+		"@asp345/pi-shared": "0.0.0"
 	}
 }

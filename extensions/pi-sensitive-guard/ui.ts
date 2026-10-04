@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { CONFIG_PATH, type GuardConfig, loadConfig, type Severity, saveConfig } from "./config.ts";
 
@@ -127,10 +128,7 @@ export function registerSensitiveGuardUI(pi: ExtensionAPI, apply: (config: Guard
 					config = loadConfig();
 					apply(config);
 				} catch (error) {
-					ctx.ui.notify(
-						`Sensitive Guard could not save configuration: ${error instanceof Error ? error.message : String(error)}`,
-						"error",
-					);
+					ctx.ui.notify(`Sensitive Guard could not save configuration: ${errorMessage(error)}`, "error");
 				}
 			}
 		},

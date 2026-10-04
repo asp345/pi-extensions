@@ -2,14 +2,13 @@
 	"name": "@asp345/pi-themes",
 	"version": "0.0.0",
 	"description": "Themes for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"keywords": [
 		"pi-package"
 	],
 	"files": [
 		"themes",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {

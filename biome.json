@@ -5,7 +5,6 @@
 			"extensions/**/*.ts",
 			"extensions/**/package.json",
 			"extensions/pi-themes/themes/*.json",
-			"scripts/**/*.ts",
 			"package.json",
 			"tsconfig.json",
 			"biome.json"
@@ -26,7 +25,10 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"preset": "recommended"
+			"preset": "recommended",
+			"correctness": {
+				"noUndeclaredDependencies": "error"
+			}
 		}
 	}
 }

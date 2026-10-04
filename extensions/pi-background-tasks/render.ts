@@ -1,5 +1,5 @@
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { formatDuration } from "../shared/format.ts";
 import type { BackgroundRuntime, TaskEvent, TaskSnapshot } from "./runtime.ts";
 
 export type TaskKind = "running" | "done" | "failed" | "stopped";

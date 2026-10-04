@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { Provider } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
@@ -11,7 +12,7 @@ type WrappedProvider = Provider & { [BASE_PROVIDER]?: Provider };
 
 const COMMAND = "openai";
 
-export function wrapOpenAIProvider(base: Provider, getSettings: () => OpenAISettings): Provider {
+function wrapOpenAIProvider(base: Provider, getSettings: () => OpenAISettings): Provider {
 	const streams = tierStreamWrappers(base, () => getSettings().serviceTier);
 	const wrapped: WrappedProvider = {
 		...base,
@@ -151,10 +152,7 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 								}
 							})
 							.catch((error) => {
-								ctx.ui.notify(
-									`OpenAI settings failed: ${error instanceof Error ? error.message : String(error)}`,
-									"error",
-								);
+								ctx.ui.notify(`OpenAI settings failed: ${errorMessage(error)}`, "error");
 							});
 					},
 					() => done(undefined),

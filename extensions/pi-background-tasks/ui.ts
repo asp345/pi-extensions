@@ -1,6 +1,4 @@
-import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
-import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
-import { formatDuration } from "../shared/format.ts";
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import {
 	type Column,
 	fitLine,
@@ -10,7 +8,9 @@ import {
 	MessageLines,
 	StatusLineWidget,
 	tableRow,
-} from "../shared/ui.ts";
+} from "@asp345/pi-shared/ui.ts";
+import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
+import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	elapsed,
 	eventText,

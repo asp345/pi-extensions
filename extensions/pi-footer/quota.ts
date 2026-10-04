@@ -1,11 +1,11 @@
-import { formatDuration } from "../shared/format.ts";
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import type { ResolvedCredential } from "./types.ts";
 
 type PercentKey = "fiveHour" | "day" | "week" | "month";
 
-export type QuotaSegments = Partial<Record<PercentKey | "balance" | "reset", string>>;
+type QuotaSegments = Partial<Record<PercentKey | "balance" | "reset", string>>;
 
-export type QuotaColor = "ok" | "warn" | "err";
+type QuotaColor = "ok" | "warn" | "err";
 
 export interface QuotaDisplay {
 	segments: QuotaSegments;
@@ -17,7 +17,7 @@ export interface QuotaPlan {
 	matchProviders: string[];
 	apiKeyEnv?: string;
 	fetch(credential: ResolvedCredential, signal?: AbortSignal): Promise<unknown>;
-	format(data: unknown): QuotaDisplay | null;
+	format(data: unknown, modelId?: string): QuotaDisplay | null;
 }
 
 const HOUR_MS = 60 * 60 * 1000;

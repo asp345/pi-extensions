@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
@@ -168,7 +169,7 @@ export default function registerFooterCommand(
 						requestRender();
 					})
 					.catch((error: unknown) => {
-						ctx.ui.notify(`Footer settings failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+						ctx.ui.notify(`Footer settings failed: ${errorMessage(error)}`, "error");
 					});
 			};
 

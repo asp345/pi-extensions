@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-background-tasks",
 	"version": "0.0.0",
 	"description": "Background shell tasks for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -12,7 +12,6 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {
@@ -21,11 +20,12 @@
 		]
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
 		"typebox": "*"
 	},
 	"dependencies": {
-		"unbash": "^5.0.0"
+		"@asp345/pi-shared": "0.0.0"
 	}
 }

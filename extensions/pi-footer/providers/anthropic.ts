@@ -1,4 +1,5 @@
-import { isRecord, toNumber } from "../../shared/json.ts";
+import { CLAUDE_CODE_VERSION } from "@asp345/pi-anthropic-oauth/constants.ts";
+import { isRecord, toNumber } from "@asp345/pi-shared/json.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";
@@ -9,7 +10,6 @@ const SEVEN_DAY_WINDOW: UsageWindow = { id: "7d", label: "7 Day", durationMs: 7 
 
 const CLAUDE_BETA =
 	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11";
-const CLAUDE_VERSION = "2.1.220";
 
 interface ParsedBucket {
 	utilization?: number;
@@ -107,7 +107,7 @@ async function fetchAnthropicUsage(credential: ResolvedCredential, signal?: Abor
 			accept: "application/json, text/plain, */*",
 			"anthropic-beta": CLAUDE_BETA,
 			"content-type": "application/json",
-			"user-agent": `claude-cli/${CLAUDE_VERSION} (external, cli)`,
+			"user-agent": `claude-cli/${CLAUDE_CODE_VERSION} (external, cli)`,
 			authorization: `Bearer ${credential.accessToken}`,
 		},
 		signal,

@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-flat-edit",
 	"version": "0.0.0",
 	"description": "Single-replacement edit tool schema for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",

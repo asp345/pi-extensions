@@ -1,5 +1,5 @@
+import { MessageLines } from "@asp345/pi-shared/ui.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MessageLines } from "../shared/ui.ts";
 import { childMessageContent, type NoticeKind, noticeContent } from "./delegation.ts";
 import { SUBAGENTS_STATE_EVENT } from "./events.ts";
 import { SubagentManager } from "./manager.ts";

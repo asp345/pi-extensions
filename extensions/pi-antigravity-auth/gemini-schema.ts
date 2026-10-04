@@ -1,32 +1,26 @@
-/**
- * JSON Schema → Gemini Schema conversion, matching the agy CLI behavior:
- * uppercase type names, removal of fields the protobuf-backed validation
- * rejects, required filtered to declared properties, ARRAY items default.
- */
-
-const UNSUPPORTED_SCHEMA_FIELDS = new Set([
-	"additionalProperties",
-	"$schema",
-	"$id",
-	"$comment",
-	"$ref",
-	"$defs",
-	"definitions",
-	"const",
-	"contentMediaType",
-	"contentEncoding",
-	"if",
-	"then",
-	"else",
-	"not",
-	"patternProperties",
-	"unevaluatedProperties",
-	"unevaluatedItems",
-	"dependentRequired",
-	"dependentSchemas",
-	"propertyNames",
-	"minContains",
-	"maxContains",
+const SCHEMA_FIELDS = new Set([
+	"type",
+	"format",
+	"title",
+	"description",
+	"nullable",
+	"enum",
+	"maxItems",
+	"minItems",
+	"properties",
+	"required",
+	"minProperties",
+	"maxProperties",
+	"minLength",
+	"maxLength",
+	"pattern",
+	"example",
+	"anyOf",
+	"propertyOrdering",
+	"default",
+	"items",
+	"minimum",
+	"maximum",
 ]);
 
 export function toGeminiSchema(schema: unknown): unknown {
@@ -38,7 +32,7 @@ export function toGeminiSchema(schema: unknown): unknown {
 		for (const name of Object.keys(input.properties as object)) propertyNames.add(name);
 	}
 	for (const [key, value] of Object.entries(input)) {
-		if (UNSUPPORTED_SCHEMA_FIELDS.has(key)) continue;
+		if (!SCHEMA_FIELDS.has(key)) continue;
 		if (key === "type" && typeof value === "string") {
 			result[key] = value.toUpperCase();
 		} else if (key === "properties" && value && typeof value === "object") {
@@ -49,7 +43,7 @@ export function toGeminiSchema(schema: unknown): unknown {
 			result[key] = props;
 		} else if (key === "items" && value && typeof value === "object") {
 			result[key] = toGeminiSchema(value);
-		} else if ((key === "anyOf" || key === "oneOf" || key === "allOf") && Array.isArray(value)) {
+		} else if (key === "anyOf" && Array.isArray(value)) {
 			result[key] = value.map((item) => toGeminiSchema(item));
 		} else if (key === "required" && Array.isArray(value)) {
 			const validRequired = value.filter((prop) => typeof prop === "string" && propertyNames.has(prop));

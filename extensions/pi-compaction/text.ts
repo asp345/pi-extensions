@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import {
 	buildSessionContext,
@@ -17,10 +18,9 @@ import {
 import { findNativeCheckpoint, isOpenAICodexModel } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
 import { getOpencodeSessionHeaders } from "./headers.ts";
-import { errorMessage } from "./protocol.ts";
 import { sessionReasoning } from "./provider-request.ts";
 
-export type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
+type CompactionStream = NonNullable<Parameters<typeof compact>[7]>;
 
 function findBoundaryQuote(branch: SessionEntry[], firstKeptEntryId: string): string | undefined {
 	const entry = branch.find((candidate) => candidate?.id === firstKeptEntryId);

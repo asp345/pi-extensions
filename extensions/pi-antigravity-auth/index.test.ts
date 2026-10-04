@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { convertMessages, parseSse, requestSessionKey, resolveModel } from "./index.ts";
+import { modelThinkingLevelMap } from "./model-resolver.ts";
+import { STATIC_MODEL_CATALOG } from "./models.ts";
 
 const encoder = new TextEncoder();
 
@@ -21,38 +23,30 @@ async function collect(response: Response): Promise<unknown[]> {
 	return chunks;
 }
 
-test("tool results use Antigravity's observed same-model and cross-model roles", () => {
-	const target = { provider: "antigravity", id: "claude-opus" } as Parameters<typeof convertMessages>[1];
+test("tool results use the user role for Claude targets and the model role otherwise", () => {
 	const messages = [
 		{
 			role: "assistant",
 			provider: "antigravity",
-			model: "claude-opus",
-			content: [{ type: "toolCall", id: "same", name: "read", arguments: {} }],
+			model: "claude-opus-5-5",
+			content: [{ type: "toolCall", id: "claude", name: "read", arguments: {} }],
 		},
-		{ role: "toolResult", toolCallId: "same", toolName: "read", content: [], isError: false },
+		{ role: "toolResult", toolCallId: "claude", toolName: "read", content: [], isError: false },
 		{
 			role: "assistant",
 			provider: "antigravity",
-			model: "gemini-flash",
-			content: [{ type: "toolCall", id: "cross", name: "read", arguments: {} }],
+			model: "gemini-3.8-flash",
+			content: [{ type: "toolCall", id: "gemini", name: "read", arguments: {} }],
 		},
-		{ role: "toolResult", toolCallId: "cross", toolName: "read", content: [], isError: false },
+		{ role: "toolResult", toolCallId: "gemini", toolName: "read", content: [], isError: false },
 	] as Parameters<typeof convertMessages>[0];
+	const roles = (id: string) =>
+		convertMessages(messages, { provider: "antigravity", id } as Parameters<typeof convertMessages>[1])
+			.filter((content) => "functionResponse" in content.parts[0])
+			.map((content) => content.role);
 
-	const converted = convertMessages(messages, target);
-	assert.equal(
-		converted.find(
-			(content) => "functionResponse" in content.parts[0] && content.parts[0].functionResponse.id === "same",
-		)?.role,
-		"user",
-	);
-	assert.equal(
-		converted.find(
-			(content) => "functionResponse" in content.parts[0] && content.parts[0].functionResponse.id === "cross",
-		)?.role,
-		"model",
-	);
+	assert.deepEqual(roles("claude-opus-5-5"), ["user", "user"]);
+	assert.deepEqual(roles("gemini-3.8-flash"), ["model", "model"]);
 });
 
 test("request sessions are scoped by credential without exposing it", () => {
@@ -83,23 +77,32 @@ test("SSE joins multiline data and rejects in-band errors", async () => {
 	);
 });
 
-test("resolveModel applies only the low|medium|high suffix tiers", () => {
-	const model = (id: string) =>
-		({ provider: "antigravity", id, api: "google-generative-ai", reasoning: true }) as Parameters<
-			typeof resolveModel
-		>[0];
+test("resolveModel reads the tier stored in the thinking level map", () => {
+	const model = (id: string) => {
+		const definition = STATIC_MODEL_CATALOG.find((candidate) => candidate.id === id);
+		assert.ok(definition);
+		return {
+			provider: "antigravity",
+			id,
+			api: "google-generative-ai",
+			reasoning: true,
+			thinkingLevelMap: modelThinkingLevelMap(definition),
+		} as Parameters<typeof resolveModel>[0];
+	};
 	const gemini = model("gemini-3.7-flash");
 
 	assert.deepEqual(resolveModel(gemini, "low"), {
-		actualModel: "gemini-3.7-flash-low",
+		wireModel: "gemini-3.7-flash-low",
+		modelEnum: "MODEL_PLACEHOLDER_M300",
 		thinkingBudget: 1000,
 	});
-	assert.deepEqual(resolveModel(gemini, "medium"), {
-		actualModel: "gemini-3.7-flash-medium",
-		thinkingBudget: 4000,
+	assert.equal(resolveModel(gemini, "xhigh").wireModel, "gemini-3.7-flash-medium");
+	assert.deepEqual(resolveModel(model("claude-opus-5-5"), "high"), {
+		wireModel: "claude-opus-5-5-high",
+		modelEnum: "MODEL_PLACEHOLDER_M402",
+		thinkingBudget: 0,
+		thinkingLevel: "HIGH",
 	});
-	assert.deepEqual(resolveModel(model("claude-opus-4-6-thinking"), {} as never), {
-		actualModel: "claude-opus-4-6",
-		thinkingBudget: 1024,
-	});
+	assert.equal(resolveModel(model("gemini-3.1-pro"), "high").wireModel, "gemini-pro-agent");
+	assert.equal(resolveModel(model("gemini-3.1-pro"), undefined).wireModel, "gemini-3.1-pro-low");
 });

@@ -1,5 +1,5 @@
+import { record, text } from "@asp345/pi-shared/json.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { record, text } from "../shared/json.ts";
 import { storeBlockReason, storePathBlockReason } from "./guard.ts";
 
 function block(reason: string): { block: true; reason: string } {

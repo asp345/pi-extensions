@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 
 export const CONTEXT_STYLES = ["pct-window", "used-window", "pct", "used", "bar"] as const;
 export const SPEED_STYLES = ["t/s", "tok/s", "T/s"] as const;

@@ -4,10 +4,8 @@ import { StringDecoder } from "node:string_decoder";
 
 const BUFFER_LIMIT = 120_000;
 
-/** Per-task output capture: bounded in-memory ring plus a rotated log file. */
 export class TaskOutput {
 	text = "";
-	/** When false, append drops incoming data. The runtime wires this to task liveness. */
 	isActive: () => boolean = () => false;
 	private onRaw: ((data: Buffer) => void) | null;
 	private readonly logFile: string;
@@ -34,7 +32,6 @@ export class TaskOutput {
 		});
 	}
 
-	/** Drain the decoders and stop forwarding raw output; called when the task closes. */
 	flush(): void {
 		this.append(this.stdout.end());
 		this.append(this.stderr.end());

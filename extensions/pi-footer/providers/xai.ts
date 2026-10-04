@@ -1,4 +1,4 @@
-import { isRecord, toNumber } from "../../shared/json.ts";
+import { isRecord, toNumber } from "@asp345/pi-shared/json.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";

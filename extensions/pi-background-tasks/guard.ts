@@ -1,4 +1,4 @@
-import { argumentText, walkCommands } from "../shared/shell.ts";
+import { argumentText, walkCommands } from "@asp345/pi-shared/shell.ts";
 
 const MAX_SLEEP_SECONDS = 30;
 
@@ -21,11 +21,6 @@ function formatSeconds(seconds: number): string {
 const GUIDANCE =
 	"Do not sleep to wait. Launch a background task and end the turn instead; you will be notified when it completes.";
 
-/**
- * Sum the literal durations of every `sleep` invocation. `sleep -- <seconds>`
- * is a deliberate opt-in form and is never counted. Returns null when a sleep
- * argument cannot be statically evaluated.
- */
 function sleepSeconds(command: string): number | null {
 	let total = 0;
 	let unknown = false;
@@ -45,7 +40,6 @@ function sleepSeconds(command: string): number | null {
 	return unknown ? null : total;
 }
 
-/** Block reason for the command, or null when the command may run. */
 export function sleepBlockReason(command: string): string | null {
 	const totalSeconds = sleepSeconds(command);
 	if (totalSeconds === null) {
@@ -76,13 +70,6 @@ function processName(value: string | undefined): string | null {
 	return null;
 }
 
-/**
- * Find the first `pgrep -f` / `pkill -f` process-name poll.
- * The watching shell is spawned as `bash -c '<command>'`, so its own argv
- * contains the searched pattern and `-f` (full command line) matching always
- * finds the watcher itself. The `[x]` bracket trick is the only exempt form:
- * the literal brackets in argv do not match the expanded regex.
- */
 function processPoll(command: string): { name: string; sample: string } | null {
 	let found: { name: string; sample: string } | null = null;
 	walkCommands(command, (node) => {
@@ -110,7 +97,6 @@ function processPoll(command: string): { name: string; sample: string } | null {
 	return found;
 }
 
-/** Block reason when the command polls process names via pgrep/pkill -f, or null when it may run. */
 export function processPollBlockReason(command: string): string | null {
 	const poll = processPoll(command);
 	if (!poll) return null;

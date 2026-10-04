@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeJsonAtomic } from "@asp345/pi-shared/json.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { writeJsonAtomic } from "../shared/json.ts";
 import type { CustomProvidersFile } from "./types.ts";
 
 const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");
@@ -32,7 +32,6 @@ export async function writeCustomProvidersFile(data: CustomProvidersFile, path =
 	await writeJsonAtomic(path, data);
 }
 
-/** Removes cached catalogs only for providers removed through this extension. */
 export async function removeModelsStoreProviders(
 	providerIds: ReadonlySet<string>,
 	path = MODELS_STORE_FILE,

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { CustomEntry, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 
 export const GOAL_STATE_ENTRY = "goal-state";
 export const MAX_OBJECTIVE = 4_000;

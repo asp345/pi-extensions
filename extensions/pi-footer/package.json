@@ -13,9 +13,7 @@
 		"*.ts",
 		"providers/*.ts",
 		"!*.test.ts",
-		"LICENSE",
-		"README.md",
-		"THIRD_PARTY_NOTICES.md"
+		"README.md"
 	],
 	"pi": {
 		"extensions": [
@@ -26,5 +24,10 @@
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
+	},
+	"dependencies": {
+		"@asp345/pi-anthropic-oauth": "0.0.0",
+		"@asp345/pi-antigravity-auth": "0.0.0",
+		"@asp345/pi-shared": "0.0.0"
 	}
 }

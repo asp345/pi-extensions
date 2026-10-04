@@ -1,4 +1,4 @@
-import { isRecord } from "../../shared/json.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface CommandCodeWindow {
@@ -21,15 +21,9 @@ const COMMANDCODE_PLANS: Record<string, { monthlyCreditsUsd: number; fiveHourCap
 
 export const commandCodeQuotaPlan: QuotaPlan = {
 	id: "commandcode",
-	// The auth key uses user_...; model configs may identify this provider as cmd or commandcode.
 	matchProviders: ["cmd", "commandcode"],
 	apiKeyEnv: "COMMANDCODE_API_KEY",
 	fetch: async ({ accessToken }) => {
-		// Command Code's alpha billing API mirrors the official CLI protocol:
-		// GET /alpha/whoami returns user information; a non-empty org.id adds ?orgId=xxx to later requests.
-		// GET /alpha/billing/credits returns credits and five-hour/weekly window limits.
-		// GET /alpha/billing/subscriptions returns the plan ID and current billing-period end.
-		// These headers are required by some endpoints to avoid 403 responses.
 		const headers = {
 			Authorization: `Bearer ${accessToken}`,
 			"User-Agent": "command-code/0.38.2",
@@ -53,7 +47,6 @@ export const commandCodeQuotaPlan: QuotaPlan = {
 		const fiveHour = asWindow(windows.fiveHour);
 		const weekly = asWindow(windows.weekly);
 
-		// Rolling windows report dollar amounts; remaining is (cap - used) / cap.
 		const remOf = (window: CommandCodeWindow | undefined): number | null => {
 			if (!window) return null;
 			const cap = Number(window.cap);
@@ -64,8 +57,6 @@ export const commandCodeQuotaPlan: QuotaPlan = {
 		const intervalRemaining = remOf(fiveHour);
 		const weeklyRemaining = remOf(weekly);
 
-		// Monthly usage only reports remaining credits; the subscription plan supplies the denominator.
-		// Trust it only when the five-hour and weekly caps match the public plan catalog.
 		const subscriptionPayload = isRecord(payload.subscription) ? payload.subscription : {};
 		const sub = isRecord(subscriptionPayload.data) ? subscriptionPayload.data : {};
 		const plan = COMMANDCODE_PLANS[String(sub.planId || "").toLowerCase()];
@@ -83,7 +74,6 @@ export const commandCodeQuotaPlan: QuotaPlan = {
 			monthlyPercent = (monthlyRemaining / plan.monthlyCreditsUsd) * 100;
 		}
 
-		// resetAt may be in seconds or milliseconds; values above 2e10 are treated as milliseconds.
 		const resetOf = (window: CommandCodeWindow | undefined) => {
 			const time = Number(window?.resetAt ?? 0);
 			return time > 20000000000 ? time : time * 1000;

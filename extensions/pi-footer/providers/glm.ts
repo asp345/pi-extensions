@@ -1,4 +1,4 @@
-import { isRecord } from "../../shared/json.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { getJson, type QuotaPlan, quotaColor, quotaSegments } from "../quota.ts";
 
 interface GlmQuotaEntry {
@@ -20,7 +20,6 @@ export const glmQuotaPlan: QuotaPlan = {
 		const limits = Array.isArray(usage.limits)
 			? usage.limits.filter((entry): entry is GlmQuotaEntry => isRecord(entry))
 			: [];
-		// Personal plans return TOKENS_LIMIT; team plans return CREDIT_LIMIT, case-insensitively.
 		const isQuota = (type: unknown) => {
 			const value = String(type ?? "").toLowerCase();
 			return value === "tokens_limit" || value === "credit_limit";
@@ -28,12 +27,9 @@ export const glmQuotaPlan: QuotaPlan = {
 		const entries = limits.filter((entry) => isQuota(entry.type));
 		if (entries.length === 0) return null;
 
-		// Classify windows by unit rather than array order, matching cc-switch's Zhipu tier parser:
-		// unit 3 is the rolling 5h window; unit 6 is the weekly window.
 		const byUnit = (unit: number) => entries.find((entry) => entry.unit === unit);
 		let fiveHour: GlmQuotaEntry | null = byUnit(3) ?? null;
 		let weekly: GlmQuotaEntry | null = byUnit(6) ?? null;
-		// For missing or unknown units, prefer entries without nextResetTime for 5h, then fill by reset time.
 		if (!fiveHour || !weekly) {
 			const unclassified = entries
 				.filter((entry) => entry !== fiveHour && entry !== weekly)
@@ -48,7 +44,6 @@ export const glmQuotaPlan: QuotaPlan = {
 			}
 		}
 
-		// percentage is the used percentage, so remaining is 100 minus percentage.
 		const remaining = (entry: GlmQuotaEntry | null) =>
 			entry ? 100 - (typeof entry.percentage === "number" ? entry.percentage : 0) : null;
 		const intervalRemaining = remaining(fiveHour);

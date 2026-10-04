@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-subagents",
 	"version": "0.0.0",
 	"description": "Subagents for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -12,7 +12,7 @@
 	"files": [
 		"*.ts",
 		"!*.test.ts",
-		"LICENSE"
+		"README.md"
 	],
 	"pi": {
 		"extensions": [
@@ -24,5 +24,9 @@
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
 		"typebox": "*"
+	},
+	"dependencies": {
+		"@asp345/pi-background-tasks": "0.0.0",
+		"@asp345/pi-shared": "0.0.0"
 	}
 }

@@ -1,13 +1,6 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 export type JsonObject = Record<string, unknown>;
 export type ResponseItem = JsonObject & { type?: string };
-
-export function isJsonObject(value: unknown): value is JsonObject {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
 
 export function sseData(text: string): string[] {
 	return text
@@ -35,7 +28,7 @@ export function cloneInputItem(value: ResponseItem): ResponseItem {
 }
 
 export function isResponseItem(value: unknown): value is ResponseItem {
-	if (!isJsonObject(value)) return false;
+	if (!isRecord(value)) return false;
 	return (
 		typeof value.type === "string" ||
 		(typeof value.role === "string" && (typeof value.content === "string" || Array.isArray(value.content)))
@@ -46,9 +39,7 @@ export function responseItemText(item: ResponseItem): string {
 	if (item.type !== "message" && item.type !== undefined) return "";
 	if (typeof item.content === "string") return item.content;
 	if (!Array.isArray(item.content)) return "";
-	return item.content
-		.flatMap((part) => (isJsonObject(part) && typeof part.text === "string" ? [part.text] : []))
-		.join("");
+	return item.content.flatMap((part) => (isRecord(part) && typeof part.text === "string" ? [part.text] : [])).join("");
 }
 
 export function approximateTokens(item: ResponseItem): number {
@@ -77,11 +68,11 @@ export function truncateMessage(item: ResponseItem, maxTokens: number): Response
 	if (!Array.isArray(copy.content)) return copy;
 
 	const content = copy.content;
-	const textParts = content.filter((part) => isJsonObject(part) && typeof part.text === "string");
+	const textParts = content.filter((part) => isRecord(part) && typeof part.text === "string");
 	const totalText = textParts.reduce((sum, part) => sum + String(part.text).length, 0);
 	let consumed = 0;
 	const truncatedContent = content.flatMap((part) => {
-		if (!isJsonObject(part) || typeof part.text !== "string") return [part];
+		if (!isRecord(part) || typeof part.text !== "string") return [part];
 		const remainingText = totalText - consumed;
 		const partBudget = remainingText === 0 ? 0 : Math.floor((part.text.length / remainingText) * remainingCharacters);
 		const text = truncateMiddle(part.text, partBudget);

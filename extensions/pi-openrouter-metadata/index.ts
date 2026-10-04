@@ -1,6 +1,7 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { readJsonResponse } from "@asp345/pi-shared/json.ts";
 import { isModelType, type Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readJsonResponse } from "../shared/json.ts";
 import {
 	CACHE_VERSION,
 	fileMetadataCache,
@@ -26,7 +27,7 @@ export function reportOpenRouterRefreshFailure(error: unknown, notify: (message:
 		error.message.includes("This extension ctx is stale after session replacement or reload")
 	)
 		return;
-	const message = error instanceof Error ? error.message : String(error);
+	const message = errorMessage(error);
 	try {
 		notify(`OpenRouter metadata refresh failed: ${message}`);
 	} catch {}

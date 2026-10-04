@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
 	type Api,
 	type AssistantMessage,
@@ -250,7 +251,7 @@ export function streamAntigravity(
 		} catch (error) {
 			await response?.body?.cancel().catch(() => {});
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : String(error);
+			output.errorMessage = errorMessage(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
