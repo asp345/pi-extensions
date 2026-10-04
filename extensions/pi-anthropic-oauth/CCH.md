@@ -50,7 +50,7 @@ Captured alongside the billing header from the same `claude -p` runs:
 
 - `User-Agent: claude-cli/2.1.288 (external, sdk-cli)`
 - `x-app: cli`
-- `anthropic-beta:` the 16-entry list in `CLAUDE_CODE_BETA` (`mid-conversation-output-config-2026-07-01`, `fine-grained-tool-streaming-2025-05-14`, `server-side-fallback-2026-07-01` and `compact-2026-09-04` are gone compared to 2.1.280)
+- `anthropic-beta:` the 16-entry list in `CLAUDE_CODE_BETA`, with `inline-tools-2026-09-15` in place of the captured `mid-conversation-tool-changes-2026-07-01` because pi-ai sends mid-conversation tools as inline `tool_definition` blocks (`mid-conversation-output-config-2026-07-01`, `fine-grained-tool-streaming-2025-05-14`, `server-side-fallback-2026-07-01` and `compact-2026-09-04` are gone compared to 2.1.280)
 - `x-cc-atis: aa3b964b4dcc5049` is stable across sessions and prompts (install/account attestation, not a body hash), so pi does not emulate it.
 
 ## How this was found
