@@ -1,7 +1,6 @@
 /**
  * Constants for the Antigravity Cloud Code Assist API and OAuth flows.
- * Wire values captured from agy CLI 1.1.20 via mitmproxy
- * (~/dev/pi-misc/agy-mitm/models/agy-1.1.20-gemini37-ping.flows).
+ * Wire values captured from agy CLI 1.1.20 via mitmproxy.
  */
 export const ANTIGRAVITY_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 export const ANTIGRAVITY_CLIENT_SECRET = "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";

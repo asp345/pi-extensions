@@ -82,4 +82,4 @@ Prompt-based compaction sends the text selected by Pi's compaction preparation t
 
 ## Source
 
-The native Codex implementation is derived from `@ogulcancelik/pi-codex-compaction` 0.1.3 by Can Celik. It is distributed under the MIT license in `LICENSE`.
+The native Codex implementation is based on `@ogulcancelik/pi-codex-compaction` 0.1.3.

@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-system-prompt",
 	"version": "0.0.0",
 	"description": "Compose harness system prompt from bundled SYSTEM.txt rules",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -13,7 +13,6 @@
 		"*.ts",
 		"!*.test.ts",
 		"SYSTEM.txt",
-		"LICENSE",
 		"README.md"
 	],
 	"pi": {

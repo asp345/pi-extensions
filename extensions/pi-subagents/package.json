@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-subagents",
 	"version": "0.0.0",
 	"description": "Subagents for pi",
-	"license": "MIT",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
@@ -11,8 +11,7 @@
 	],
 	"files": [
 		"*.ts",
-		"!*.test.ts",
-		"LICENSE"
+		"!*.test.ts"
 	],
 	"pi": {
 		"extensions": [

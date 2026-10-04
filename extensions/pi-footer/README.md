@@ -33,4 +33,4 @@ Credentials are resolved in this order: the plan's environment variable (`MINIMA
 
 ## Origin
 
-Vendored from `token-stats-timer` 1.1.8 at commit `9997f89e31086d4788f368624b2f269d5155bc02`, then refactored for this repository. See `THIRD_PARTY_NOTICES.md`.
+Based on `token-stats-timer` 1.1.8 at commit `9997f89e31086d4788f368624b2f269d5155bc02`. The Anthropic, OpenAI Codex, xAI, and Google Antigravity quota providers are based on `pi-usage`.

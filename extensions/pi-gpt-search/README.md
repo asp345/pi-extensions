@@ -4,7 +4,7 @@
 
 `pi-gpt-search` gives **any** Pi model (Gemini, Claude, local models, OpenRouter) real-time web search capabilities by reusing OpenAI Codex's standalone web retrieval infrastructure - with **ZERO GPT Model Inference Turns** and **ZERO GPT Tokens Consumed**.
 
-> **Upstream:** this is a slimmed-down fork of [`mateusdcc/pi-gpt-search`](https://github.com/mateusdcc/pi-gpt-search), extracted into this repository and maintained here.
+> **Upstream:** based on [`mateusdcc/pi-gpt-search`](https://github.com/mateusdcc/pi-gpt-search).
 
 ---
 
@@ -166,9 +166,3 @@ PI_WEB_SEARCH_DEBUG=1
 
 - **Search Index Scope:** Returns search result snippets, URLs, and document views; does not include a full headless browser DOM renderer.
 - **Session Auth:** Requires an active ChatGPT Plus/Pro subscription. Expired sessions require running pi `/login` and selecting **ChatGPT Plus/Pro (Codex)** to re-authenticate.
-
----
-
-## 📜 License
-
-MIT License.

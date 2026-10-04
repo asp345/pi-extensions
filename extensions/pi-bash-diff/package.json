@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-bash-diff",
 	"version": "0.0.0",
 	"description": "Attach diffs of files changed by bash commands to their tool results",
-	"license": "UNLICENSED",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",

@@ -13,9 +13,7 @@
 		"*.ts",
 		"providers/*.ts",
 		"!*.test.ts",
-		"LICENSE",
-		"README.md",
-		"THIRD_PARTY_NOTICES.md"
+		"README.md"
 	],
 	"pi": {
 		"extensions": [

@@ -1,10 +1,4 @@
-/**
- * Vendored agy CLI protocol implementation, rewritten in TypeScript from
- * @cortexkit/antigravity-auth-core 2.1.0 (MIT) and the agy CLI 1.1.20
- * MITM capture dated 2026-08-25. Differences from the upstream package:
- * - User-Agent and labels.request_id match agy 1.1.20 (cl=970154694).
- * - Model catalog refreshes from v1internal:fetchAvailableModels.
- */
+// Based on @cortexkit/antigravity-auth-core 2.1.0 and agy CLI 1.1.20 traffic.
 export * from "./constants.ts";
 export * from "./fingerprint.ts";
 export * from "./gemini-schema.ts";

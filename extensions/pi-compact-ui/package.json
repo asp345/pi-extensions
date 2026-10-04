@@ -2,7 +2,7 @@
 	"name": "@asp345/pi-compact-ui",
 	"version": "0.0.0",
 	"description": "Uniform one-line tool call rendering for the Pi Coding Agent",
-	"license": "UNLICENSED",
+	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
 	"types": "./index.ts",
