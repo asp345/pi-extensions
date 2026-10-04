@@ -1,18 +1,13 @@
 import { isModelType, type OAuthCredentials } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	type AgyModelDefinition,
-	MODEL_CATALOG_TTL_MS,
-	refreshModelCatalog,
-	STATIC_MODEL_CATALOG,
-} from "./agy/index.ts";
-import { modelThinkingLevelMap } from "./model-tiers.ts";
-import { login, refreshOAuth } from "./oauth-callback.ts";
+import { modelThinkingLevelMap } from "./model-resolver.ts";
+import { type AgyModelDefinition, MODEL_CATALOG_TTL_MS, refreshModelCatalog, STATIC_MODEL_CATALOG } from "./models.ts";
+import { login, refreshOAuth } from "./oauth.ts";
 import { rememberRefresh } from "./session.ts";
 import { streamAntigravity } from "./stream.ts";
 
 export { convertMessages } from "./gemini.ts";
-export { resolveModel } from "./model-tiers.ts";
+export { resolveModel } from "./model-resolver.ts";
 export { requestSessionKey } from "./session.ts";
 export { parseSse } from "./sse.ts";
 
@@ -59,7 +54,9 @@ export default function antigravityAuth(pi: ExtensionAPI): void {
 				return current;
 			}
 
-			const refreshed = toProviderModels(await refreshModelCatalog(context.credential.access, context.signal));
+			const project = context.credential.refresh.split("|")[1];
+			if (!project) throw new Error("Antigravity credentials have no project id. Run /login again.");
+			const refreshed = toProviderModels(await refreshModelCatalog(context.credential.access, project, context.signal));
 			await context.publish({
 				persist: {
 					checkedAt: Date.now(),

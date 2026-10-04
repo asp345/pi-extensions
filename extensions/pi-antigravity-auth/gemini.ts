@@ -10,7 +10,7 @@ import type {
 	TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { collapseSystemMessages, getCurrentSystemPrompt, getCurrentTools } from "@earendil-works/pi-ai";
-import { toGeminiSchema } from "./agy/index.ts";
+import { toGeminiSchema } from "./gemini-schema.ts";
 
 type GeminiPart =
 	| { text: string; thought?: boolean; thoughtSignature?: string }
@@ -115,15 +115,8 @@ function resultResponse(message: ToolResultMessage): Record<string, unknown> {
 
 export function convertMessages(messages: Message[], target: Model<Api>): GeminiContent[] {
 	const output: GeminiContent[] = [];
-	const targetCalls = new Map<string, boolean>();
 	const isTarget = (message: AssistantMessage) => message.provider === target.provider && message.model === target.id;
-
-	for (const message of messages) {
-		if (message?.role !== "assistant") continue;
-		for (const block of message.content) {
-			if (block.type === "toolCall") targetCalls.set(block.id, isTarget(message));
-		}
-	}
+	const toolResultRole = target.id.startsWith("claude-") ? "user" : "model";
 
 	for (const message of messages) {
 		if (!message) continue;
@@ -139,7 +132,6 @@ export function convertMessages(messages: Message[], target: Model<Api>): Gemini
 			const parts = assistantParts(message, isTarget(message));
 			if (parts.length) output.push({ role: "model", parts });
 		} else if (message.role === "toolResult") {
-			const role = targetCalls.get(message.toolCallId) === true ? "user" : "model";
 			const part: GeminiPart = {
 				functionResponse: {
 					name: message.toolName,
@@ -148,10 +140,10 @@ export function convertMessages(messages: Message[], target: Model<Api>): Gemini
 				},
 			};
 			const last = output.at(-1);
-			if (last?.role === role && last.parts.every((item) => "functionResponse" in item)) {
+			if (last?.role === toolResultRole && last.parts.every((item) => "functionResponse" in item)) {
 				last.parts.push(part);
 			} else {
-				output.push({ role, parts: [part] });
+				output.push({ role: toolResultRole, parts: [part] });
 			}
 		}
 	}

@@ -1,9 +1,3 @@
-/**
- * Request metadata (requestId, sessionId, labels) reproducing the agy CLI
- * 1.1.20 agent wire format captured on 2026-08-25:
- *   requestId: "agent/<conversationId>/<epochMs>/<trajectoryId>/<stepIndex+1>"
- *   labels.request_id: "<trajectoryId>-<lastStepIndex>"
- */
 import { randomUUID } from "node:crypto";
 
 const FNV1A_64_OFFSET_BASIS = 0xcbf29ce484222325n;
@@ -11,7 +5,6 @@ const FNV1A_64_PRIME = 0x100000001b3n;
 const SESSION_STATE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_SESSION_STATES = 256;
 
-/** Field order observed in agy 1.1.20 request payloads. */
 const AGY_REQUEST_FIELD_ORDER = [
 	"contents",
 	"systemInstruction",
@@ -21,29 +14,11 @@ const AGY_REQUEST_FIELD_ORDER = [
 	"sessionId",
 ] as const;
 
-// model_enum label values captured from fetchAvailableModels/labels traffic.
-const AGY_MODEL_ENUM_BY_WIRE_MODEL: Record<string, string> = {
-	"gemini-3.5-flash-extra-low": "MODEL_PLACEHOLDER_M187",
-	"gemini-3.5-flash-low": "MODEL_PLACEHOLDER_M20",
-	"gemini-3-flash-agent": "MODEL_PLACEHOLDER_M84",
-	"gemini-3.6-flash-low": "MODEL_PLACEHOLDER_M73",
-	"gemini-3.6-flash-medium": "MODEL_PLACEHOLDER_M72",
-	"gemini-3.6-flash-high": "MODEL_PLACEHOLDER_M71",
-	"gemini-3.7-flash-low": "MODEL_PLACEHOLDER_M300",
-	"gemini-3.7-flash-medium": "MODEL_PLACEHOLDER_M299",
-	"gemini-3.7-flash-high": "MODEL_PLACEHOLDER_M298",
-	"gemini-3.1-pro-low": "MODEL_PLACEHOLDER_M36",
-	"gemini-pro-agent": "MODEL_PLACEHOLDER_M16",
-	"claude-sonnet-4-6": "MODEL_PLACEHOLDER_M35",
-	"claude-opus-4-6-thinking": "MODEL_PLACEHOLDER_M26",
-	"gemini-3.1-flash-image": "MODEL_PLACEHOLDER_M21",
-	"gpt-oss-120b-medium": "MODEL_OPENAI_GPT_OSS_120B_MEDIUM",
-};
-
 interface AgySessionContext {
 	conversationId: string;
 	trajectoryId: string;
 	numericSessionId: string;
+	requestCount: number;
 	lastExecutionId?: string;
 	usedClaude?: boolean;
 	usedNonGeminiModel?: boolean;
@@ -70,6 +45,7 @@ function createSessionContext(): AgySessionContext {
 		conversationId: randomUUID(),
 		trajectoryId: randomUUID(),
 		numericSessionId: NUMERIC_SESSION_ID,
+		requestCount: 0,
 	};
 }
 
@@ -138,37 +114,27 @@ export function orderAgyRequestPayloadInPlace(payload: Record<string, unknown>):
 	Object.assign(payload, ordered);
 }
 
-function countAgyRequestSteps(contents: unknown): number {
-	if (!Array.isArray(contents)) return 1;
-	let functionResponseCount = 0;
-	for (const content of contents) {
-		const parts = (content as { parts?: unknown } | null)?.parts;
-		if (!Array.isArray(parts)) continue;
-		functionResponseCount += parts.filter(
-			(part) => part && typeof part === "object" && "functionResponse" in part,
-		).length;
-	}
-	return Math.max(1, contents.length + functionResponseCount);
-}
-
 export function buildAgyAgentRequestMetadata(
 	session: AgySessionContext,
 	payload: { contents?: unknown },
 	model: string,
+	modelEnum: string | undefined,
 	timestamp: number,
 ): { requestId: string; sessionId: string; labels: Record<string, string> } {
-	const lastStepIndex = countAgyRequestSteps(payload.contents) + (session.lastExecutionId ? 1 : 0);
+	const lastStepIndex = Math.max(0, (Array.isArray(payload.contents) ? payload.contents.length : 0) - 1);
+	const requestIndex = session.requestCount++;
 	const lowerModel = model.toLowerCase();
 	const isClaude = lowerModel.startsWith("claude-");
 	const isNonGemini = isClaude || lowerModel.startsWith("gpt-");
 	session.usedClaude = session.usedClaude === true || isClaude;
 	session.usedNonGeminiModel = session.usedNonGeminiModel === true || isNonGemini;
-	const modelEnum = AGY_MODEL_ENUM_BY_WIRE_MODEL[lowerModel];
 	const labels: Record<string, string> = {
+		cascade_id: session.conversationId,
 		...(session.lastExecutionId ? { last_execution_id: session.lastExecutionId } : {}),
 		last_step_index: String(lastStepIndex),
 		...(modelEnum ? { model_enum: modelEnum } : {}),
-		request_id: `${session.trajectoryId}-${lastStepIndex}`,
+		request_id: `${session.trajectoryId}-${requestIndex}`,
+		root_cascade_id: session.conversationId,
 		trajectory_id: session.trajectoryId,
 		used_claude: session.usedClaude ? "true" : "false",
 		used_claude_conservative: session.usedClaude ? "true" : "false",

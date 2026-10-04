@@ -1,9 +1,3 @@
-/**
- * JSON Schema → Gemini Schema conversion, matching the agy CLI behavior:
- * uppercase type names, removal of fields the protobuf-backed validation
- * rejects, required filtered to declared properties, ARRAY items default.
- */
-
 const UNSUPPORTED_SCHEMA_FIELDS = new Set([
 	"additionalProperties",
 	"$schema",
