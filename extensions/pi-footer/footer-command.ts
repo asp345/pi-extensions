@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
@@ -14,7 +15,6 @@ import {
 	SettingsList,
 	Text,
 } from "@earendil-works/pi-tui";
-import { errorMessage } from "../shared/format.ts";
 import {
 	CONTEXT_STYLES,
 	type ContextStyle,

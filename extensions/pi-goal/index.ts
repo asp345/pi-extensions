@@ -1,7 +1,7 @@
+import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "@asp345/pi-background-tasks/events.ts";
+import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "@asp345/pi-subagents/events.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
-import { parseSubagentsState, SUBAGENTS_STATE_EVENT } from "../pi-subagents/events.ts";
 import { type GoalContext, GoalRuntime } from "./runtime.ts";
 import { createGoal, type GoalState, loadGoal, MAX_OBJECTIVE, rejection, resumeGoal } from "./state.ts";
 

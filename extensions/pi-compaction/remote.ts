@@ -1,5 +1,5 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
-import { isRecord } from "../shared/json.ts";
 import { cloneItem, isResponseItem, type JsonObject, type ResponseItem, sseData } from "./protocol.ts";
 
 const REMOTE_COMPACTION_FEATURE = "remote_compaction_v2";

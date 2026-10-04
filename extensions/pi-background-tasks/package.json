@@ -20,11 +20,13 @@
 		]
 	},
 	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*",
 		"typebox": "*"
 	},
 	"dependencies": {
+		"@asp345/pi-shared": "0.0.0",
 		"unbash": "^5.0.0"
 	}
 }

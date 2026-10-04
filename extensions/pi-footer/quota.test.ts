@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration } from "../shared/format.ts";
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import { quotaSegments } from "./quota.ts";
 
 test("formats reset durations", () => {

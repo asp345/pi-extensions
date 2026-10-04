@@ -1,6 +1,6 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { effortLevelMap, readJsonResponse, record, stringArray } from "@asp345/pi-shared/json.ts";
 import type { AuthResult } from "@earendil-works/pi-ai";
-import { errorMessage } from "../shared/format.ts";
-import { effortLevelMap, readJsonResponse, record, stringArray } from "../shared/json.ts";
 import type { CustomProviderConfig, ModelCost, ModelMetadata } from "./types.ts";
 
 const MAX_CATALOG_BYTES = 16_000_000;

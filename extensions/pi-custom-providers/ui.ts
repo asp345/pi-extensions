@@ -1,8 +1,8 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { Api } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getSelectListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, matchesKey, type SelectItem, SelectList, Text } from "@earendil-works/pi-tui";
-import { errorMessage } from "../shared/format.ts";
 import type { CustomProviderConfig, CustomProvidersFile } from "./types.ts";
 import { API_OPTIONS } from "./types.ts";
 

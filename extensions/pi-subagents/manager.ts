@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import { closeChildSession, createChildSession } from "./child.ts";
 import { type NoticeKind, parentMessagePrompt, preview } from "./delegation.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";

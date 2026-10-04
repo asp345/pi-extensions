@@ -26,6 +26,9 @@
     "extensions/pi-antigravity-auth": {
       "name": "@asp345/pi-antigravity-auth",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -35,9 +38,11 @@
       "name": "@asp345/pi-background-tasks",
       "version": "0.0.0",
       "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
         "unbash": "^5.0.0",
       },
       "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
@@ -46,6 +51,9 @@
     "extensions/pi-bash-diff": {
       "name": "@asp345/pi-bash-diff",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
       },
@@ -62,6 +70,11 @@
     "extensions/pi-compact-ui": {
       "name": "@asp345/pi-compact-ui",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-background-tasks": "0.0.0",
+        "@asp345/pi-bash-diff": "0.0.0",
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
@@ -70,6 +83,9 @@
     "extensions/pi-compaction": {
       "name": "@asp345/pi-compaction",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -79,6 +95,9 @@
     "extensions/pi-custom-providers": {
       "name": "@asp345/pi-custom-providers",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -103,6 +122,11 @@
     "extensions/pi-footer": {
       "name": "@asp345/pi-footer",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-anthropic-oauth": "0.0.0",
+        "@asp345/pi-antigravity-auth": "0.0.0",
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -112,6 +136,11 @@
     "extensions/pi-goal": {
       "name": "@asp345/pi-goal",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-background-tasks": "0.0.0",
+        "@asp345/pi-shared": "0.0.0",
+        "@asp345/pi-subagents": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "typebox": "*",
@@ -121,6 +150,7 @@
       "name": "@asp345/pi-gpt-search",
       "version": "0.0.0",
       "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
@@ -136,6 +166,9 @@
     "extensions/pi-nix-store-guard": {
       "name": "@asp345/pi-nix-store-guard",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
       },
@@ -143,14 +176,21 @@
     "extensions/pi-openai-models": {
       "name": "@asp345/pi-openai-models",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
       },
     },
     "extensions/pi-openrouter-metadata": {
       "name": "@asp345/pi-openrouter-metadata",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -160,6 +200,7 @@
       "name": "@asp345/pi-sensitive-guard",
       "version": "0.0.0",
       "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
         "unbash": "^5.0.0",
       },
       "peerDependencies": {
@@ -169,6 +210,10 @@
     "extensions/pi-subagents": {
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-background-tasks": "0.0.0",
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
@@ -192,6 +237,18 @@
       "version": "0.0.0",
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
+      },
+    },
+    "extensions/shared": {
+      "name": "@asp345/pi-shared",
+      "version": "0.0.0",
+      "dependencies": {
+        "unbash": "^5.0.0",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
       },
     },
   },
@@ -236,6 +293,8 @@
     "@asp345/pi-openrouter-metadata": ["@asp345/pi-openrouter-metadata@workspace:extensions/pi-openrouter-metadata"],
 
     "@asp345/pi-sensitive-guard": ["@asp345/pi-sensitive-guard@workspace:extensions/pi-sensitive-guard"],
+
+    "@asp345/pi-shared": ["@asp345/pi-shared@workspace:extensions/shared"],
 
     "@asp345/pi-subagents": ["@asp345/pi-subagents@workspace:extensions/pi-subagents"],
 

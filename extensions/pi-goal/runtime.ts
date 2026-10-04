@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 import { GOAL_STATE_ENTRY, type GoalState } from "./state.ts";
 
 const MAX_NO_PROGRESS_TURNS = 3;

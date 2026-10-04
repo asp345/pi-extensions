@@ -1,5 +1,5 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import { readCustomProvidersFile, writeCustomProvidersFile } from "./config.ts";
 import { createProviderRegistrar } from "./runtime.ts";
 import type { CustomProvidersFile } from "./types.ts";

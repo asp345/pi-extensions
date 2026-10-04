@@ -1,4 +1,4 @@
-import { effortLevelMap, record, stringArray } from "../shared/json.ts";
+import { effortLevelMap, record, stringArray } from "@asp345/pi-shared/json.ts";
 import type { CostOverride, MetadataOverride, OpenRouterModel } from "./types.ts";
 import { displayName, price, string } from "./validate.ts";
 

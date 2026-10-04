@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import type { FileChangeDetails } from "./details.ts";
 import { captureSnapshot, changedFiles, type GitSnapshot, refreshFile } from "./snapshot.ts";
 

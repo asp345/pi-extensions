@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
 	type Api,
 	type AssistantMessage,
@@ -11,7 +12,6 @@ import {
 	type ToolCall,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { errorMessage } from "../shared/format.ts";
 import type { GeminiResponsePart } from "./gemini.ts";
 import { sendRequest } from "./request.ts";
 import { refreshByAccessToken, requestSessionKey, requestSessions } from "./session.ts";

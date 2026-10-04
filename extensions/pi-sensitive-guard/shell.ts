@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
-import { argumentText, walkCommands } from "../shared/shell.ts";
+import { argumentText, walkCommands } from "@asp345/pi-shared/shell.ts";
 import type { GuardConfig } from "./config.ts";
 import { isProtectedPath } from "./config.ts";
 

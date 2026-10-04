@@ -1,3 +1,4 @@
+import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "@asp345/pi-background-tasks/events.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	type AgentSession,
@@ -9,7 +10,6 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { BACKGROUND_TASKS_STATE_EVENT, parseBackgroundTasksState } from "../pi-background-tasks/events.ts";
 import type { ThinkingLevel } from "./types.ts";
 
 const PARENT_ONLY_TOOLS = ["goal_complete", "goal_blocked"];

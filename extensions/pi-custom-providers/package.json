@@ -23,5 +23,8 @@
 		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"@earendil-works/pi-tui": "*"
+	},
+	"dependencies": {
+		"@asp345/pi-shared": "0.0.0"
 	}
 }

@@ -1,5 +1,5 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import { CONFIG_PATH, type GuardConfig, loadConfig, type Severity, saveConfig } from "./config.ts";
 
 function onOff(value: boolean): string {

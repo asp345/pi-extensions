@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { EFFORT_LEVELS, record, stringArray, writeJsonAtomic } from "@asp345/pi-shared/json.ts";
 import type { ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { EFFORT_LEVELS, record, stringArray, writeJsonAtomic } from "../shared/json.ts";
 import type { CostOverride, MetadataOverride } from "./types.ts";
 import { cacheId, displayName, finiteTimestamp, headerValidator, perMillionRate } from "./validate.ts";
 

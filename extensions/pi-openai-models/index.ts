@@ -1,7 +1,7 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { Provider } from "@earendil-works/pi-ai";
 import { type ExtensionAPI, type ExtensionContext, getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SelectItem, SelectList, type SettingItem, SettingsList, Text } from "@earendil-works/pi-tui";
-import { errorMessage } from "../shared/format.ts";
 import { buildManagedModels } from "./models.ts";
 import { isContextMode, loadSettings, type OpenAISettings, saveSettings } from "./settings.ts";
 import { isTier, tierStreamWrappers } from "./tier.ts";

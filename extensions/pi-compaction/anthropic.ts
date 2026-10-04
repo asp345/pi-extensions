@@ -1,6 +1,6 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { type Api, calculateCost, type Model, type Usage } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 import { type CheckpointLookup, findCheckpoint, modelKey } from "./checkpoint.ts";
 import { sseData } from "./protocol.ts";
 

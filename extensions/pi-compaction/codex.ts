@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
 	buildSessionContext,
@@ -7,8 +9,6 @@ import {
 	type SessionEntry,
 	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
-import { isRecord } from "../shared/json.ts";
 import {
 	findNativeCheckpoint,
 	isOpenAICodexModel,

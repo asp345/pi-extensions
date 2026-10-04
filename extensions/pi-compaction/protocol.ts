@@ -1,4 +1,4 @@
-import { isRecord } from "../shared/json.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 export type JsonObject = Record<string, unknown>;
 export type ResponseItem = JsonObject & { type?: string };
 

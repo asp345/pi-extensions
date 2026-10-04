@@ -1,4 +1,4 @@
-import { argumentText, walkCommands } from "../shared/shell.ts";
+import { argumentText, walkCommands } from "@asp345/pi-shared/shell.ts";
 
 const MAX_SLEEP_SECONDS = 30;
 

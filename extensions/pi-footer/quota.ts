@@ -1,4 +1,4 @@
-import { formatDuration } from "../shared/format.ts";
+import { formatDuration } from "@asp345/pi-shared/format.ts";
 import type { ResolvedCredential } from "./types.ts";
 
 type PercentKey = "fiveHour" | "day" | "week" | "month";

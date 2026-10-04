@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_ENDPOINT, ANTIGRAVITY_USER_AGENT } from "../../pi-antigravity-auth/constants.ts";
+import { ANTIGRAVITY_ENDPOINT, ANTIGRAVITY_USER_AGENT } from "@asp345/pi-antigravity-auth/constants.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";

@@ -1,6 +1,6 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { Api, Context, FetchFunction, Model, ThinkingLevel, Transport } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 import type { JsonObject } from "./protocol.ts";
 
 const REQUEST_TIMEOUT_MS = 300_000;

@@ -1,5 +1,5 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import registerClaudeCompaction from "./claude.ts";
 import registerCodexCompaction from "./codex.ts";
 import { type CompactionConfig, loadCompactionConfig } from "./config.ts";

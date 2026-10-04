@@ -1,7 +1,7 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { readJsonResponse } from "@asp345/pi-shared/json.ts";
 import { isModelType, type Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
-import { readJsonResponse } from "../shared/json.ts";
 import {
 	CACHE_VERSION,
 	fileMetadataCache,

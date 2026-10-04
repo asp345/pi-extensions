@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { record } from "@asp345/pi-shared/json.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { record } from "../shared/json.ts";
 
 export type Severity = "critical" | "high" | "medium";
 type RedactionScope = "protectedOnly" | "allOutput";

@@ -1,5 +1,5 @@
-import { CLAUDE_CODE_VERSION } from "../../pi-anthropic-oauth/constants.ts";
-import { isRecord, toNumber } from "../../shared/json.ts";
+import { CLAUDE_CODE_VERSION } from "@asp345/pi-anthropic-oauth/constants.ts";
+import { isRecord, toNumber } from "@asp345/pi-shared/json.ts";
 import type { QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";

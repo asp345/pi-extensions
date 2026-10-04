@@ -1,9 +1,9 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import { getCurrentSystemMessage, type Message } from "@earendil-works/pi-ai";
 import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { buildSessionProjection, convertToLlm } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
-import { isRecord } from "../shared/json.ts";
 import {
 	ANTHROPIC_NATIVE_COMPACTION_KIND,
 	ANTHROPIC_NATIVE_COMPACTION_VERSION,

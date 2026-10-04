@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeJsonAtomic } from "@asp345/pi-shared/json.ts";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { writeJsonAtomic } from "../shared/json.ts";
 import type { CustomProvidersFile } from "./types.ts";
 
 const CUSTOM_PROVIDERS_FILE = join(getAgentDir(), "custom-providers.json");

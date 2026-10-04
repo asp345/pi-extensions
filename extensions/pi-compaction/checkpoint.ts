@@ -1,6 +1,6 @@
+import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { isRecord } from "../shared/json.ts";
 import { cloneItem, isResponseItem, type ResponseItem } from "./protocol.ts";
 
 export const NATIVE_COMPACTION_KIND = "openai-codex-native-compaction";

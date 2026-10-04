@@ -1,7 +1,7 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import { type Api, isModelType, type Model, type RefreshModelsContext } from "@earendil-works/pi-ai";
 import { getBuiltinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI, ProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import { removeModelsStoreProviders } from "./config.ts";
 import { discoverProviderModels } from "./discovery.ts";
 import type { CustomProviderConfig, CustomProvidersFile, ModelMetadata } from "./types.ts";

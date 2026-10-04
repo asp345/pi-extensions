@@ -1,3 +1,4 @@
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import { providerHeadersToRecord } from "@earendil-works/pi-ai/utils/headers";
 import {
 	buildSessionContext,
@@ -7,7 +8,6 @@ import {
 	type SessionEntry,
 	sessionEntryToContextMessages,
 } from "@earendil-works/pi-coding-agent";
-import { errorMessage } from "../shared/format.ts";
 import {
 	buildNativeInstructions,
 	COMMAND_INSTRUCTIONS,
