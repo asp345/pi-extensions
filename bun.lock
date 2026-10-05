@@ -17,6 +17,9 @@
     "extensions/pi-anthropic-oauth": {
       "name": "@asp345/pi-anthropic-oauth",
       "version": "0.0.0",
+      "dependencies": {
+        "@asp345/pi-shared": "0.0.0",
+      },
       "peerDependencies": {
         "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
