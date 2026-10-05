@@ -362,20 +362,24 @@ function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch
 	}) as typeof globalThis.fetch;
 }
 
+function isOAuthKey(apiKey: string | undefined): boolean {
+	return !apiKey || apiKey.includes("sk-ant-oat");
+}
+
 function stream(
 	model: Model<Api>,
 	context: TranscriptContext,
 	options: SimpleStreamOptions | undefined,
 	userId: string | undefined,
 ): AssistantMessageEventStream {
-	const apiKey = options?.apiKey;
-	if (apiKey && !apiKey.includes("sk-ant-oat")) {
+	if (!isOAuthKey(options?.apiKey)) {
 		return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
 	}
 	const promptId = crypto.randomUUID();
 	const previousOnPayload = options?.onPayload;
 	return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, {
 		...options,
+		cacheRetention: options?.cacheRetention ?? "long",
 		headers: {
 			...options?.headers,
 			"User-Agent": CLAUDE_CODE_USER_AGENT,
@@ -412,5 +416,9 @@ export default function anthropicOAuth(pi: ExtensionAPI): void {
 	pi.registerProvider("anthropic", {
 		api: "anthropic-messages",
 		streamSimple: (model, context, options) => stream(model, context, options, userId),
+	});
+	pi.on("cache_warming_decision", async (_event, ctx) => {
+		if (ctx.model?.provider !== "anthropic") return;
+		if (isOAuthKey(await ctx.modelRegistry.getApiKeyForProvider("anthropic"))) return { action: "stop" };
 	});
 }
