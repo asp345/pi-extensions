@@ -366,6 +366,16 @@ function isOAuthKey(apiKey: string | undefined): boolean {
 	return !apiKey || apiKey.includes("sk-ant-oat");
 }
 
+function withClaudeCodeBeta(headers: SimpleStreamOptions["headers"]): Record<string, string | null> {
+	const rest: Record<string, string | null> = {};
+	const betas = CLAUDE_CODE_BETA.split(",");
+	for (const [name, value] of Object.entries(headers ?? {})) {
+		if (name.toLowerCase() !== "anthropic-beta") rest[name] = value;
+		else if (value) betas.push(...value.split(",").map((beta) => beta.trim()));
+	}
+	return { ...rest, "anthropic-beta": [...new Set(betas.filter((beta) => beta.length > 0))].join(",") };
+}
+
 function stream(
 	model: Model<Api>,
 	context: TranscriptContext,
@@ -381,10 +391,9 @@ function stream(
 		...options,
 		cacheRetention: options?.cacheRetention ?? "long",
 		headers: {
-			...options?.headers,
+			...withClaudeCodeBeta(options?.headers),
 			"User-Agent": CLAUDE_CODE_USER_AGENT,
 			"user-agent": CLAUDE_CODE_USER_AGENT,
-			"anthropic-beta": CLAUDE_CODE_BETA,
 			"X-Claude-Code-Session-Id": SESSION_ID,
 			"x-claude-code-request-class": "main",
 			"x-client-request-id": crypto.randomUUID(),
