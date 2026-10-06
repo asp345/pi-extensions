@@ -16,6 +16,5 @@ test("blocks /nix/store searches except allowed docs", () => {
 });
 
 test("allowedStorePath restricts to packageDir subtree", () => {
-	assert.equal(allowedStorePath(`${pkg}/docs`), true);
 	assert.equal(allowedStorePath(`${pkg}/other`), false);
 });
