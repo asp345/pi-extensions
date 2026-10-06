@@ -12,6 +12,7 @@ function options(overrides: Partial<NormalizedBuildSystemPromptOptions> = {}): N
 		cwd: "/home/user/proj",
 		appendSystemPrompt: "stale appended rules that must be ignored",
 		selectedTools: ["read", "bash", "edit", "write"],
+		hiddenTools: [],
 		toolSnippets: { read: "Read files", bash: "Run commands", web: "Search the web" },
 		toolGuidelines: { bash: ["Bash guideline for the test"], web: ["Web guideline for the test"] },
 		promptGuidelines: [],
