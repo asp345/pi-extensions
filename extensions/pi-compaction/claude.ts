@@ -51,6 +51,19 @@ function convertStaleThinkingToText(tail: unknown[]): unknown[] {
 	});
 }
 
+function withoutMessageCacheControl(messages: unknown): unknown {
+	if (!Array.isArray(messages)) return messages;
+	return messages.map((message) => {
+		if (!isRecord(message) || !Array.isArray(message.content)) return message;
+		const content = message.content.map((block) => {
+			if (!isRecord(block) || !("cache_control" in block)) return block;
+			const { cache_control: _, ...rest } = block;
+			return rest;
+		});
+		return { ...message, content };
+	});
+}
+
 function messagesBeforeCut(branch: SessionEntry[], firstKeptEntryId: string): Message[] | undefined {
 	const projection = buildSessionProjection(branch);
 	const cut = projection.entries.findIndex((entry) => entry.sourceEntry.id === firstKeptEntryId);
@@ -187,7 +200,11 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 					const base = applyCheckpoint(ctx, payload) ?? payload;
 					systemText = canonicalSystemText(base.system);
 					toolsHash = hashStrippedTools(base.tools);
-					return { ...base, compaction: { type: "summarize", instructions } };
+					return {
+						...base,
+						messages: withoutMessageCacheControl(base.messages),
+						compaction: { type: "summarize", instructions },
+					};
 				},
 				readResponse: readCompactionResponse(model),
 			});

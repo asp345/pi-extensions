@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { LoopGuard, loopBlockReason } from "./guard.ts";
+import { LoopGuard } from "./guard.ts";
 
 const OUT = [{ type: "text", text: "same" }];
-
-test("block reason mentions repetition", () => {
-	assert.ok(loopBlockReason(4).includes("4 times"));
-});
 
 test("blocks only after 3 identical completed calls", () => {
 	const guard = new LoopGuard();

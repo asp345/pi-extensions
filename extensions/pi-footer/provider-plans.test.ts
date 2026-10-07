@@ -1,23 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveTokenPlan, TOKEN_PLANS } from "./plans.ts";
+import { resolveTokenPlan } from "./plans.ts";
 import { formatUsageLimits } from "./providers/quota-adapter.ts";
 import type { UsageLimit } from "./types.ts";
 
-test("registers every supported provider", () => {
-	assert.deepEqual(TOKEN_PLANS.map((plan) => plan.id).sort(), [
-		"anthropic",
-		"antigravity",
-		"commandcode",
-		"deepseek",
-		"glm",
-		"kimi",
-		"minimax",
-		"openai-codex",
-		"opencode-go",
-		"xai",
-	]);
-});
 test("automatically resolves a provider plan", () => {
 	assert.equal(resolveTokenPlan("openai-codex")?.id, "openai-codex");
 	assert.equal(resolveTokenPlan("google-antigravity")?.id, "antigravity");

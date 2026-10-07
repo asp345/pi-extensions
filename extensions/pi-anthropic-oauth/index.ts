@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
 	type Api,
 	type AssistantMessageEventStream,
@@ -10,6 +11,7 @@ import {
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { type AnthropicOAuthConfig, loadAnthropicOAuthConfig } from "./config.ts";
 import { CLAUDE_CODE_VERSION } from "./constants.ts";
 
 const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
@@ -362,25 +364,39 @@ function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch
 	}) as typeof globalThis.fetch;
 }
 
+function isOAuthKey(apiKey: string | undefined): boolean {
+	return !apiKey || apiKey.includes("sk-ant-oat");
+}
+
+function withClaudeCodeBeta(headers: SimpleStreamOptions["headers"]): Record<string, string | null> {
+	const rest: Record<string, string | null> = {};
+	const betas = CLAUDE_CODE_BETA.split(",");
+	for (const [name, value] of Object.entries(headers ?? {})) {
+		if (name.toLowerCase() !== "anthropic-beta") rest[name] = value;
+		else if (value) betas.push(...value.split(",").map((beta) => beta.trim()));
+	}
+	return { ...rest, "anthropic-beta": [...new Set(betas.filter((beta) => beta.length > 0))].join(",") };
+}
+
 function stream(
 	model: Model<Api>,
 	context: TranscriptContext,
 	options: SimpleStreamOptions | undefined,
 	userId: string | undefined,
+	longCache: boolean,
 ): AssistantMessageEventStream {
-	const apiKey = options?.apiKey;
-	if (apiKey && !apiKey.includes("sk-ant-oat")) {
+	if (!isOAuthKey(options?.apiKey)) {
 		return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, options);
 	}
 	const promptId = crypto.randomUUID();
 	const previousOnPayload = options?.onPayload;
 	return anthropicMessagesApi().streamSimple(model as Model<"anthropic-messages">, context, {
 		...options,
+		cacheRetention: options?.cacheRetention ?? (longCache ? "long" : undefined),
 		headers: {
-			...options?.headers,
+			...withClaudeCodeBeta(options?.headers),
 			"User-Agent": CLAUDE_CODE_USER_AGENT,
 			"user-agent": CLAUDE_CODE_USER_AGENT,
-			"anthropic-beta": CLAUDE_CODE_BETA,
 			"X-Claude-Code-Session-Id": SESSION_ID,
 			"x-claude-code-request-class": "main",
 			"x-client-request-id": crypto.randomUUID(),
@@ -409,8 +425,30 @@ function stream(
 
 export default function anthropicOAuth(pi: ExtensionAPI): void {
 	const userId = claudeCodeUserId();
+	let config: AnthropicOAuthConfig | undefined;
+	let configError: unknown;
+	const getConfig = (): AnthropicOAuthConfig => {
+		if (config) return config;
+		throw configError ?? new Error("Anthropic OAuth configuration is not loaded.");
+	};
+
+	pi.on("session_start", (_event, ctx) => {
+		try {
+			config = loadAnthropicOAuthConfig(ctx.cwd, ctx.isProjectTrusted());
+			configError = undefined;
+		} catch (error) {
+			config = undefined;
+			configError = error;
+			if (ctx.hasUI) ctx.ui.notify(errorMessage(error), "error");
+		}
+	});
+
 	pi.registerProvider("anthropic", {
 		api: "anthropic-messages",
-		streamSimple: (model, context, options) => stream(model, context, options, userId),
+		streamSimple: (model, context, options) => stream(model, context, options, userId, getConfig().cacheTtl === "1h"),
+	});
+	pi.on("cache_warming_decision", async (_event, ctx) => {
+		if (getConfig().cacheTtl !== "1h" || ctx.model?.provider !== "anthropic") return;
+		if (isOAuthKey(await ctx.modelRegistry.getApiKeyForProvider("anthropic"))) return { action: "stop" };
 	});
 }
