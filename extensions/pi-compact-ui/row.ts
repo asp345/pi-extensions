@@ -26,9 +26,9 @@ export interface ToolRowState {
 		content: Array<{ type: string; text?: string }>;
 		isError: boolean;
 		details?: unknown;
+		durationMs?: number;
 	};
 	startedAt?: number;
-	endedAt?: number;
 }
 
 type ToolRowStatus = "queued" | "running" | "background" | "done" | "error";
@@ -44,6 +44,11 @@ export function rowStatus(row: ToolRowState): ToolRowStatus {
 	if (row.result && !row.isPartial) return handoffTaskId(row.result.details) ? "background" : "done";
 	if (row.executionStarted) return "running";
 	return "queued";
+}
+
+export function rowDuration(row: ToolRowState, now: number): number | undefined {
+	if (row.result && !row.isPartial) return row.result.durationMs;
+	return row.startedAt === undefined ? undefined : now - row.startedAt;
 }
 
 function firstString(value: unknown): string | undefined {
@@ -151,9 +156,8 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	}
 	const backgroundTaskId = status === "background" ? handoffTaskId(row.result?.details) : undefined;
 	if (backgroundTaskId) tail.push(theme.fg("accent", backgroundTaskId));
-	if (row.startedAt !== undefined) {
-		tail.push(theme.fg("dim", formatDuration((row.endedAt ?? now) - row.startedAt)));
-	}
+	const duration = rowDuration(row, now);
+	if (duration !== undefined) tail.push(theme.fg("dim", formatDuration(duration)));
 	if (status === "error") tail.push(theme.fg("error", "error"));
 	const suffix = tail.map((part) => `${separator}${part}`).join("");
 	const preview = oneLine(plain(firstString(row.args) ?? ""));

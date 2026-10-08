@@ -17,7 +17,7 @@ Collapsed, each call is one line:
 - A result whose `details.backgroundTaskId` is set (a `bash` call that `pi-background-tasks` moved to the background) shows the task ID before the duration; the duration stops at the hand-off.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
 - `↓ N lines`: the line count of the text result, shown once the call has finished, except for `edit` and `write` rows that show a diff preview.
-- Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
+- Duration: whole seconds (floored). A running row shows the time since `markExecutionStarted` and is re-rendered every second to advance it. A finished row shows the `durationMs` recorded on the final result, including calls replayed from a saved session. Results without `durationMs` (aborted calls and results stored before pi 1.1.0) have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
 A result whose `details.diff` is a string (the `edit` tool) adds a summary line in both states:
