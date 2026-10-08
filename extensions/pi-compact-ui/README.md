@@ -39,12 +39,13 @@ A result whose `details.fileChanges` lists files (a `bash` call that `pi-bash-di
     ╰─ notes.md +3 -0
 ```
 
-While collapsed, each summary line is followed by up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut. The limit applies to each file separately.
+While collapsed, each summary line is followed by up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut. The limit applies to each file separately. The highlight language comes from the file name through `languageFromPath` in `@asp345/pi-shared/language.ts`.
 
 Expanded (`ctrl+o`, or a click on the header line):
 
-- `╰─ key: value` for each top-level argument; non-string values are JSON.
-- ` › ` followed by the text result, or the syntax-highlighted diff with line-number gutters when `details.diff` is present.
+- `╰─ key: value` for each top-level argument; non-string values are JSON. A completed `write` omits `content`.
+- When `details.diff` is present, or for a completed `write`, the summary line and the full syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines).
+- Otherwise ` › ` followed by the text result.
 - When `details.fileChanges` is present, a blank line after the text result, then each file's summary line and full diff.
 - `waiting for output...` while running, `no output` for an empty result.
 

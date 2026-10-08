@@ -95,8 +95,13 @@ function writtenDiff(row: ToolRowState): string | undefined {
 	return lines.map((line, index) => `+${String(index + 1).padStart(numberWidth)} ${line}`).join("\n");
 }
 
-function previewDiff(row: ToolRowState): string | undefined {
-	return diffOf(row) ?? writtenDiff(row);
+function diffBlock(row: ToolRowState): DiffBlock | undefined {
+	const path = argPath(row.args);
+	const diff = diffOf(row);
+	if (diff) return { path, diff, showRemoved: true };
+	const written = writtenDiff(row);
+	if (written) return { path, diff: written, showRemoved: false };
+	return undefined;
 }
 
 function fileChangeBlocks(row: ToolRowState): DiffBlock[] {
@@ -104,12 +109,8 @@ function fileChangeBlocks(row: ToolRowState): DiffBlock[] {
 }
 
 function previewBlocks(row: ToolRowState): DiffBlock[] {
-	const path = argPath(row.args);
-	const diff = diffOf(row);
-	if (diff) return [{ path, diff, showRemoved: true }];
-	const written = writtenDiff(row);
-	if (written) return [{ path, diff: written, showRemoved: false }];
-	return fileChangeBlocks(row);
+	const block = diffBlock(row);
+	return block ? [block] : fileChangeBlocks(row);
 }
 
 function displayPath(path: string, cwd: string): string {
@@ -145,7 +146,7 @@ function headerLine(row: ToolRowState, theme: Theme, width: number, now: number)
 	const head = ` ${marker(status, theme)} ${theme.fg("muted", row.name)}`;
 	const tail: string[] = [];
 	const output = outputText(row);
-	if ((status === "done" || status === "error") && output && !previewDiff(row)) {
+	if ((status === "done" || status === "error") && output && !diffBlock(row)) {
 		tail.push(theme.fg("dim", `↓ ${output.split("\n").length} lines`));
 	}
 	const backgroundTaskId = status === "background" ? handoffTaskId(row.result?.details) : undefined;
@@ -203,7 +204,8 @@ function argEntries(args: unknown): Array<[string, string]> {
 }
 
 function renderArgs(lines: string[], row: ToolRowState, theme: Theme, width: number): boolean {
-	const entries = argEntries(row.args);
+	const hideContent = writtenDiff(row) !== undefined;
+	const entries = argEntries(row.args).filter(([key]) => !(hideContent && key === "content"));
 	if (entries.length === 0) return false;
 	const pending = { first: true };
 	for (const [key, value] of entries) {
@@ -260,9 +262,9 @@ export function renderToolRow(row: ToolRowState, theme: Theme, width: number, no
 	}
 	const hasArgs = renderArgs(lines, row, theme, width);
 	if (hasArgs) lines.push("");
-	const diff = diffOf(row);
-	if (diff) {
-		renderBlocks(lines, row, [{ path: argPath(row.args), diff, showRemoved: true }], theme, width, Infinity);
+	const block = diffBlock(row);
+	if (block) {
+		renderBlocks(lines, row, [block], theme, width, Infinity);
 		return lines;
 	}
 	renderOutput(lines, row, theme, width);

@@ -1,4 +1,5 @@
-import { getLanguageFromPath, highlightCode, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
+import { languageFromPath } from "@asp345/pi-shared/language.ts";
+import { highlightCode, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
 import {
 	type Color,
 	colorToOkhsl,
@@ -61,7 +62,7 @@ function displayLines(codes: readonly string[]): string[] {
 }
 
 function highlightLines(display: readonly string[], path: string): string[] {
-	const lang = path ? getLanguageFromPath(path) : undefined;
+	const lang = path ? languageFromPath(path) : undefined;
 	if (!lang) return [...display];
 	const highlighted = highlightCode(display.join("\n"), lang);
 	return display.map((code, index) => highlighted[index] ?? code);
