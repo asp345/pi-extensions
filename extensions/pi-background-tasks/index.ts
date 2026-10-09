@@ -57,7 +57,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"After starting a background_task, continue independent work or end the turn. Never sleep or poll to wait, including between periodic checks or with repeated sleeps shorter than 30 seconds; the harness wakes you on completion or heartbeat notifications.",
 			"Use list or read only when you need status or output before completion arrives.",
-			"Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it. Run the command normally; it is already a managed background task.",
+			"Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen). Run the command normally; it is already a managed background task.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(["start", "list", "read", "stop", "clear"]),
