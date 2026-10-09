@@ -5,10 +5,10 @@ import {
 	ToolExecutionComponent,
 } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, type TuiMouseEvent } from "@earendil-works/pi-tui";
-import { RUNNING_REFRESH_MS, renderToolRow, rowStatus, type ToolRowState } from "./row.ts";
+import { RUNNING_REFRESH_MS, renderToolRow, rowDuration, rowStatus, type ToolRowState } from "./row.ts";
 
 const PARENT = Symbol.for("pi-compact-ui:parent");
-const TIMING = Symbol.for("pi-compact-ui:timing");
+const STARTED_AT = Symbol.for("pi-compact-ui:started-at");
 const HEADER_ROW = Symbol.for("pi-compact-ui:header-row");
 const BASE_PATCHED = Symbol.for("pi-compact-ui:base-patched");
 const RENDER_CACHE = Symbol.for("pi-compact-ui:render-cache");
@@ -31,21 +31,8 @@ interface RowFields {
 	ui: { requestRender(): void };
 }
 
-interface Timing {
-	startedAt?: number;
-	endedAt?: number;
-}
-
 function fields(row: ToolExecutionComponent): RowFields {
 	return row as unknown as RowFields;
-}
-
-function timing(row: ToolExecutionComponent): Timing {
-	const existing = Reflect.get(row, TIMING) as Timing | undefined;
-	if (existing) return existing;
-	const created: Timing = {};
-	Reflect.set(row, TIMING, created);
-	return created;
 }
 
 function parentOf(component: Component): Container | undefined {
@@ -62,14 +49,14 @@ function rowState(row: ToolExecutionComponent): ToolRowState {
 		executionStarted: view.executionStarted,
 		isPartial: view.isPartial,
 		result: view.result,
-		...timing(row),
+		startedAt: Reflect.get(row, STARTED_AT) as number | undefined,
 	};
 }
 
 function renderKey(state: ToolRowState, width: number, now: number): unknown[] {
-	const elapsed =
-		state.startedAt === undefined ? undefined : Math.floor(((state.endedAt ?? now) - state.startedAt) / 1000);
-	return [width, state.args, state.result, state.expanded, state.isPartial, state.executionStarted, elapsed];
+	const duration = rowDuration(state, now);
+	const seconds = duration === undefined ? undefined : Math.floor(duration / 1000);
+	return [width, state.args, state.result, state.expanded, state.isPartial, state.executionStarted, seconds];
 }
 
 function cachedRow(row: ToolExecutionComponent, state: ToolRowState, theme: Theme, width: number): string[] {
@@ -104,18 +91,8 @@ function installBasePatches(): void {
 	};
 	const baseMarkExecutionStarted = prototype.markExecutionStarted;
 	prototype.markExecutionStarted = function (this: ToolExecutionComponent): void {
-		timing(this).startedAt ??= Date.now();
+		if (!Reflect.has(this, STARTED_AT)) Reflect.set(this, STARTED_AT, Date.now());
 		baseMarkExecutionStarted.call(this);
-	};
-	const baseUpdateResult = prototype.updateResult;
-	prototype.updateResult = function (
-		this: ToolExecutionComponent,
-		...args: Parameters<ToolExecutionComponent["updateResult"]>
-	): void {
-		const [, isPartial = false] = args;
-		const current = timing(this);
-		if (!isPartial && current.startedAt !== undefined) current.endedAt ??= Date.now();
-		baseUpdateResult.apply(this, args);
 	};
 	const baseInvalidate = prototype.invalidate;
 	prototype.invalidate = function (this: ToolExecutionComponent): void {

@@ -17,7 +17,7 @@ Collapsed, each call is one line:
 - A result whose `details.backgroundTaskId` is set (a `bash` call that `pi-background-tasks` moved to the background) shows the task ID before the duration; the duration stops at the hand-off.
 - Tool name, then the preview: the first non-blank string found by a depth-first walk over the arguments in key order (`read` → `path`, `bash` → `command`, `web` → the first `q`).
 - `↓ N lines`: the line count of the text result, shown once the call has finished, except for `edit` and `write` rows that show a diff preview.
-- Duration: whole seconds (floored), measured from `markExecutionStarted` to the final result. Running rows are re-rendered every second to advance it. Calls replayed from a saved session have no duration.
+- Duration: whole seconds (floored). A running row shows the time since `markExecutionStarted` and is re-rendered every second to advance it. A finished row shows the `durationMs` recorded on the final result, including calls replayed from a saved session. Results without `durationMs` (aborted calls and results stored before pi 1.1.0) have no duration.
 - The preview is truncated with `…`; the counts, duration, and error label stay visible.
 
 A result whose `details.diff` is a string (the `edit` tool) adds a summary line in both states:
@@ -39,12 +39,13 @@ A result whose `details.fileChanges` lists files (a `bash` call that `pi-bash-di
     ╰─ notes.md +3 -0
 ```
 
-While collapsed, each summary line is followed by up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut. The limit applies to each file separately.
+While collapsed, each summary line is followed by up to 20 rendered rows of the syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines), then `… N more lines` when rows were cut. The limit applies to each file separately. The highlight language comes from the file name through `languageFromPath` in `@asp345/pi-shared/language.ts`.
 
 Expanded (`ctrl+o`, or a click on the header line):
 
-- `╰─ key: value` for each top-level argument; non-string values are JSON.
-- ` › ` followed by the text result, or the syntax-highlighted diff with line-number gutters when `details.diff` is present.
+- `╰─ key: value` for each top-level argument; non-string values are JSON. A completed `write` omits `content`.
+- When `details.diff` is present, or for a completed `write`, the summary line and the full syntax-highlighted diff with line-number gutters (for `write`, the written `content` as added lines).
+- Otherwise ` › ` followed by the text result.
 - When `details.fileChanges` is present, a blank line after the text result, then each file's summary line and full diff.
 - `waiting for output...` while running, `no output` for an empty result.
 
