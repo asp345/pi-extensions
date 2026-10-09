@@ -1,12 +1,13 @@
 import { CLAUDE_CODE_VERSION } from "@asp345/pi-anthropic-oauth/constants.ts";
 import { isRecord, toNumber } from "@asp345/pi-shared/json.ts";
-import type { QuotaPlan } from "../quota.ts";
+import type { QuotaDisplay, QuotaPlan } from "../quota.ts";
 import type { ResolvedCredential, UsageLimit, UsageWindow } from "../types.ts";
 import { formatUsageLimits } from "./quota-adapter.ts";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const FIVE_HOUR_WINDOW: UsageWindow = { id: "5h", label: "5 Hour", durationMs: 5 * 60 * 60 * 1000 };
 const SEVEN_DAY_WINDOW: UsageWindow = { id: "7d", label: "7 Day", durationMs: 7 * 24 * 60 * 60 * 1000 };
+const MODEL_SCOPED_PREFIX = "anthropic:7d:";
 
 const CLAUDE_BETA =
 	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,advanced-tool-use-2025-11-20,effort-2025-11-24,extended-cache-ttl-2025-04-11";
@@ -91,7 +92,7 @@ function buildScopedWeeklyUsageLimits(entries: readonly ParsedApiLimitEntry[]): 
 		if (!slug || seen.has(slug)) continue;
 		seen.add(slug);
 		const limit = buildUsageLimit(
-			`anthropic:7d:${slug}`,
+			`${MODEL_SCOPED_PREFIX}${slug}`,
 			`Claude 7 Day (${entry.displayName})`,
 			SEVEN_DAY_WINDOW,
 			entry.bucket,
@@ -122,9 +123,14 @@ async function fetchAnthropicUsage(credential: ResolvedCredential, signal?: Abor
 	return [
 		buildUsageLimit("anthropic:5h", "Claude 5 Hour", FIVE_HOUR_WINDOW, fiveHour),
 		buildUsageLimit("anthropic:7d", "Claude 7 Day", SEVEN_DAY_WINDOW, sevenDay),
-		buildUsageLimit("anthropic:7d:opus", "Claude 7 Day (Opus)", SEVEN_DAY_WINDOW, parseBucket(data.seven_day_opus)),
 		buildUsageLimit(
-			"anthropic:7d:sonnet",
+			`${MODEL_SCOPED_PREFIX}opus`,
+			"Claude 7 Day (Opus)",
+			SEVEN_DAY_WINDOW,
+			parseBucket(data.seven_day_opus),
+		),
+		buildUsageLimit(
+			`${MODEL_SCOPED_PREFIX}sonnet`,
 			"Claude 7 Day (Sonnet)",
 			SEVEN_DAY_WINDOW,
 			parseBucket(data.seven_day_sonnet),
@@ -133,9 +139,18 @@ async function fetchAnthropicUsage(credential: ResolvedCredential, signal?: Abor
 	].filter((limit): limit is UsageLimit => limit !== null);
 }
 
+function appliesToModel(limit: UsageLimit, modelId: string | undefined): boolean {
+	if (!limit.id.startsWith(MODEL_SCOPED_PREFIX)) return true;
+	return modelId?.toLowerCase().includes(limit.id.slice(MODEL_SCOPED_PREFIX.length)) ?? false;
+}
+
+function formatAnthropicUsage(data: unknown, modelId?: string): QuotaDisplay | null {
+	return formatUsageLimits((data as UsageLimit[]).filter((limit) => appliesToModel(limit, modelId)));
+}
+
 export const anthropicQuotaPlan: QuotaPlan = {
 	id: "anthropic",
 	matchProviders: ["anthropic"],
 	fetch: fetchAnthropicUsage,
-	format: formatUsageLimits,
+	format: formatAnthropicUsage,
 };
