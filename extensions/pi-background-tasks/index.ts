@@ -55,7 +55,7 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 			"Start, list, read, stop, or clear background shell tasks. Completion is delivered as a steering message at the next turn boundary, or starts a turn when the parent is idle. While a task runs, a still-running notification is delivered at the heartbeat interval (default 30 minutes).",
 		promptSnippet: "Run and manage background shell tasks",
 		promptGuidelines: [
-			"After starting a background_task, continue independent work or end the turn. Never sleep or poll to wait.",
+			"After starting a background_task, continue independent work or end the turn. Never sleep or poll to wait. Do not evade the 30-second sleep guard by splitting the wait into shorter sleeps.",
 			"Use list or read only when you need status or output before completion arrives.",
 			"Do not detach processes (nohup, trailing &, disown, setsid, tmux/screen) unless the user explicitly allows it. Run the command normally; it is already a managed background task.",
 		],
