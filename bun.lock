@@ -184,6 +184,13 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "extensions/pi-opencode-free-tier": {
+      "name": "@asp345/pi-opencode-free-tier",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+      },
+    },
     "extensions/pi-openrouter-metadata": {
       "name": "@asp345/pi-openrouter-metadata",
       "version": "0.0.0",
@@ -284,6 +291,8 @@
     "@asp345/pi-nix-store-guard": ["@asp345/pi-nix-store-guard@workspace:extensions/pi-nix-store-guard"],
 
     "@asp345/pi-openai-models": ["@asp345/pi-openai-models@workspace:extensions/pi-openai-models"],
+
+    "@asp345/pi-opencode-free-tier": ["@asp345/pi-opencode-free-tier@workspace:extensions/pi-opencode-free-tier"],
 
     "@asp345/pi-openrouter-metadata": ["@asp345/pi-openrouter-metadata@workspace:extensions/pi-openrouter-metadata"],
 

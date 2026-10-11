@@ -41,7 +41,8 @@
 			"./extensions/pi-tool-loop-guard/index.ts",
 			"./extensions/pi-compact-ui/index.ts",
 			"./extensions/pi-browser/index.ts",
-			"./extensions/pi-flat-edit/index.ts"
+			"./extensions/pi-flat-edit/index.ts",
+			"./extensions/pi-opencode-free-tier/index.ts"
 		],
 		"prompts": [
 			"./prompts"
