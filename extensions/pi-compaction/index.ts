@@ -1,6 +1,5 @@
 import { errorMessage } from "@asp345/pi-shared/format.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import registerClaudeCompaction from "./claude.ts";
 import registerCodexCompaction from "./codex.ts";
 import { type CompactionConfig, loadCompactionConfig } from "./config.ts";
 import registerTextCompaction from "./text.ts";
@@ -26,5 +25,4 @@ export default function compaction(pi: ExtensionAPI): void {
 
 	registerTextCompaction(pi, getConfig);
 	registerCodexCompaction(pi, getConfig);
-	registerClaudeCompaction(pi, getConfig);
 }

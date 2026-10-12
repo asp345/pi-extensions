@@ -6,27 +6,21 @@ import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface CompactionConfig {
 	nativeCodex: boolean;
-	nativeClaude: boolean;
 }
 
 const DEFAULT_CONFIG: CompactionConfig = {
 	nativeCodex: true,
-	nativeClaude: true,
 };
 
 export function parseCompactionConfig(value: unknown, source: string): Partial<CompactionConfig> {
 	if (!isRecord(value)) throw new Error(`${source} must contain a JSON object.`);
-	const unsupported = Object.keys(value).filter((key) => key !== "nativeCodex" && key !== "nativeClaude");
+	const unsupported = Object.keys(value).filter((key) => key !== "nativeCodex");
 	if (unsupported.length > 0) throw new Error(`${source}: unsupported setting ${unsupported.join(", ")}.`);
 
 	const config: Partial<CompactionConfig> = {};
 	if (value.nativeCodex !== undefined) {
 		if (typeof value.nativeCodex !== "boolean") throw new Error(`${source}: nativeCodex must be a boolean.`);
 		config.nativeCodex = value.nativeCodex;
-	}
-	if (value.nativeClaude !== undefined) {
-		if (typeof value.nativeClaude !== "boolean") throw new Error(`${source}: nativeClaude must be a boolean.`);
-		config.nativeClaude = value.nativeClaude;
 	}
 	return config;
 }

@@ -414,9 +414,7 @@ function stream(
 				system[1] = { type: "text", text: CLAUDE_CODE_IDENTITY };
 			}
 			params.system = system;
-			if (params.compaction === undefined) {
-				params.context_management = { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
-			}
+			params.context_management = { edits: [{ type: "clear_thinking_20251015", keep: "all" }] };
 			params.diagnostics = { previous_message_id: null };
 			return params;
 		},
