@@ -8,12 +8,11 @@ Each extension lives in `extensions/<name>/` and is documented in its own `READM
 
 ## Development
 
-This branch does not use the Nix flake. Install bun (>=1.4) and run:
-
 ```bash
-npm install -g bun        # or: curl -fsSL https://bun.sh/install | bash
+nix develop
 bun install --frozen-lockfile --ignore-scripts
 bun run check
+nix fmt
 ```
 
 Install the package from the GitHub repository after dependencies are available:
