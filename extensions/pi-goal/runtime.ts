@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { isRecord } from "@asp345/pi-shared/json.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GOAL_STATE_ENTRY, type GoalState } from "./state.ts";
@@ -7,10 +7,12 @@ const MAX_NO_PROGRESS_TURNS = 3;
 const NUDGE_NO_PROGRESS_TURNS = 2;
 const NUDGE_PROMPT =
 	"You have made no progress across the last 2 automatic goal runs (no tool calls, repeated output). Do the possible work now: use tools to advance the /goal objective instead of repeating the previous message. If it is truly impossible to proceed, call goal_blocked. If the objective is complete, call goal_complete.";
-const MAX_OWNED_PROMPTS = 16;
-const OWNED_PROMPT_TTL_MS = 10 * 60_000;
 const WORK_CHECK_IN_INTERVAL_MS = 15 * 60_000;
-const MARKER = /<!-- pi-goal:(start|continue):([^\s>]+) -->/u;
+const GOAL_MESSAGE = "pi-goal";
+
+interface GoalMessageDetails {
+	kind: "start" | "continue";
+}
 
 function finalAssistant(messages: readonly unknown[]): { stopReason?: string } | undefined {
 	return messages.findLast(
@@ -52,7 +54,6 @@ export class GoalRuntime {
 	private currentRunUsedTool = false;
 	private readonly runningWork = new Map<WorkSource, readonly string[]>();
 	private settleFailure?: "aborted" | "error";
-	private readonly ownedPrompts = new Map<string, number>();
 
 	constructor(private readonly pi: ExtensionAPI) {}
 
@@ -90,20 +91,15 @@ export class GoalRuntime {
 		await this.settled(ctx);
 	}
 
-	beforeAgentStart(prompt: string) {
+	beforeAgentStart(message?: { customType: string; details?: unknown }) {
 		this.currentRunAutomatic = false;
 		this.currentRunOwnsGoal = false;
 		this.currentRunUsedTool = false;
-		const marker = MARKER.exec(prompt);
-		if (!marker) return;
-		const key = marker[2] ?? "";
-		const stamp = this.ownedPrompts.get(key);
-		this.ownedPrompts.delete(key);
-		if (stamp === undefined || Date.now() - stamp > OWNED_PROMPT_TTL_MS) return;
+		if (message?.customType !== GOAL_MESSAGE) return;
 		this.pendingContinuation = undefined;
 		this.pendingStart = undefined;
 		this.currentRunOwnsGoal = true;
-		this.currentRunAutomatic = marker[1] === "continue";
+		this.currentRunAutomatic = isRecord(message.details) && message.details.kind === "continue";
 	}
 
 	markToolCall() {
@@ -166,7 +162,7 @@ export class GoalRuntime {
 		if (!ctx.isIdle() || ctx.hasPendingMessages()) return;
 		if (this.workCheckInDue && this.hasRunningWork()) {
 			this.workCheckInDue = false;
-			await this.sendOwnedPrompt(
+			await this.sendGoalMessage(
 				"continue",
 				"Check in on the active /goal and its running background tasks and subagents.",
 			);
@@ -178,10 +174,10 @@ export class GoalRuntime {
 			goal.nudgeSent = true;
 			goal.updatedAt = Date.now();
 			this.persist();
-			await this.sendOwnedPrompt("continue", NUDGE_PROMPT);
+			await this.sendGoalMessage("continue", NUDGE_PROMPT);
 			return;
 		}
-		await this.sendOwnedPrompt(
+		await this.sendGoalMessage(
 			start ? "start" : "continue",
 			start
 				? "Work on the active /goal until it is complete."
@@ -280,25 +276,17 @@ export class GoalRuntime {
 		this.workCheckInDue = false;
 	}
 
-	private recordOwnedPrompt(marker: string) {
-		const now = Date.now();
-		for (const [key, stamp] of this.ownedPrompts) {
-			if (now - stamp > OWNED_PROMPT_TTL_MS) this.ownedPrompts.delete(key);
-		}
-		for (const key of this.ownedPrompts.keys()) {
-			if (this.ownedPrompts.size < MAX_OWNED_PROMPTS) break;
-			this.ownedPrompts.delete(key);
-		}
-		this.ownedPrompts.set(marker, now);
-	}
-
-	private async sendOwnedPrompt(kind: "start" | "continue", text: string) {
+	private async sendGoalMessage(kind: "start" | "continue", text: string) {
 		const goal = this.goal;
 		if (goal?.status !== "active") return false;
-		const marker = randomUUID();
-		this.recordOwnedPrompt(marker);
-		this.pi.sendUserMessage(
-			`${text}\n\nGoal ID: ${goal.id}\nObjective: ${goal.objective}\n\n<!-- pi-goal:${kind}:${marker} -->`,
+		this.pi.sendMessage<GoalMessageDetails>(
+			{
+				customType: GOAL_MESSAGE,
+				content: `${text}\n\nGoal ID: ${goal.id}\nObjective: ${goal.objective}`,
+				display: true,
+				details: { kind },
+			},
+			{ triggerTurn: true },
 		);
 		this.pendingContinuation = goal.id;
 		return true;

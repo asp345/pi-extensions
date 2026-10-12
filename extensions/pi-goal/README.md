@@ -8,4 +8,4 @@ Goal tracking for Pi with automatic continuation.
 
 ## Runtime
 
-`GoalRuntime` persists to `goals.json`, caps owned prompt markers, and starts continuation only after the agent settles with no other queued messages. Running work, meaning any background task (from `pi-background-tasks:state`) or any running subagent (from `pi-subagents:state`), defers normal start/continue prompts (including the no-progress nudge). When the last running task or subagent finishes, continuation is re-driven. While any work runs, a check-in prompt is sent every 15 minutes once the agent is idle. Clearing a goal drops pending goal work and aborts only a currently running goal-owned turn. `resumeGoal` restores active goals across sessions without a default turn limit.
+Goal state is stored as a `goal-state` session entry and restored on `session_start`. When the agent settles with no queued messages, the next prompt is sent as a `pi-goal` custom message. Running background tasks or subagents defer it, with a check-in every 15 minutes. `/goal clear` aborts only a goal-owned run.
