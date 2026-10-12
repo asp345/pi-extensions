@@ -159,7 +159,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 		if (event.source !== "extension") runtime.manualInput();
 	});
 	pi.on("before_agent_start", (event) => {
-		runtime.beforeAgentStart(event.prompt);
+		runtime.beforeAgentStart(event.messageType === "custom" ? event.message : undefined);
 	});
 	pi.on("tool_call", () => runtime.markToolCall());
 	pi.on("message_end", (event) => runtime.recordAutomaticTurn(event.message));
