@@ -17,7 +17,6 @@ import {
 	isAnthropicMessagesModel,
 	modelSupportsOnDemandCompaction,
 	readCompactionResponse,
-	SUMMARY_MAX_TOKENS,
 } from "./anthropic.ts";
 import { modelKey } from "./checkpoint.ts";
 import type { CompactionConfig } from "./config.ts";
@@ -193,7 +192,7 @@ export default function claudeCompactionExtension(pi: ExtensionAPI, getConfig: (
 				model,
 				context: { messages },
 				signal: event.signal,
-				maxTokens: SUMMARY_MAX_TOKENS,
+				maxTokens: Math.min(Math.floor(0.8 * event.preparation.settings.reserveTokens), model.maxTokens),
 				reasoning: sessionReasoning(model, ctx.thinkingLevel),
 				headers: { "anthropic-beta": COMPACT_ON_DEMAND_BETA },
 				editPayload: (payload) => {
