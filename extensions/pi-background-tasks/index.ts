@@ -1,5 +1,11 @@
 import { StringEnum } from "@earendil-works/pi-ai";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	AgentToolResult,
+	BoundaryResult,
+	BoundaryState,
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { buildSessionEnv, registerHybridBash } from "./bash.ts";
 import { BACKGROUND_TASKS_STATE_EVENT } from "./events.ts";
@@ -43,8 +49,17 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	};
 	pi.on("session_start", attach);
 	pi.registerMessageRenderer(MESSAGE, renderTaskEvent);
-	pi.on("session_shutdown", () => {
-		runtime.shutdown();
+	const deliverAtBoundary = (event: BoundaryState): BoundaryResult | undefined => {
+		const entries = ui.takeEntries();
+		if (!entries.length) return undefined;
+		return { entries: [...event.entries, ...entries], continue: true };
+	};
+	pi.on("turn_end", deliverAtBoundary);
+	pi.on("agent_before_settle", deliverAtBoundary);
+	pi.on("agent_settled", (event) => ui.settle(event.aborted));
+	pi.on("session_shutdown", (event) => {
+		ui.close();
+		runtime.shutdown(event.reason);
 		ui.clearWidget();
 	});
 

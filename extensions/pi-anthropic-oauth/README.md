@@ -1,8 +1,12 @@
 # pi-anthropic-oauth
 
-Claude Code request fingerprint for Pi's built-in `anthropic` provider. Registers `streamSimple` for `api anthropic-messages`; login and token refresh use Pi's built-in Anthropic OAuth (`/login`, Claude Pro/Max).
+Claude Code request fingerprint for Pi's built-in `anthropic` provider. Registers a native `anthropic` provider built from Pi's built-in provider; login and token refresh use Pi's built-in Anthropic OAuth (`/login`, Claude Pro/Max).
 
 ## Provider
+
+The provider wraps the built-in `anthropic` provider with Pi's pi.dev catalog overlay (`withRemoteCatalog`), so the model list, `/model` refresh, and `pi update --models` behave like the built-in provider. `withRemoteCatalog` is not exported by `@earendil-works/pi-coding-agent`; the extension imports it from `node_modules/@earendil-works/pi-coding-agent/dist/core/remote-catalog-provider.js`, so the installed `@earendil-works/pi-coding-agent` version must match the running Pi.
+
+The provider adds `claude-mythos-5-1` (Claude Mythos 5.1) as a copy of `claude-fable-5-1` with the same pricing and metadata. If the catalog already lists `claude-mythos-5-1`, the catalog entry is used.
 
 For OAuth tokens (`sk-ant-oat`), `streamSimple` sends the Claude Code request fingerprint (User-Agent, full beta list, session/request IDs, `metadata.user_id` from `~/.claude.json`, billing system block, `context_management`, `diagnostics`) with a computed `cch` attestation (see `CCH.md`). `anthropic-beta` entries passed by the caller are appended to the Claude Code beta list without duplicates. API-key requests pass through unchanged.
 

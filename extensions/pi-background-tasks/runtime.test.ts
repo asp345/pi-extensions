@@ -44,7 +44,7 @@ test("emits exit event with final status and exit code", async () => {
 		assert.equal(exit?.task.exitCode, 3);
 		assert.equal(events.filter((event) => event.type === "exit").length, 1);
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
@@ -60,7 +60,7 @@ test("clear removes finished tasks and does not recreate log files", async () =>
 		await delay(200);
 		assert.ok(!existsSync(task.logFile));
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
@@ -71,33 +71,37 @@ test("start rejects sleep at or above 10 seconds with guidance", () => {
 		assert.throws(() => runtime.start("sleep $N", process.cwd()), /Do not sleep to wait/);
 		assert.equal(runtime.list().length, 0);
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
-test("shutdown clears the task map and suppresses late events", async () => {
+test("shutdown reports stopped tasks with the reason, clears the task map, and suppresses late events", async () => {
 	const { runtime, events, updates } = createHarness();
 	const task = runtime.start("sleep 5", process.cwd());
 	await waitFor(() => (runtime.get(task.id)?.pid ?? 0) > 0);
-	runtime.shutdown();
+	runtime.shutdown("reload");
 	assert.equal(runtime.list().length, 0);
+	const exits = events.filter((event) => event.type === "exit");
+	assert.equal(exits.length, 1);
+	assert.equal(exits[0]?.task.id, task.id);
+	assert.equal(exits[0]?.task.status, "stopped");
+	assert.equal(exits[0]?.task.stopReason, "reload");
 	const eventCount = events.length;
 	const updateCount = updates();
 	await delay(300);
 	assert.equal(events.length, eventCount);
 	assert.equal(updates(), updateCount);
-	assert.ok(!events.some((event) => event.type === "exit"));
 	assert.ok(!existsSync(task.logFile));
 });
 
 test("a new session can reactivate the runtime after shutdown", async () => {
 	const { runtime, events } = createHarness();
-	runtime.shutdown();
+	runtime.shutdown("quit");
 	runtime.activate();
 	const task = runtime.start("printf resumed", process.cwd());
 	await waitFor(() => events.some((event) => event.type === "exit" && event.task.id === task.id));
 	assert.equal(runtime.output(task.id), "resumed");
-	runtime.shutdown();
+	runtime.shutdown("quit");
 });
 
 test("publishes notified task state only at lifecycle transitions", async () => {
@@ -110,7 +114,7 @@ test("publishes notified task state only at lifecycle transitions", async () => 
 		await waitFor(() => runtime.get(task.id)?.status !== "running");
 		assert.deepEqual(states, [[task.id], []]);
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
@@ -129,7 +133,7 @@ test("quiet tasks emit no events and waitForExit delivers the result", async () 
 		assert.equal(runtime.get(task.id), undefined);
 		assert.ok(!existsSync(task.logFile));
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
@@ -144,7 +148,7 @@ test("waitForExit times out, then promotion restores normal notifications", asyn
 		assert.ok(!runtime.discard(task.id));
 		await waitFor(() => events.some((event) => event.type === "exit" && event.task.id === task.id));
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });
 
@@ -157,6 +161,6 @@ test("promoting an already finished quiet task emits the exit event late", async
 		assert.ok(runtime.promote(task.id));
 		assert.equal(events.filter((event) => event.type === "exit").length, 1);
 	} finally {
-		runtime.shutdown();
+		runtime.shutdown("quit");
 	}
 });

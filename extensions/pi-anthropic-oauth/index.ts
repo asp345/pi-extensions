@@ -3,20 +3,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { errorMessage } from "@asp345/pi-shared/format.ts";
 import {
+	type AnyModel,
 	type Api,
 	type AssistantMessageEventStream,
 	anthropicMessagesApi,
 	type Model,
+	type Provider,
 	type SimpleStreamOptions,
 	type TranscriptContext,
 } from "@earendil-works/pi-ai/compat";
+import { builtinProviders, getBuiltinModelDataGeneratedAt } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { withRemoteCatalog } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/remote-catalog-provider.js";
 import { type AnthropicOAuthConfig, loadAnthropicOAuthConfig } from "./config.ts";
 import { CLAUDE_CODE_VERSION } from "./constants.ts";
 
 const CLAUDE_CODE_USER_AGENT = `claude-cli/${CLAUDE_CODE_VERSION} (external, sdk-cli)`;
 const CLAUDE_CODE_BETA =
 	"claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,inline-tools-2026-09-15,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,thinking-binding-controls-2026-08-01,extended-cache-ttl-2025-04-11,cache-diagnosis-2026-04-07";
+const MYTHOS_SOURCE_ID = "claude-fable-5-1";
+const MYTHOS_ID = "claude-mythos-5-1";
+const MYTHOS_NAME = "Claude Mythos 5.1";
 const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
 const CLAUDE_CODE_LEGACY_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
 const CLAUDE_CODE_IDENTITY = "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
@@ -421,6 +428,26 @@ function stream(
 	});
 }
 
+function withMythos<T extends AnyModel>(models: readonly T[]): T[] {
+	if (models.some((model) => model.id === MYTHOS_ID)) return [...models];
+	const mythos = models
+		.filter((model) => model.id === MYTHOS_SOURCE_ID)
+		.map((model) => ({ ...model, id: MYTHOS_ID, name: MYTHOS_NAME }));
+	return [...models, ...mythos];
+}
+
+function anthropicProvider(streamSimple: Provider["streamSimple"]): Provider {
+	const builtin = builtinProviders().find((provider) => provider.id === "anthropic");
+	if (!builtin) throw new Error("Pi has no built-in anthropic provider.");
+	const catalog = withRemoteCatalog(builtin, undefined, getBuiltinModelDataGeneratedAt());
+	return {
+		...catalog,
+		getModels: () => withMythos(catalog.getModels()),
+		getAllModels: () => withMythos(catalog.getAllModels?.() ?? catalog.getModels()),
+		streamSimple,
+	};
+}
+
 export default function anthropicOAuth(pi: ExtensionAPI): void {
 	const userId = claudeCodeUserId();
 	let config: AnthropicOAuthConfig | undefined;
@@ -441,10 +468,11 @@ export default function anthropicOAuth(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.registerProvider("anthropic", {
-		api: "anthropic-messages",
-		streamSimple: (model, context, options) => stream(model, context, options, userId, getConfig().cacheTtl === "1h"),
-	});
+	pi.registerProvider(
+		anthropicProvider((model, context, options) =>
+			stream(model, context, options, userId, getConfig().cacheTtl === "1h"),
+		),
+	);
 	pi.on("cache_warming_decision", async (_event, ctx) => {
 		if (getConfig().cacheTtl !== "1h" || ctx.model?.provider !== "anthropic") return;
 		if (isOAuthKey(await ctx.modelRegistry.getApiKeyForProvider("anthropic"))) return { action: "stop" };
