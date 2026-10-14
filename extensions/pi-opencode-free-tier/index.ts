@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const USER_AGENT = "opencode/2.0.26";
 const REQUIRED_TOOL_NAMES = ["bash", "read"];
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const COUNTER_LIMIT = 63;
 
 interface TargetModel {
 	provider: string;
@@ -22,9 +23,16 @@ function isZenFreeLane(model: TargetModel | undefined): boolean {
 	}
 }
 
-function canonicalSessionId(sessionId: string): string {
+function canonicalSessionId(sessionId: string, createdAt: number | undefined): string {
 	const digest = createHash("sha256").update(sessionId).digest();
-	let id = digest.subarray(0, 6).toString("hex");
+	const timestamp = createdAt ?? Number(BigInt(`0x${digest.subarray(0, 6).toString("hex")}`) >> 7n);
+	const counter = 1 + (digest[5] % COUNTER_LIMIT);
+	const value = ~(BigInt(timestamp) * 0x1000n + BigInt(counter));
+	let id = "";
+	for (let index = 0; index < 6; index += 1)
+		id += Number((value >> BigInt(40 - 8 * index)) & 0xffn)
+			.toString(16)
+			.padStart(2, "0");
 	for (let index = 6; index < 20; index += 1) id += BASE62[digest[index] % BASE62.length];
 	return `ses_${id}`;
 }
@@ -67,8 +75,13 @@ function ensureRequiredTools(payload: unknown, api: string): unknown {
 export default function opencodeFreeTierExtension(pi: ExtensionAPI): void {
 	pi.on("before_provider_headers", (event, ctx) => {
 		if (!isZenFreeLane(ctx.model)) return;
+		const header = ctx.sessionManager.getHeader();
 		setHeader(event.headers, "User-Agent", USER_AGENT);
-		setHeader(event.headers, "x-opencode-session", canonicalSessionId(ctx.sessionManager.getSessionId()));
+		setHeader(
+			event.headers,
+			"x-opencode-session",
+			canonicalSessionId(ctx.sessionManager.getSessionId(), header ? Date.parse(header.timestamp) : undefined),
+		);
 	});
 
 	pi.on("before_provider_request", (event, ctx) => {
