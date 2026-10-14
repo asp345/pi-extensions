@@ -17,7 +17,6 @@ function harness() {
 		cwd: "/tmp",
 		isIdle: () => true,
 		hasPendingMessages: () => false,
-		abort: () => undefined,
 		ui: {
 			notify: () => undefined,
 			setStatus: () => undefined,

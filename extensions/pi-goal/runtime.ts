@@ -36,7 +36,6 @@ type WorkSource = "background-tasks" | "subagents";
 export interface GoalContext {
 	isIdle: () => boolean;
 	hasPendingMessages: () => boolean;
-	abort: () => void;
 	ui: {
 		notify: (message: string, level?: "info" | "warning" | "error") => void;
 		setStatus: (key: string, value: string | undefined) => void;
@@ -50,7 +49,6 @@ export class GoalRuntime {
 	private workCheckInDue = false;
 	private workCheckInTimer?: ReturnType<typeof setTimeout>;
 	private currentRunAutomatic = false;
-	private currentRunOwnsGoal = false;
 	private currentRunUsedTool = false;
 	private readonly runningWork = new Map<WorkSource, readonly string[]>();
 	private settleFailure?: "aborted" | "error";
@@ -66,7 +64,6 @@ export class GoalRuntime {
 		this.goal = goal;
 		this.pendingContinuation = undefined;
 		this.pendingStart = undefined;
-		this.currentRunOwnsGoal = false;
 		this.settleFailure = undefined;
 		this.persist();
 		this.updateStatus(ctx);
@@ -93,12 +90,10 @@ export class GoalRuntime {
 
 	beforeAgentStart(message?: { customType: string; details?: unknown }) {
 		this.currentRunAutomatic = false;
-		this.currentRunOwnsGoal = false;
 		this.currentRunUsedTool = false;
 		if (message?.customType !== GOAL_MESSAGE) return;
 		this.pendingContinuation = undefined;
 		this.pendingStart = undefined;
-		this.currentRunOwnsGoal = true;
 		this.currentRunAutomatic = isRecord(message.details) && message.details.kind === "continue";
 	}
 
@@ -115,7 +110,6 @@ export class GoalRuntime {
 	}
 
 	finishAgent(messages: readonly unknown[]) {
-		this.currentRunOwnsGoal = false;
 		const goal = this.goal;
 		if (goal?.status !== "active") return;
 		const assistant = finalAssistant(messages);
@@ -190,22 +184,9 @@ export class GoalRuntime {
 		await this.settled(ctx);
 	}
 
-	clearGoal(ctx: GoalContext) {
-		const abortOwnedRun = this.currentRunOwnsGoal;
-		this.setGoal(undefined, ctx);
-		if (abortOwnedRun) {
-			try {
-				ctx.abort();
-			} catch {}
-		}
-	}
-
 	pause(ctx: GoalContext, reason = "paused by user") {
 		this.clearWorkCheckIn();
 		if (this.goal?.status !== "active") return false;
-		try {
-			ctx.abort();
-		} catch {}
 		this.halt(ctx, "paused", reason);
 		ctx.ui.notify(`Goal paused: ${reason}. Run /goal resume to continue.`, "warning");
 		return true;
