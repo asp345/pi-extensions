@@ -22,6 +22,8 @@ Exit and heartbeat events become `pi-background-tasks:event` custom messages.
 - Still held at `agent_settled`: appended, and a new run starts unless the run was aborted.
 - `session_shutdown`: held events and the exits of killed tasks are appended with `triggerTurn: false`.
 
+While a task with notifications runs, `cache_warming_decision` returns `{ "action": "warm" }` unless `pi-anthropic-oauth` uses a 1-hour OAuth cache.
+
 Messages are lost when Pi quits during a run (Pi defers custom messages until the run ends) or the process is killed. A task finishing during a manual `/compact` is delivered with the next run without starting one.
 
 ## UI

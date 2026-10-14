@@ -15,6 +15,7 @@ import {
 import { builtinProviders, getBuiltinModelDataGeneratedAt } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withRemoteCatalog } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/remote-catalog-provider.js";
+import { isOAuthKey, usesLongOAuthCache } from "./cache.ts";
 import { type AnthropicOAuthConfig, loadAnthropicOAuthConfig } from "./config.ts";
 import { CLAUDE_CODE_VERSION } from "./constants.ts";
 
@@ -371,10 +372,6 @@ function wrapFetchForCch(base: typeof globalThis.fetch): typeof globalThis.fetch
 	}) as typeof globalThis.fetch;
 }
 
-function isOAuthKey(apiKey: string | undefined): boolean {
-	return !apiKey || apiKey.includes("sk-ant-oat");
-}
-
 function withClaudeCodeBeta(headers: SimpleStreamOptions["headers"]): Record<string, string | null> {
 	const rest: Record<string, string | null> = {};
 	const betas = CLAUDE_CODE_BETA.split(",");
@@ -474,7 +471,6 @@ export default function anthropicOAuth(pi: ExtensionAPI): void {
 		),
 	);
 	pi.on("cache_warming_decision", async (_event, ctx) => {
-		if (getConfig().cacheTtl !== "1h" || ctx.model?.provider !== "anthropic") return;
-		if (isOAuthKey(await ctx.modelRegistry.getApiKeyForProvider("anthropic"))) return { action: "stop" };
+		if (await usesLongOAuthCache(ctx)) return { action: "stop" };
 	});
 }
