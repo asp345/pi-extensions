@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { BackgroundRuntime, TaskEvent } from "./runtime.ts";
 
 const { BackgroundUI } = await import("./ui.ts");
@@ -28,7 +28,7 @@ function exitEvent(): TaskEvent {
 	};
 }
 
-test("task exits are delivered immediately as follow-up messages", async () => {
+test("task exits start a turn when the session is idle", async () => {
 	const event = exitEvent();
 	const deliveries: Array<{ message: unknown; options: unknown }> = [];
 	const pi = {
@@ -36,14 +36,18 @@ test("task exits are delivered immediately as follow-up messages", async () => {
 			deliveries.push({ message, options });
 		},
 	} as unknown as ExtensionAPI;
-	const runtime = { get: (id: string) => (id === event.task.id ? event.task : undefined) } as BackgroundRuntime;
+	const runtime = {
+		get: (id: string) => (id === event.task.id ? event.task : undefined),
+		list: () => [],
+	} as unknown as BackgroundRuntime;
 	const ui = new BackgroundUI(pi, runtime);
+	ui.attach({ isIdle: () => true } as unknown as ExtensionContext);
 
 	ui.handleEvent(event);
 	await Promise.resolve();
 
 	assert.equal(deliveries.length, 1);
-	assert.deepEqual(deliveries[0]?.options, { deliverAs: "followUp", triggerTurn: true });
+	assert.deepEqual(deliveries[0]?.options, { triggerTurn: true });
 	const delivered = deliveries[0];
 	assert.ok(delivered);
 	assert.match(String((delivered.message as { content?: unknown }).content), /Background task bg-1 finished/u);

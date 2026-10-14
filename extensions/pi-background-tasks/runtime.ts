@@ -3,13 +3,14 @@ import { randomBytes } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getShellConfig } from "@earendil-works/pi-coding-agent";
+import { getShellConfig, type SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { processPollBlockReason, sleepBlockReason } from "./guard.ts";
 import { TaskOutput } from "./output.ts";
 import { TaskTimers } from "./timers.ts";
 
 type TaskStatus = "running" | "completed" | "failed" | "stopped";
-type StopReason = "user" | "agent" | "shutdown";
+export type ShutdownReason = SessionShutdownEvent["reason"];
+type StopReason = "user" | "agent" | ShutdownReason;
 
 export interface TaskSnapshot {
 	id: string;
@@ -209,17 +210,19 @@ export class BackgroundRuntime {
 		return count;
 	}
 
-	shutdown(): void {
+	shutdown(reason: ShutdownReason): void {
 		this.shuttingDown = true;
 		for (const task of [...this.tasks.values()]) {
 			if (task.info.status === "running") {
 				task.stopRequested = true;
-				task.info.stopReason = "shutdown";
+				task.info.stopReason = reason;
 				task.child.once("close", () => this.removeLog(task));
 				this.kill(task, "SIGTERM");
 				this.kill(task, "SIGKILL");
+				this.finish(task, null);
+				if (task.info.notify)
+					this.emit({ type: "exit", task: snapshot(task), output: tail(task.log.text, ALERT_LIMIT) });
 			}
-			this.finish(task, task.info.exitCode);
 			this.removeLog(task);
 		}
 		this.tasks.clear();

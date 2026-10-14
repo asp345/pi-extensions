@@ -18,8 +18,8 @@ export function taskStatus(task: TaskSnapshot): string {
 	if (task.status === "stopped") {
 		if (task.stopReason === "user") return "stopped by user";
 		if (task.stopReason === "agent") return "stopped by agent";
-		if (task.stopReason === "shutdown") return "stopped on shutdown";
-		return "stopped";
+		if (task.stopReason === null) return "stopped";
+		return `stopped on session ${task.stopReason}`;
 	}
 	return `${task.status} (exit ${task.exitCode ?? "?"})`;
 }

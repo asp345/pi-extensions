@@ -9,7 +9,13 @@ import {
 	StatusLineWidget,
 	tableRow,
 } from "@asp345/pi-shared/ui.ts";
-import type { ExtensionAPI, ExtensionContext, MessageRenderer, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	CustomMessageEntryDraft,
+	ExtensionAPI,
+	ExtensionContext,
+	MessageRenderer,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import {
 	elapsed,
@@ -50,6 +56,15 @@ const EVENT_COLORS: Record<TaskKind, "accent" | "success" | "error" | "warning">
 	failed: "error",
 	stopped: "warning",
 };
+
+function taskMessage(event: TaskEvent) {
+	return {
+		customType: MESSAGE,
+		content: eventText(event),
+		display: event.type !== "running",
+		details: { event } satisfies TaskMessageDetails,
+	};
+}
 
 export const renderTaskEvent: MessageRenderer<TaskMessageDetails> = (message, options, theme) => {
 	const event = message.details?.event;
@@ -101,6 +116,8 @@ function layout(tasks: readonly TaskSnapshot[], width: number, now: number): Col
 
 export class BackgroundUI {
 	private active: ExtensionContext | null = null;
+	private closing = false;
+	private readonly pending: TaskEvent[] = [];
 	private readonly widget = new StatusLineWidget(
 		WIDGET,
 		(theme) =>
@@ -114,16 +131,36 @@ export class BackgroundUI {
 
 	attach(ctx: ExtensionContext): void {
 		this.active = ctx;
+		this.closing = false;
 		this.refresh();
 	}
 
 	handleEvent(event: TaskEvent): void {
-		const running = event.type === "running";
-		if (running) this.active?.ui.notify(eventText(event), "info");
-		this.pi.sendMessage<TaskMessageDetails>(
-			{ customType: MESSAGE, content: eventText(event), details: { event }, display: !running },
-			{ deliverAs: "followUp", triggerTurn: true },
-		);
+		if (event.type === "running") this.active?.ui.notify(eventText(event), "info");
+		if (this.closing) this.send([event], false);
+		else if (this.active?.isIdle()) this.send([event], true);
+		else this.pending.push(event);
+	}
+
+	takeEntries(): CustomMessageEntryDraft[] {
+		return this.pending.splice(0).map((event) => ({ type: "custom_message", ...taskMessage(event) }));
+	}
+
+	settle(aborted: boolean): void {
+		this.send(this.pending.splice(0), !aborted);
+	}
+
+	close(): void {
+		this.closing = true;
+		this.send(this.pending.splice(0), false);
+	}
+
+	private send(events: readonly TaskEvent[], wake: boolean): void {
+		events.forEach((event, index) => {
+			this.pi.sendMessage<TaskMessageDetails>(taskMessage(event), {
+				triggerTurn: wake && index === events.length - 1,
+			});
+		});
 	}
 
 	refresh(): void {
