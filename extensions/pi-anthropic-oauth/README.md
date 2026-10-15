@@ -18,7 +18,7 @@ With `cacheTtl` set to `"1h"`, OAuth requests that do not set `cacheRetention` u
 
 ## Configuration
 
-The global configuration file is `pi-anthropic-oauth.json` in Pi's agent configuration directory. `PI_CODING_AGENT_DIR` determines that directory when set. A trusted project can override individual settings with `.pi/pi-anthropic-oauth.json`. Configuration is read at session start; use `/reload` to apply edits.
+The global configuration file is `pi-anthropic-oauth.json` in Pi's agent configuration directory. `PI_CODING_AGENT_DIR` determines that directory when set. A trusted project can override individual settings with `.pi/pi-anthropic-oauth.json`. Configuration is read at session start; use `/reload` to apply edits. `cache_warming_decision` handlers read it on each decision.
 
 ```json
 {

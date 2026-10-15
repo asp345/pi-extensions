@@ -1,38 +1,34 @@
 # pi-opencode-free-tier
 
-Satisfies the OpenCode Zen free-tier client checks for `opencode` provider models such as `opencode/big-pickle` or `opencode/muse-spark-1.3-contributor-free`.
+Satisfies the OpenCode Zen free-tier client checks for `opencode` provider models such as `opencode/big-pickle` or `opencode/cat-jam-free`.
 
-Without this extension, `https://opencode.ai/zen/v1` answers free-tier models with `403 {"type":"error","error":{"type":"FreeTierError","message":"Error from provider (Console): OpenCode's free tier can only be used from within OpenCode"}}`.
+Without this extension, `https://opencode.ai/inference/v1` answers free-tier models with `403 {"type":"error","error":{"type":"FreeTierError","message":"OpenCode's free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}}`.
 
 ## Verified request contract
 
-Measured against the live endpoint with a valid Zen key. Each row was held constant while the others varied.
+Measured against the live endpoint with a valid Zen key.
 
 | Requirement | Accepted | Rejected |
 |---|---|---|
-| `User-Agent` | leading token `opencode/<version>` | `pi (…)`, bare `opencode`, `opencode/1.0.0` (426) |
-| `x-opencode-session` | `ses_` + 12 lowercase hex + 14 base62 | pi session UUID, missing header |
+| `User-Agent` | `opencode/2.0.26`, `opencode/latest/2.0.29/cli` | `pi (…)`, bare `opencode`, `opencode/1.0.0` (426) |
+| `x-opencode-session` | `ses_` + 12 lowercase hex + 14 base62, last three hex digits `fc0`..`fff` | pi session UUID, missing header, last three hex digits below `fc0`, uppercase hex digits, body length other than 26, non-base62 tail |
 | body `stream` | `true` | `false` or missing |
 | body `tools` | declares `bash` and `read` | neither, one of them, or any other pair |
 
-`x-opencode-request`, `x-opencode-session-id`, `x-opencode-project`, `x-opencode-client` are not part of the check. A valid API key in `Authorization` is required.
-
-Both `openai-completions` (`/zen/v1/chat/completions`) and `openai-responses` (`/zen/v1/responses`) enforce the same contract.
+The embedded timestamp is not checked: only the last three hex digits, which are the counter of the client's generator, matter. A valid API key in `Authorization` is required, and the other `x-opencode-*` headers are not part of the check. `/inference/v1/systemone` carries no check at all.
 
 ## Behavior
 
-The extension applies only to models on the Zen free lane: provider `opencode`, or a `opencode.ai` base URL outside `/zen/go`. `opencode-go` is left untouched.
+The extension applies only to models on the Zen free lane: provider `opencode`, or a `opencode.ai` base URL outside `/zen/go`.
 
-- `before_provider_headers` sets `User-Agent: opencode/2.0.26` and replaces `x-opencode-session` with a canonical `ses_` id derived from the pi session id with SHA-256, so the id is stable for the whole conversation and preserves upstream cache routing.
-- `before_provider_request` adds stub `bash` and `read` tool declarations when the outgoing payload contains neither. When the payload declares no tools at all, it sets `tool_choice: "none"` for `openai-completions` so the model cannot call the stubs. `openai-responses` rejects any `tool_choice` other than `"auto"`, so it is left unchanged there and a stub call surfaces as an unknown-tool error.
-
-Normal agent turns already declare `bash` and `read`, so only tool-less auxiliary calls (for example session titles) reach the injection path.
+- `before_provider_headers` sets `User-Agent: opencode/2.0.26` and replaces `x-opencode-session` with an id built by the client's `Identifier.create(true)` algorithm: `~(timestamp * 0x1000 + counter)` as its low 48 bits in hex, then 14 base62 characters mapped with `byte % 62`. The timestamp is the pi session's creation time, the counter is `1 + digest[5] % 63` over the SHA-256 of the pi session id, and the base62 tail is the remaining digest bytes, so the id stays fixed for a pi session.
+- `before_provider_request` adds stub `bash` and `read` tool declarations when the outgoing payload contains neither. When the payload declares no tools at all, it sets `tool_choice: "none"` for `openai-completions` so the model cannot call the stubs. `openai-responses` rejects any other `tool_choice`, so it is left unchanged there.
 
 ## Verify
 
 ```bash
 pi -p --model opencode/big-pickle "Reply with exactly: OK"
-pi -p --model opencode/muse-spark-1.3-contributor-free "Reply with exactly: OK"
+pi -p --model opencode/cat-jam-free "Reply with exactly: OK"
 ```
 
-Source references: `packages/opencode/src/session/llm/request.ts` and `packages/opencode/src/id/id.ts` (v1), `packages/core/src/session/model-request.ts` (v2), `packages/console/app/src/routes/zen/util/handler.ts` (error wrapping).
+Source references: `packages/schema/src/identifier.ts`, `packages/core/src/session/model-request.ts`, `packages/console/app/src/lib/inference-proxy.ts`. The check itself runs in the deployed `opencode-inference-<stage>` worker, which is not in the public repository.

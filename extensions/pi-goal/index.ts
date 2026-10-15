@@ -105,7 +105,7 @@ export default function goalExtension(pi: ExtensionAPI) {
 			}
 			if (input === "clear" || input === "stop") {
 				const objective = runtime.goal?.objective;
-				runtime.clearGoal(ctx);
+				runtime.setGoal(undefined, ctx);
 				ctx.ui.notify(objective ? `Goal cleared: ${safeText(objective, 160)}` : "No goal is set.", "info");
 				return;
 			}

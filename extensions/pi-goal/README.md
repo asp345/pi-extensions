@@ -8,4 +8,4 @@ Goal tracking for Pi with automatic continuation.
 
 ## Runtime
 
-Goal state is stored as a `goal-state` session entry and restored on `session_start`. When the agent settles with no queued messages, the next prompt is sent as a `pi-goal` custom message. Running background tasks or subagents defer it, with a check-in every 15 minutes. `/goal clear` aborts only a goal-owned run.
+Goal state is stored as a `goal-state` session entry and restored on `session_start`. When the agent settles with no queued messages, the next prompt is sent as a `pi-goal` custom message. Running background tasks or subagents defer it, with a check-in every 15 minutes. `/goal clear` and `/goal pause` do not abort the current run.

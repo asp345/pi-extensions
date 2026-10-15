@@ -40,6 +40,7 @@
       "name": "@asp345/pi-background-tasks",
       "version": "0.0.0",
       "dependencies": {
+        "@asp345/pi-anthropic-oauth": "0.0.0",
         "@asp345/pi-shared": "0.0.0",
       },
       "peerDependencies": {
@@ -216,6 +217,7 @@
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
       "dependencies": {
+        "@asp345/pi-anthropic-oauth": "0.0.0",
         "@asp345/pi-background-tasks": "0.0.0",
         "@asp345/pi-shared": "0.0.0",
       },
