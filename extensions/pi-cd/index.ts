@@ -36,6 +36,7 @@ export default function cdExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
+			const oldCwd = ctx.cwd;
 			const currentDir = session.getSessionDir();
 			const sessionDir = currentDir === defaultSessionDir(ctx.cwd) ? defaultSessionDir(target) : currentDir;
 			const newFile = join(sessionDir, basename(oldFile));
@@ -49,7 +50,11 @@ export default function cdExtension(pi: ExtensionAPI): void {
 			const result = await ctx.switchSession(newFile, {
 				withSession: async (next) => {
 					if (!sameFile) rmSync(oldFile, { force: true });
-					next.ui.notify(next.cwd, "info");
+					await next.sendMessage({
+						customType: "cd",
+						content: `Working directory changed from ${oldCwd} to ${next.cwd}`,
+						display: true,
+					});
 				},
 			});
 			if (result.cancelled && !sameFile) rmSync(newFile);
