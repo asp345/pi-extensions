@@ -10,6 +10,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { runtimeModel } from "./models.ts";
 import type { ThinkingLevel } from "./types.ts";
 
 const PARENT_ONLY_TOOLS = ["goal_complete", "goal_blocked"];
@@ -85,7 +86,7 @@ export async function createChildSession(options: ChildSessionOptions): Promise<
 	const { session } = await createAgentSessionFromServices({
 		services,
 		sessionManager: openSessionManager(options),
-		model: options.model,
+		model: options.model && runtimeModel(services.modelRuntime, options.model),
 		thinkingLevel: options.thinking,
 		excludeTools: PARENT_ONLY_TOOLS,
 	});

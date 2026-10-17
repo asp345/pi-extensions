@@ -154,6 +154,14 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 	let generation = 0;
 	let active = false;
 	let notify: ((message: string) => void) | undefined;
+	let provider: Provider<"openai-completions"> | undefined;
+
+	const publish = (expectedGeneration: number): void => {
+		if (!active || generation !== expectedGeneration || !provider) return;
+		try {
+			pi.registerProvider(provider);
+		} catch {}
+	};
 
 	pi.on("session_start", (_event, ctx) => {
 		active = true;
@@ -162,13 +170,8 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 		const current = ctx.modelRegistry.getProvider("openrouter") as WrappedProvider | undefined;
 		const base = current?.[BASE_PROVIDER] ?? current;
 		if (!base) return;
-		const provider = createOpenRouterMetadataProvider(base, cache, readInitialMetadataCache(), {
-			onModelsChanged: () => {
-				if (!active || generation !== activeGeneration) return;
-				try {
-					pi.registerProvider(provider);
-				} catch {}
-			},
+		provider = createOpenRouterMetadataProvider(base, cache, readInitialMetadataCache(), {
+			onModelsChanged: () => publish(activeGeneration),
 			onRefreshError: (error) => {
 				if (active && generation === activeGeneration && notify) {
 					reportOpenRouterRefreshFailure(error, notify);
@@ -178,24 +181,21 @@ export default function openrouterMetadata(pi: ExtensionAPI): void {
 		pi.registerProvider(provider);
 		void ctx.modelRegistry
 			.refresh()
-			.then(async () => {
-				if (generation !== activeGeneration || ctx.model?.provider !== "openrouter") return;
-				const refreshed = ctx.modelRegistry.find("openrouter", ctx.model.id);
-				if (refreshed) await pi.setModel(refreshed);
-			})
+			.then(() => publish(activeGeneration))
 			.catch((error: unknown) => {
 				if (generation !== activeGeneration || !notify) return;
 				reportOpenRouterRefreshFailure(error, notify);
 			});
 	});
-	pi.on("model_select", async (event, ctx) => {
+	pi.on("model_select", (event, ctx) => {
 		if (event.model.provider !== "openrouter") return;
 		const refreshed = ctx.modelRegistry.find("openrouter", event.model.id);
-		if (refreshed && refreshed !== event.model) await pi.setModel(refreshed);
+		if (refreshed && refreshed !== event.model) publish(generation);
 	});
 	pi.on("session_shutdown", () => {
 		active = false;
 		notify = undefined;
+		provider = undefined;
 		generation += 1;
 		pi.unregisterProvider("openrouter");
 	});

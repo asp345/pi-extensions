@@ -5,6 +5,7 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { closeChildSession, createChildSession } from "./child.ts";
 import { type NoticeKind, parentMessagePrompt, preview } from "./delegation.ts";
+import { modelKey, resolveModel, runtimeModel } from "./models.ts";
 import type { AgentRecord, ThinkingLevel } from "./types.ts";
 
 interface ManagerHooks {
@@ -17,6 +18,12 @@ interface ManagerHooks {
 interface LaunchInput {
 	name: string;
 	prompt: string;
+	model?: Model<Api>;
+	thinking?: ThinkingLevel;
+}
+
+interface ConfigureInput {
+	name?: string;
 	model?: Model<Api>;
 	thinking?: ThinkingLevel;
 }
@@ -95,8 +102,7 @@ export class SubagentManager {
 	}
 
 	async launch(ctx: ExtensionContext, input: LaunchInput): Promise<AgentRecord> {
-		const lower = input.name.toLowerCase();
-		if (this.list().some((record) => record.name.toLowerCase() === lower)) {
+		if (this.nameTaken(input.name)) {
 			throw new Error(`A subagent named ${input.name} already exists. Use send_message to give it more work.`);
 		}
 		const now = Date.now();
@@ -138,6 +144,19 @@ export class SubagentManager {
 		return resumed ? "resumed" : "started";
 	}
 
+	async configure(record: AgentRecord, input: ConfigureInput): Promise<boolean> {
+		if (input.name !== undefined && this.nameTaken(input.name, record)) {
+			throw new Error(`A subagent named ${input.name} already exists.`);
+		}
+		if (input.name !== undefined) record.name = input.name;
+		if (input.thinking) record.thinking = input.thinking;
+		const session = record.session ?? (await record.opening?.catch(() => undefined));
+		if (session) await this.apply(record, session, input.model);
+		else if (input.model) record.model = modelKey(input.model);
+		this.touch(record);
+		return session !== undefined;
+	}
+
 	stop(record: AgentRecord, by: "parent" | "user"): boolean {
 		const session = record.session;
 		if (!record.running || !session) return false;
@@ -146,7 +165,7 @@ export class SubagentManager {
 		return true;
 	}
 
-	async shutdown(): Promise<void> {
+	async shutdown(reason: string): Promise<void> {
 		const records = this.list();
 		this.closed = true;
 		await Promise.allSettled(
@@ -154,12 +173,20 @@ export class SubagentManager {
 				const session = record.session ?? (await record.opening?.catch(() => undefined));
 				if (!session) return record.closing;
 				await this.close(record, session);
+				const interrupted = record.running;
 				record.cost = session.getSessionStats().cost;
 				record.lastText = session.getLastAssistantText() ?? record.lastText;
 				record.running = false;
 				record.activity = undefined;
 				record.updatedAt = Date.now();
 				this.hooks.persist(record);
+				if (interrupted) {
+					this.hooks.notice(
+						record,
+						"interrupted",
+						`Stopped on session ${reason}. The session is kept; send_message resumes it.`,
+					);
+				}
 			}),
 		);
 		this.records.clear();
@@ -193,6 +220,7 @@ export class SubagentManager {
 		thinking: ThinkingLevel | undefined,
 	): Promise<AgentSession> {
 		await record.closing;
+		const target = model ?? (record.model ? resolveModel(record.model, ctx) : undefined);
 		const parentSessionFile = ctx.sessionManager.getSessionFile();
 		const session = await createChildSession({
 			cwd: record.cwd,
@@ -212,14 +240,32 @@ export class SubagentManager {
 				this.hooks.changed();
 			},
 		});
-		if (!record.sessionFile) session.setSessionName(record.name);
+		try {
+			await this.apply(record, session, target);
+		} catch (error) {
+			await closeChildSession(session);
+			throw error;
+		}
 		record.session = session;
 		record.sessionFile = session.sessionFile;
-		if (session.model) record.model = `${session.model.provider}/${session.model.id}`;
-		record.thinking = session.thinkingLevel;
 		session.subscribe((event) => this.observe(record, session, event));
 		this.touch(record);
 		return session;
+	}
+
+	private async apply(record: AgentRecord, session: AgentSession, model: Model<Api> | undefined): Promise<void> {
+		if (session.sessionName !== record.name) session.setSessionName(record.name);
+		if (model && (!session.model || modelKey(session.model) !== modelKey(model))) {
+			await session.setModel(runtimeModel(session.modelRuntime, model));
+		}
+		if (record.thinking) session.setThinkingLevel(record.thinking);
+		if (session.model) record.model = modelKey(session.model);
+		record.thinking = session.thinkingLevel;
+	}
+
+	private nameTaken(name: string, except?: AgentRecord): boolean {
+		const lower = name.toLowerCase();
+		return this.list().some((record) => record !== except && record.name.toLowerCase() === lower);
 	}
 
 	private observe(record: AgentRecord, session: AgentSession, event: AgentSessionEvent): void {
