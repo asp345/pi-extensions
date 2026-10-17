@@ -1,0 +1,25 @@
+{
+	"name": "@asp345/pi-cd",
+	"version": "0.0.0",
+	"description": "Move the current pi session to another working directory",
+	"license": "ISC",
+	"type": "module",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"*.ts",
+		"!*.test.ts",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}

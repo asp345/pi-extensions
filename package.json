@@ -42,7 +42,8 @@
 			"./extensions/pi-compact-ui/index.ts",
 			"./extensions/pi-browser/index.ts",
 			"./extensions/pi-flat-edit/index.ts",
-			"./extensions/pi-opencode-free-tier/index.ts"
+			"./extensions/pi-opencode-free-tier/index.ts",
+			"./extensions/pi-cd/index.ts"
 		],
 		"prompts": [
 			"./prompts"
