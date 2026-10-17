@@ -51,7 +51,11 @@ export function elapsed(task: TaskSnapshot, now = Date.now()): number {
 export function eventText(event: TaskEvent): string {
 	if (event.type === "running")
 		return `Background task ${event.task.id} is still running (${formatDuration(Date.now() - event.task.startedAt)} elapsed).`;
-	return `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${formatDuration(event.task.updatedAt - event.task.startedAt)}.`;
+	const summary = `Background task ${event.task.id} finished (${taskStatus(event.task)}) after ${formatDuration(event.task.updatedAt - event.task.startedAt)}.`;
+	const output = event.output.trimEnd();
+	if (!output) return summary;
+	const log = event.truncated ? `\n\n[Full output: ${event.task.logFile}]` : "";
+	return `${summary}\n\n${output}${log}`;
 }
 
 export function taskLine(task: TaskSnapshot): string {
