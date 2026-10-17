@@ -105,6 +105,14 @@
         "@earendil-works/pi-tui": "*",
       },
     },
+    "extensions/pi-deepseek-search": {
+      "name": "@asp345/pi-deepseek-search",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "extensions/pi-direnv": {
       "name": "@asp345/pi-direnv",
       "version": "0.0.0",
@@ -143,15 +151,6 @@
         "@asp345/pi-subagents": "0.0.0",
       },
       "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
-      },
-    },
-    "extensions/pi-gpt-search": {
-      "name": "@asp345/pi-gpt-search",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
         "@earendil-works/pi-coding-agent": "*",
         "typebox": "*",
       },
@@ -278,6 +277,8 @@
 
     "@asp345/pi-custom-providers": ["@asp345/pi-custom-providers@workspace:extensions/pi-custom-providers"],
 
+    "@asp345/pi-deepseek-search": ["@asp345/pi-deepseek-search@workspace:extensions/pi-deepseek-search"],
+
     "@asp345/pi-direnv": ["@asp345/pi-direnv@workspace:extensions/pi-direnv"],
 
     "@asp345/pi-flat-edit": ["@asp345/pi-flat-edit@workspace:extensions/pi-flat-edit"],
@@ -285,8 +286,6 @@
     "@asp345/pi-footer": ["@asp345/pi-footer@workspace:extensions/pi-footer"],
 
     "@asp345/pi-goal": ["@asp345/pi-goal@workspace:extensions/pi-goal"],
-
-    "@asp345/pi-gpt-search": ["@asp345/pi-gpt-search@workspace:extensions/pi-gpt-search"],
 
     "@asp345/pi-model-thinking": ["@asp345/pi-model-thinking@workspace:extensions/pi-model-thinking"],
 

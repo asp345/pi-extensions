@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/pi-gpt-search",
+	"name": "@asp345/pi-deepseek-search",
 	"version": "0.0.0",
-	"description": "Model-independent standalone web search extension for pi powered by the OpenAI Codex standalone search engine",
+	"description": "Web search and fetch tools for pi powered by the DeepSeek Search and Fetch APIs",
 	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
@@ -11,9 +11,7 @@
 	],
 	"files": [
 		"*.ts",
-		"!*.test.ts",
-		"README.md",
-		"HOW-IT-WORKS.md"
+		"!*.test.ts"
 	],
 	"pi": {
 		"extensions": [
@@ -21,7 +19,6 @@
 		]
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
 		"typebox": "*"
 	}
