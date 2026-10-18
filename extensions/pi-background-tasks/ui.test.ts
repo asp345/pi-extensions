@@ -25,6 +25,7 @@ function exitEvent(): TaskEvent {
 			stopReason: null,
 		},
 		output: "done\n",
+		truncated: false,
 	};
 }
 

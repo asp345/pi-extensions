@@ -38,6 +38,7 @@ export interface TaskEvent {
 	type: "exit" | "running";
 	task: TaskSnapshot;
 	output: string;
+	truncated: boolean;
 }
 
 type ManagedTask = {
@@ -69,11 +70,23 @@ export function resolveTimeoutMs(timeout: number | undefined): number | undefine
 }
 
 export function tail(text: string, limit = READ_LIMIT): string {
-	return text.length <= limit ? text : `[...truncated]\n${text.slice(-limit)}`;
+	if (text.length <= limit) return text;
+	const lineStart = text.indexOf("\n", text.length - limit - 1) + 1;
+	const start = lineStart > 0 && lineStart < text.length ? lineStart : text.length - limit;
+	return `[...truncated]\n${text.slice(start)}`;
 }
 
 function snapshot(task: ManagedTask): TaskSnapshot {
 	return { ...task.info };
+}
+
+function taskEvent(type: TaskEvent["type"], task: ManagedTask): TaskEvent {
+	return {
+		type,
+		task: snapshot(task),
+		output: tail(task.log.text, ALERT_LIMIT),
+		truncated: task.log.text.length > ALERT_LIMIT,
+	};
 }
 
 export class BackgroundRuntime {
@@ -220,8 +233,7 @@ export class BackgroundRuntime {
 				this.kill(task, "SIGTERM");
 				this.kill(task, "SIGKILL");
 				this.finish(task, null);
-				if (task.info.notify)
-					this.emit({ type: "exit", task: snapshot(task), output: tail(task.log.text, ALERT_LIMIT) });
+				if (task.info.notify) this.emit(taskEvent("exit", task));
 			}
 			this.removeLog(task);
 		}
@@ -276,7 +288,7 @@ export class BackgroundRuntime {
 	private heartbeat(task: ManagedTask): void {
 		if (task.closed || this.shuttingDown || !this.tasks.has(task.info.id)) return;
 		if (!task.info.notify) return;
-		this.emit({ type: "running", task: snapshot(task), output: tail(task.log.text, ALERT_LIMIT) });
+		this.emit(taskEvent("running", task));
 	}
 
 	private finish(task: ManagedTask, code: number | null): void {
@@ -293,7 +305,7 @@ export class BackgroundRuntime {
 		for (const waiter of task.waiters) waiter(result);
 		task.waiters.clear();
 		if (task.info.notify && !this.shuttingDown) {
-			this.emit({ type: "exit", task: snapshot(task), output: tail(task.log.text, ALERT_LIMIT) });
+			this.emit(taskEvent("exit", task));
 			this.reportState();
 		}
 		if (!this.shuttingDown) this.update();
@@ -304,8 +316,7 @@ export class BackgroundRuntime {
 		if (!task || task.info.notify) return false;
 		task.info.notify = true;
 		this.armTimeout(task);
-		if (task.closed && !this.shuttingDown)
-			this.emit({ type: "exit", task: snapshot(task), output: tail(task.log.text, ALERT_LIMIT) });
+		if (task.closed && !this.shuttingDown) this.emit(taskEvent("exit", task));
 		if (!this.shuttingDown) this.reportState();
 		this.update();
 		return true;

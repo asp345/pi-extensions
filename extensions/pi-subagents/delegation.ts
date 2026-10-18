@@ -24,15 +24,10 @@ export function childMessageContent(name: string, message: string): string {
 	return `[message from child:${name}]\n\n${message.trim()}`;
 }
 
-export type NoticeKind = "no-reply" | "failed" | "cancelled";
+export type NoticeKind = "no-reply" | "failed" | "cancelled" | "interrupted";
 
 export function noticeContent(kind: NoticeKind, name: string, body: string | undefined): string {
-	const header =
-		kind === "failed"
-			? `[child-failed child:${name}]`
-			: kind === "cancelled"
-				? `[child-exited: cancelled child:${name}]`
-				: `[child-exited: no-reply child:${name}]`;
+	const header = kind === "failed" ? `[child-failed child:${name}]` : `[child-exited: ${kind} child:${name}]`;
 	if (!body) return header;
 	return kind === "no-reply" ? `${header}\n\nLast assistant text: ${body}` : `${header}\n\n${body}`;
 }

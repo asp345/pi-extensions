@@ -4,12 +4,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { childMessageContent, type NoticeKind, noticeContent } from "./delegation.ts";
 import { SUBAGENTS_STATE_EVENT } from "./events.ts";
 import { SubagentManager } from "./manager.ts";
+import { availableModelsText } from "./models.ts";
 import { parseStoredRecord, restoreRecord, STATE_KIND, storeRecord } from "./state.ts";
 import { formatRecord, registerSubagentTools } from "./tools.ts";
 import type { StoredAgent } from "./types.ts";
 import { AgentsUI, COMMAND, SHORTCUT } from "./ui.ts";
 
 const MESSAGE_KIND = "subagent-message";
+const MODELS_SECTION = "available_models";
 const NOTICE_KIND = "subagent-notice";
 
 interface MessageDetails {
@@ -29,6 +31,7 @@ const NOTICE_LABELS: Record<NoticeKind, string> = {
 	"no-reply": "Subagent finished without reply",
 	failed: "Subagent failed",
 	cancelled: "Subagent stopped",
+	interrupted: "Subagent interrupted",
 };
 
 export default function subagents(pi: ExtensionAPI): void {
@@ -64,7 +67,7 @@ export default function subagents(pi: ExtensionAPI): void {
 					display: true,
 					details: { id: record.id, name: record.name, kind, body },
 				},
-				{ deliverAs: "followUp", triggerTurn: true },
+				{ deliverAs: "followUp", triggerTurn: kind !== "interrupted" },
 			),
 	});
 	const ui = new AgentsUI(manager);
@@ -142,13 +145,18 @@ export default function subagents(pi: ExtensionAPI): void {
 		ui.attach(ctx);
 	});
 
+	pi.on("before_agent_start", (event, ctx) => {
+		const text = availableModelsText(ctx);
+		if (text) event.systemPromptOptions.sections[MODELS_SECTION] = text;
+	});
+
 	pi.on("cache_warming_decision", async (_event, ctx) => {
 		if (!manager.list().some((record) => record.running) || (await usesLongOAuthCache(ctx))) return;
 		return { action: "warm" };
 	});
 
-	pi.on("session_shutdown", async () => {
-		await manager.shutdown();
+	pi.on("session_shutdown", async (event) => {
+		await manager.shutdown(event.reason);
 		ui.detach();
 	});
 }

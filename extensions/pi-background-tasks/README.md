@@ -17,6 +17,8 @@ Tool calls have no renderers of their own; `pi-compact-ui` renders them.
 
 Exit and heartbeat events become `pi-background-tasks:event` custom messages.
 
+An exit message contains `Background task <id> finished (<status>) after <duration>.`, then the last 3000 characters of output starting at the first complete line, then `[Full output: <logFile>]` when the output is longer. The log file is deleted by `clear` and at `session_shutdown`.
+
 - Idle: sent with `triggerTurn: true`, which starts a run.
 - During a run: held by the extension, then appended as `custom_message` entries at the next `turn_end` or `agent_before_settle` boundary with `continue: true`.
 - Still held at `agent_settled`: appended, and a new run starts unless the run was aborted.

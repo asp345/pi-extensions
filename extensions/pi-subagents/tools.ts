@@ -113,6 +113,36 @@ export function registerSubagentTools(pi: ExtensionAPI, manager: SubagentManager
 	});
 
 	pi.registerTool({
+		name: "configure_subagent",
+		label: "Configure Subagent",
+		description:
+			"Change the name, model, or thinking level of an existing subagent. Its session and context are kept. A running subagent uses the new model and thinking level from its next model request; an inactive one uses them when it next runs. The thinking level is kept across a model change unless given.",
+		promptSnippet: "Change a subagent's name, model, or thinking level",
+		parameters: Type.Object({
+			to: Type.String({ minLength: 1, maxLength: 64, description: "Subagent name or ID." }),
+			name: Type.Optional(Type.String({ minLength: 1, maxLength: 64, description: "New unique name." })),
+			model: Type.Optional(
+				Type.String({ maxLength: 256, description: "Provider/model; `parent` selects the parent's current model." }),
+			),
+			thinking: Type.Optional(StringEnum(THINKING_LEVELS)),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const record = manager.find(params.to) ?? noMatch(manager, params.to);
+			const name = params.name?.trim();
+			if (name === "") throw new Error("Subagent name must not be blank.");
+			if (name === undefined && params.model === undefined && params.thinking === undefined) {
+				throw new Error("Give at least one of name, model, or thinking.");
+			}
+			const model = params.model === undefined ? undefined : resolveModel(params.model, ctx);
+			const live = await manager.configure(record, { name, model, thinking: params.thinking });
+			return result(
+				`Configured subagent ${record.name}: ${record.model ?? "parent model"}${record.thinking ? `:${record.thinking}` : ""}. ${live ? "Applies from its next model request." : "Applies when it next runs."}`,
+				{ id: record.id, name: record.name, model: record.model, thinking: record.thinking, live },
+			);
+		},
+	});
+
+	pi.registerTool({
 		name: "list_subagents",
 		label: "List Subagents",
 		description: "List subagents with name, ID, status (running, inactive), model, and cost.",

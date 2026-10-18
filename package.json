@@ -23,7 +23,7 @@
 		"extensions": [
 			"./extensions/pi-system-prompt/index.ts",
 			"./extensions/pi-goal/index.ts",
-			"./extensions/pi-gpt-search/index.ts",
+			"./extensions/pi-deepseek-search/index.ts",
 			"./extensions/pi-anthropic-oauth/index.ts",
 			"./extensions/pi-direnv/index.ts",
 			"./extensions/pi-nix-store-guard/index.ts",
@@ -42,7 +42,8 @@
 			"./extensions/pi-compact-ui/index.ts",
 			"./extensions/pi-browser/index.ts",
 			"./extensions/pi-flat-edit/index.ts",
-			"./extensions/pi-opencode-free-tier/index.ts"
+			"./extensions/pi-opencode-free-tier/index.ts",
+			"./extensions/pi-cd/index.ts"
 		],
 		"prompts": [
 			"./prompts"
@@ -53,11 +54,11 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.15",
-		"@earendil-works/pi-ai": "^1.2.0",
-		"@earendil-works/pi-coding-agent": "^1.2.0",
-		"@earendil-works/pi-tui": "^1.2.0",
+		"@earendil-works/pi-ai": "^1.3.0",
+		"@earendil-works/pi-coding-agent": "^1.3.0",
+		"@earendil-works/pi-tui": "^1.3.0",
 		"@types/node": "^26.6.5",
-		"typebox": "^1.3.37",
+		"typebox": "^1.4.1",
 		"typescript": "^7.0.2"
 	}
 }
