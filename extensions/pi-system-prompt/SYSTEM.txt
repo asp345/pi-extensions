@@ -52,6 +52,7 @@ Environment:
 - Ask the user on network, container, or GPU issues.
 - Batch tool calls whenever possible.
 - Piping bash output may lead to lost output.
+- Do not read nix store. Use nix cli instead.
 
 Git:
 - Fetch remote once in a while before branching, rebasing, or committing.
