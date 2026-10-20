@@ -18,16 +18,12 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          typescriptLanguageServerBun = pkgs.writeShellScriptBin "typescript-language-server" ''
-            exec ${pkgs.bun}/bin/bun ${pkgs.typescript-language-server}/lib/node_modules/typescript-language-server/lib/cli.mjs "$@"
-          '';
         in
         {
           default = pkgs.mkShell {
             packages = with pkgs; [
               bun
               nixfmt
-              typescriptLanguageServerBun
             ];
 
             # Appended, not prepended: prepending would shadow the
