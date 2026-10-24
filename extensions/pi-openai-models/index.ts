@@ -125,7 +125,7 @@ export default async function openaiModels(pi: ExtensionAPI): Promise<void> {
 								noMatch: (text) => theme.fg("warning", text),
 							});
 							const selected = tierItems.findIndex((item) => item.value === currentValue);
-							submenu.setSelectedIndex(selected < 0 ? 0 : selected);
+							submenu.setSelectedIndex(Math.max(selected, 0));
 							submenu.onSelect = (item) => close(item.value);
 							submenu.onCancel = () => close();
 							return submenu;
