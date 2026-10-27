@@ -1,4 +1,3 @@
-import { usesLongOAuthCache } from "@asp345/pi-anthropic-oauth/cache.ts";
 import { MessageLines } from "@asp345/pi-shared/ui.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { childMessageContent, type NoticeKind, noticeContent } from "./delegation.ts";
@@ -150,8 +149,8 @@ export default function subagents(pi: ExtensionAPI): void {
 		if (text) event.systemPromptOptions.sections[MODELS_SECTION] = text;
 	});
 
-	pi.on("cache_warming_decision", async (_event, ctx) => {
-		if (!manager.list().some((record) => record.running) || (await usesLongOAuthCache(ctx))) return;
+	pi.on("cache_warming_decision", () => {
+		if (!manager.list().some((record) => record.running)) return;
 		return { action: "warm" };
 	});
 

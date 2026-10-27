@@ -1,4 +1,3 @@
-import { usesLongOAuthCache } from "@asp345/pi-anthropic-oauth/cache.ts";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
@@ -58,8 +57,8 @@ export default function backgroundTasks(pi: ExtensionAPI): void {
 	pi.on("turn_end", deliverAtBoundary);
 	pi.on("agent_before_settle", deliverAtBoundary);
 	pi.on("agent_settled", (event) => ui.settle(event.aborted));
-	pi.on("cache_warming_decision", async (_event, ctx) => {
-		if (runtime.runningNotifiedTaskIds().length === 0 || (await usesLongOAuthCache(ctx))) return;
+	pi.on("cache_warming_decision", () => {
+		if (runtime.runningNotifiedTaskIds().length === 0) return;
 		return { action: "warm" };
 	});
 	pi.on("session_shutdown", (event) => {

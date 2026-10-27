@@ -14,33 +14,10 @@
         "typescript": "^7.0.2",
       },
     },
-    "extensions/pi-anthropic-oauth": {
-      "name": "@asp345/pi-anthropic-oauth",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
-    "extensions/pi-antigravity-auth": {
-      "name": "@asp345/pi-antigravity-auth",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
     "extensions/pi-background-tasks": {
       "name": "@asp345/pi-background-tasks",
       "version": "0.0.0",
       "dependencies": {
-        "@asp345/pi-anthropic-oauth": "0.0.0",
         "@asp345/pi-shared": "0.0.0",
       },
       "peerDependencies": {
@@ -89,37 +66,6 @@
         "@earendil-works/pi-tui": "*",
       },
     },
-    "extensions/pi-compaction": {
-      "name": "@asp345/pi-compaction",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
-    "extensions/pi-custom-providers": {
-      "name": "@asp345/pi-custom-providers",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
-    "extensions/pi-deepseek-search": {
-      "name": "@asp345/pi-deepseek-search",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-        "typebox": "*",
-      },
-    },
     "extensions/pi-direnv": {
       "name": "@asp345/pi-direnv",
       "version": "0.0.0",
@@ -133,20 +79,6 @@
       "peerDependencies": {
         "@earendil-works/pi-coding-agent": "*",
         "typebox": "*",
-      },
-    },
-    "extensions/pi-footer": {
-      "name": "@asp345/pi-footer",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-anthropic-oauth": "0.0.0",
-        "@asp345/pi-antigravity-auth": "0.0.0",
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
       },
     },
     "extensions/pi-goal": {
@@ -179,36 +111,6 @@
         "@earendil-works/pi-coding-agent": "*",
       },
     },
-    "extensions/pi-openai-models": {
-      "name": "@asp345/pi-openai-models",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-        "@earendil-works/pi-tui": "*",
-      },
-    },
-    "extensions/pi-opencode-free-tier": {
-      "name": "@asp345/pi-opencode-free-tier",
-      "version": "0.0.0",
-      "peerDependencies": {
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
-    "extensions/pi-openrouter-metadata": {
-      "name": "@asp345/pi-openrouter-metadata",
-      "version": "0.0.0",
-      "dependencies": {
-        "@asp345/pi-shared": "0.0.0",
-      },
-      "peerDependencies": {
-        "@earendil-works/pi-ai": "*",
-        "@earendil-works/pi-coding-agent": "*",
-      },
-    },
     "extensions/pi-sensitive-guard": {
       "name": "@asp345/pi-sensitive-guard",
       "version": "0.0.0",
@@ -223,7 +125,6 @@
       "name": "@asp345/pi-subagents",
       "version": "0.0.0",
       "dependencies": {
-        "@asp345/pi-anthropic-oauth": "0.0.0",
         "@asp345/pi-background-tasks": "0.0.0",
         "@asp345/pi-shared": "0.0.0",
       },
@@ -268,10 +169,6 @@
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.129.0", "", { "dependencies": { "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-MH7LB20kNpGLUpPTe2OG5XvL/KhX8HUO9XyBaFjgFk6TLS4Xjt0VPIuMKywe7POKKPslX+QxSlVok9e+8kG5Nw=="],
 
-    "@asp345/pi-anthropic-oauth": ["@asp345/pi-anthropic-oauth@workspace:extensions/pi-anthropic-oauth"],
-
-    "@asp345/pi-antigravity-auth": ["@asp345/pi-antigravity-auth@workspace:extensions/pi-antigravity-auth"],
-
     "@asp345/pi-background-tasks": ["@asp345/pi-background-tasks@workspace:extensions/pi-background-tasks"],
 
     "@asp345/pi-bash-diff": ["@asp345/pi-bash-diff@workspace:extensions/pi-bash-diff"],
@@ -282,29 +179,15 @@
 
     "@asp345/pi-compact-ui": ["@asp345/pi-compact-ui@workspace:extensions/pi-compact-ui"],
 
-    "@asp345/pi-compaction": ["@asp345/pi-compaction@workspace:extensions/pi-compaction"],
-
-    "@asp345/pi-custom-providers": ["@asp345/pi-custom-providers@workspace:extensions/pi-custom-providers"],
-
-    "@asp345/pi-deepseek-search": ["@asp345/pi-deepseek-search@workspace:extensions/pi-deepseek-search"],
-
     "@asp345/pi-direnv": ["@asp345/pi-direnv@workspace:extensions/pi-direnv"],
 
     "@asp345/pi-flat-edit": ["@asp345/pi-flat-edit@workspace:extensions/pi-flat-edit"],
-
-    "@asp345/pi-footer": ["@asp345/pi-footer@workspace:extensions/pi-footer"],
 
     "@asp345/pi-goal": ["@asp345/pi-goal@workspace:extensions/pi-goal"],
 
     "@asp345/pi-model-thinking": ["@asp345/pi-model-thinking@workspace:extensions/pi-model-thinking"],
 
     "@asp345/pi-nix-store-guard": ["@asp345/pi-nix-store-guard@workspace:extensions/pi-nix-store-guard"],
-
-    "@asp345/pi-openai-models": ["@asp345/pi-openai-models@workspace:extensions/pi-openai-models"],
-
-    "@asp345/pi-opencode-free-tier": ["@asp345/pi-opencode-free-tier@workspace:extensions/pi-opencode-free-tier"],
-
-    "@asp345/pi-openrouter-metadata": ["@asp345/pi-openrouter-metadata@workspace:extensions/pi-openrouter-metadata"],
 
     "@asp345/pi-sensitive-guard": ["@asp345/pi-sensitive-guard@workspace:extensions/pi-sensitive-guard"],
 
