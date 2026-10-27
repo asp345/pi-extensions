@@ -18,7 +18,7 @@ nix fmt
 Install the package from the GitHub repository after dependencies are available:
 
 ```bash
-pi install git:github.com/asp345/pi-config
+pi install git:github.com/asp345/pi-extensions
 ```
 
 Run an offline extension startup check with:
