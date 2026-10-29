@@ -94,6 +94,14 @@
         "typebox": "*",
       },
     },
+    "extensions/pi-magpie-search": {
+      "name": "@asp345/pi-magpie-search",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "extensions/pi-model-thinking": {
       "name": "@asp345/pi-model-thinking",
       "version": "0.0.0",
@@ -184,6 +192,8 @@
     "@asp345/pi-flat-edit": ["@asp345/pi-flat-edit@workspace:extensions/pi-flat-edit"],
 
     "@asp345/pi-goal": ["@asp345/pi-goal@workspace:extensions/pi-goal"],
+
+    "@asp345/pi-magpie-search": ["@asp345/pi-magpie-search@workspace:extensions/pi-magpie-search"],
 
     "@asp345/pi-model-thinking": ["@asp345/pi-model-thinking@workspace:extensions/pi-model-thinking"],
 

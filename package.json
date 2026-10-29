@@ -34,7 +34,8 @@
 			"./extensions/pi-compact-ui/index.ts",
 			"./extensions/pi-browser/index.ts",
 			"./extensions/pi-flat-edit/index.ts",
-			"./extensions/pi-cd/index.ts"
+			"./extensions/pi-cd/index.ts",
+			"./extensions/pi-magpie-search/index.ts"
 		],
 		"prompts": [
 			"./prompts"
