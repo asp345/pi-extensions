@@ -1,7 +1,7 @@
 {
-	"name": "@asp345/pi-custom-providers",
+	"name": "@asp345/pi-magpie-search",
 	"version": "0.0.0",
-	"description": "Custom provider management for pi",
+	"description": "Web search and fetch tools for pi powered by the Magpie gateway",
 	"license": "ISC",
 	"type": "module",
 	"main": "./index.ts",
@@ -20,11 +20,7 @@
 		]
 	},
 	"peerDependencies": {
-		"@earendil-works/pi-ai": "*",
 		"@earendil-works/pi-coding-agent": "*",
-		"@earendil-works/pi-tui": "*"
-	},
-	"dependencies": {
-		"@asp345/pi-shared": "0.0.0"
+		"typebox": "*"
 	}
 }

@@ -38,11 +38,11 @@ A subagent is running from `agent_start` until its session has settled and none 
 - `running`: an episode is active.
 - `inactive`: no open session. The session is closed when an episode ends, when the subagent is stopped, and on parent shutdown; records restored after a parent restart are inactive.
 
-Every change emits `pi-subagents:state` on `pi.events` with `{ runningAgentIds: string[] }`. `pi-goal` holds its continuation prompt while this list is not empty. While it is not empty, `cache_warming_decision` returns `{ "action": "warm" }` unless `pi-anthropic-oauth` uses a 1-hour OAuth cache.
+Every change emits `pi-subagents:state` on `pi.events` with `{ runningAgentIds: string[] }`. `pi-goal` holds its continuation prompt while this list is not empty. While it is not empty, `cache_warming_decision` returns `{ "action": "warm" }`.
 
 ## Sessions and persistence
 
-- The subagent session is created with `createAgentSessionServices` and `createAgentSessionFromServices` for the parent's cwd and project trust. It loads the same extensions, skills, and context files as the parent, so compaction (including `pi-compaction`) runs in the subagent as in the parent. Prompt templates and themes are not loaded.
+- The subagent session is created with `createAgentSessionServices` and `createAgentSessionFromServices` for the parent's cwd and project trust. It loads the same extensions, skills, and context files as the parent, so compaction runs in the subagent as in the parent. Prompt templates and themes are not loaded.
 - The extension that registers `launch_subagent` is removed from the subagent's extension set and replaced by an inline extension that provides the subagent `send_message`. `goal_complete` and `goal_blocked` are excluded.
 - Session files are written to `<parent session file without .jsonl>.subagents/`, with the parent session recorded as `parentSession`. They are not listed by `/resume`.
 - Each record (name, prompt, cwd, model, thinking level, session file, cost, last text, last error) is appended to the parent session as a `pi-subagent-state` custom entry. On `session_start` the latest entry per ID on the branch is restored as `inactive`.

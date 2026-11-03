@@ -1,7 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
+import { StringEnum } from "@asp345/pi-shared/schema.ts";
 import { type AgentToolResult, type ExtensionAPI, formatSize, truncateHead } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Browser, DEFAULT_TIMEOUT_MS, DOWNLOAD_DIR, type NetworkEntry, PROFILE_DIR, type Tab } from "./browser.ts";
