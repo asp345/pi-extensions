@@ -1,0 +1,8 @@
+import { type TUnsafe, Type } from "typebox";
+
+export function StringEnum<T extends readonly string[]>(
+	values: T,
+	options: { description?: string } = {},
+): TUnsafe<T[number]> {
+	return Type.Unsafe<T[number]>({ type: "string", enum: values, ...options });
+}

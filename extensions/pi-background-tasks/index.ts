@@ -1,4 +1,4 @@
-import { StringEnum } from "@earendil-works/pi-ai";
+import { StringEnum } from "@asp345/pi-shared/schema.ts";
 import type {
 	AgentToolResult,
 	BoundaryResult,
